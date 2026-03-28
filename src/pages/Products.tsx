@@ -99,12 +99,12 @@ const Products: React.FC = () => {
     if (product) {
       setEditingProduct(product);
       setFormData({
-        name: product.name,
-        description: product.description,
-        category: product.category,
-        productType: product.productType,
-        stock: product.stock,
-        basePrice: product.basePrice,
+        name: product.name || '',
+        description: product.description || '',
+        category: typeof product.category === 'object' && product.category !== null ? ((product.category as any)?._id || '') : (product.category || ''),
+        productType: product.productType || 'stocked',
+        stock: product.stock || 0,
+        basePrice: product.basePrice || 0,
         image: null,
       });
     } else {
@@ -223,12 +223,16 @@ const Products: React.FC = () => {
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-sm text-gray-600">{product.category}</td>
+                    <td className="px-6 py-4 text-sm text-gray-600">
+                      {typeof product.category === 'object' 
+                        ? (product.category?.name || product.category?._id || 'Unknown Category')
+                        : (product.category || 'Unknown Category')}
+                    </td>
                     <td className="px-6 py-4 text-sm">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                         product.productType === 'stocked' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
                       }`}>
-                        {product.productType.replace('_', ' ')}
+                        {product.productType ? String(product.productType).replace('_', ' ') : 'N/A'}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-center">

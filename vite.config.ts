@@ -19,6 +19,18 @@ export default defineConfig(({mode}) => {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
+      proxy: {
+        '/api/proxy': {
+          target: 'https://inkart-virid.vercel.app/api/v1',
+          changeOrigin: true,
+          rewrite: (path) => path.replace(/^\/api\/proxy/, ''),
+          configure: (proxy, options) => {
+            proxy.on('proxyReq', (proxyReq, req, res) => {
+              proxyReq.setHeader('User-Agent', 'InkArt-Admin-Panel/1.0');
+            });
+          }
+        }
+      }
     },
   };
 });

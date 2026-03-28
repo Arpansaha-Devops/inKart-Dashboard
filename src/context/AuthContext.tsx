@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import Cookies from 'js-cookie';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -17,11 +18,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    const storedToken = localStorage.getItem('token');
+    const storedUser = Cookies.get('user');
+    const storedToken = Cookies.get('token');
     if (storedUser && storedToken) {
-      setUser(JSON.parse(storedUser));
-      setToken(storedToken);
+      try {
+        setUser(JSON.parse(storedUser));
+        setToken(storedToken);
+      } catch (e) {
+        console.error('Failed to parse user from cookies', e);
+      }
     }
     setIsLoading(false);
   }, []);
@@ -29,17 +34,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = (userData: User, authToken: string, refreshToken: string) => {
     setUser(userData);
     setToken(authToken);
-    localStorage.setItem('user', JSON.stringify(userData));
-    localStorage.setItem('token', authToken);
-    localStorage.setItem('refreshToken', refreshToken);
+    
+    // Set cookies to expire in 7 days
+    Cookies.set('user', JSON.stringify(userData), { expires: 7 });
+    Cookies.set('token', authToken, { expires: 7 });
+    Cookies.set('refreshToken', refreshToken, { expires: 7 });
   };
 
   const logout = () => {
     setUser(null);
     setToken(null);
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
+    Cookies.remove('user');
+    Cookies.remove('token');
+    Cookies.remove('refreshToken');
   };
 
   return (
