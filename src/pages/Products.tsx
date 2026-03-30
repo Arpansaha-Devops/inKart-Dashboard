@@ -4,6 +4,7 @@ import { PaginatedResponse, Product } from '../types';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, X, Upload, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
+import CreateProductModal from '../components/CreateProductModal';
 
 const Products: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -12,6 +13,7 @@ const Products: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [stockProduct, setStockProduct] = useState<Product | null>(null);
   const limit = 10;
@@ -171,7 +173,7 @@ const Products: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <h2 className="text-2xl font-bold text-gray-900">Product Inventory</h2>
         <button
-          onClick={() => handleOpenModal()}
+          onClick={() => setIsCreateModalOpen(true)}
           className="btn-primary flex items-center gap-2 bg-accent"
         >
           <Plus size={20} /> Create Product
@@ -497,6 +499,13 @@ const Products: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Create Product Modal */}
+      <CreateProductModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={() => fetchProducts()}
+      />
     </div>
   );
 };

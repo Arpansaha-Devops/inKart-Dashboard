@@ -10,7 +10,6 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
-  config.headers['User-Agent'] = 'InkArt-Admin-Panel/1.0';
   return config;
 });
 
