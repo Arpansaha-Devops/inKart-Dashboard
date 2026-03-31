@@ -1,8 +1,10 @@
-import React, { useState, useRef } from 'react';
+
+import React, { useEffect, useRef, useState } from 'react';
 import { X, Upload, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { createProduct } from '../services/productService';
+import api from '../lib/api';
 
 interface CreateProductModalProps {
   isOpen: boolean;
@@ -11,29 +13,132 @@ interface CreateProductModalProps {
 }
 
 interface FormErrors {
+  name?: string;
+  price?: string;
   description?: string;
   category?: string;
   productType?: string;
   stock?: string;
+  images?: string;
   basePrice?: string;
-  image?: string;
+}
+
+interface CategoryLookupItem {
+  _id: string;
+  name: string;
 }
 
 const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  const [name, setName] = useState('');
+  const [price, setPrice] = useState<number>(0);
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [productType, setProductType] = useState<'stocked' | 'on_demand'>('stocked');
   const [stock, setStock] = useState<number>(0);
   const [basePrice, setBasePrice] = useState<number>(0);
-  const [image, setImage] = useState<File | null>(null);
+  const [images, setImages] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [knownCategories, setKnownCategories] = useState<CategoryLookupItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const categoryListId = 'known-category-names';
+
+  const isObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value.trim());
+
+  const extractCategoriesFromPayload = (payload: any): CategoryLookupItem[] => {
+    const items: CategoryLookupItem[] = [];
+    const visit = (node: any) => {
+      if (!node) return;
+      if (Array.isArray(node)) {
+        node.forEach(visit);
+        return;
+      }
+      if (typeof node !== 'object') return;
+
+      if (typeof node._id === 'string' && typeof node.name === 'string') {
+        items.push({ _id: node._id, name: node.name });
+      }
+
+      if (node.category && typeof node.category === 'object') {
+        if (typeof node.category._id === 'string' && typeof node.category.name === 'string') {
+          items.push({ _id: node.category._id, name: node.category.name });
+        }
+      }
+
+      Object.values(node).forEach(visit);
+    };
+
+    visit(payload);
+
+    const uniqueById = new Map<string, CategoryLookupItem>();
+    items.forEach((item) => {
+      if (item._id && item.name && !uniqueById.has(item._id)) {
+        uniqueById.set(item._id, item);
+      }
+    });
+    return Array.from(uniqueById.values());
+  };
+
+  const fetchKnownCategories = async () => {
+    const categoryEndpoints = ['/admin/categories', '/categories', '/categories/all'];
+    const aggregated: CategoryLookupItem[] = [];
+    try {
+      for (const endpoint of categoryEndpoints) {
+        try {
+          const response = await api.get(endpoint);
+          aggregated.push(...extractCategoriesFromPayload(response.data));
+        } catch {
+          // Try next endpoint variant.
+        }
+      }
+
+      if (aggregated.length === 0) {
+        const response = await api.get('/admin/products', {
+          params: { page: 1, limit: 200 },
+        });
+        aggregated.push(...extractCategoriesFromPayload(response.data));
+      }
+
+      const unique = new Map<string, CategoryLookupItem>();
+      aggregated.forEach((item) => {
+        if (!unique.has(item._id)) {
+          unique.set(item._id, item);
+        }
+      });
+
+      setKnownCategories(Array.from(unique.values()));
+    } catch {
+      setKnownCategories([]);
+    }
+  };
+
+  const resolveCategoryId = (input: string): string | null => {
+    const normalized = input.trim();
+    if (!normalized) return null;
+    if (isObjectId(normalized)) return normalized;
+
+    const match = knownCategories.find(
+      (entry) => entry.name.trim().toLowerCase() === normalized.toLowerCase(),
+    );
+    return match?._id ?? null;
+  };
+
+  useEffect(() => {
+    if (isOpen) {
+      fetchKnownCategories();
+    }
+  }, [isOpen]);
 
   const validate = (): boolean => {
     const newErrors: FormErrors = {};
 
+    if (!name.trim()) {
+      newErrors.name = 'Product name is required';
+    }
+    if (!price || price <= 0) {
+      newErrors.price = 'Price must be greater than 0';
+    }
     if (!description.trim()) {
       newErrors.description = 'Description is required';
     }
@@ -44,10 +149,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       newErrors.stock = 'Stock must be 0 or greater';
     }
     if (!basePrice || basePrice <= 0) {
-      newErrors.basePrice = 'Price must be greater than 0';
+      newErrors.basePrice = 'Base price must be greater than 0';
     }
-    if (!image) {
-      newErrors.image = 'Product image is required';
+    if (!images) {
+      newErrors.images = 'Product image is required';
     }
 
     setErrors(newErrors);
@@ -56,22 +161,28 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
   const handleImageChange = (file: File | null) => {
     if (file) {
+      if (!file.type.startsWith('image/')) {
+        setErrors(prev => ({ ...prev, images: 'Only JPG, PNG, and WebP files are allowed' }));
+        return;
+      }
       if (imagePreview) {
         URL.revokeObjectURL(imagePreview);
       }
-      setImage(file);
+      setImages(file);
       setImagePreview(URL.createObjectURL(file));
-      setErrors(prev => ({ ...prev, image: undefined }));
+      setErrors(prev => ({ ...prev, images: undefined }));
     }
   };
 
   const resetForm = () => {
+    setName('');
+    setPrice(0);
     setDescription('');
     setCategory('');
     setProductType('stocked');
     setStock(0);
     setBasePrice(0);
-    setImage(null);
+    setImages(null);
     if (imagePreview) {
       URL.revokeObjectURL(imagePreview);
     }
@@ -91,26 +202,52 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
     if (!validate()) return;
 
+    const resolvedCategoryId = resolveCategoryId(category);
+    if (!resolvedCategoryId) {
+      setErrors((prev) => ({
+        ...prev,
+        category:
+          'Category not recognized. Use an existing category name or paste its 24-character category ID.',
+      }));
+      return;
+    }
+
     setIsSubmitting(true);
 
+    const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error('Session expired. Please login again.');
+      localStorage.clear();
+      window.location.href = '/login';
+      setIsSubmitting(false);
+      return;
+    }
+
     const formData = new FormData();
+    formData.append('name', name);
+    formData.append('price', String(price));
     formData.append('description', description);
-    formData.append('category', category);
+    formData.append('category', resolvedCategoryId);
     formData.append('productType', productType);
     if (productType === 'stocked') {
       formData.append('stock', String(stock));
     }
+    formData.append('images', images!);
     formData.append('basePrice', String(basePrice));
-    formData.append('productImage', image!);
 
     try {
-      await createProduct(formData);
+      await createProduct(formData, token);
       toast.success('Product created successfully!');
       resetForm();
       onClose();
       onSuccess();
     } catch (error: any) {
       const message = error.response?.data?.message || 'Failed to create product';
+      if (error.response?.status === 401) {
+        localStorage.clear();
+        window.location.href = '/login';
+        return;
+      }
       toast.error(message);
     } finally {
       setIsSubmitting(false);
@@ -142,7 +279,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
             className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden"
           >
             <form onSubmit={handleSubmit}>
-              {/* Header */}
               <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-primary text-white">
                 <h3 className="text-xl font-bold">Create New Product</h3>
                 <button
@@ -155,9 +291,79 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </button>
               </div>
 
-              {/* Form Body */}
               <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
-                {/* Description */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Product Name <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    disabled={isSubmitting}
+                    className={`input-field ${errors.name ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    placeholder="Enter product name..."
+                    value={name}
+                    onChange={(e) => {
+                      setName(e.target.value);
+                      if (errors.name) setErrors(prev => ({ ...prev, name: undefined }));
+                    }}
+                  />
+                  {errors.name && (
+                    <p className="text-red-500 text-xs mt-1">{errors.name}</p>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Price <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">{'\u20B9'}</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        disabled={isSubmitting}
+                        className={`input-field pl-8 ${errors.price ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        placeholder="0.00"
+                        value={price || ''}
+                        onChange={(e) => {
+                          setPrice(parseFloat(e.target.value) || 0);
+                          if (errors.price) setErrors(prev => ({ ...prev, price: undefined }));
+                        }}
+                      />
+                    </div>
+                    {errors.price && (
+                      <p className="text-red-500 text-xs mt-1">{errors.price}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Base Price <span className="text-red-500">*</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">{'\u20B9'}</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        disabled={isSubmitting}
+                        className={`input-field pl-8 ${errors.basePrice ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        placeholder="0.00"
+                        value={basePrice || ''}
+                        onChange={(e) => {
+                          setBasePrice(parseFloat(e.target.value) || 0);
+                          if (errors.basePrice) setErrors(prev => ({ ...prev, basePrice: undefined }));
+                        }}
+                      />
+                    </div>
+                    {errors.basePrice && (
+                      <p className="text-red-500 text-xs mt-1">{errors.basePrice}</p>
+                    )}
+                  </div>
+                </div>
+
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Description <span className="text-red-500">*</span>
@@ -178,28 +384,32 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   )}
                 </div>
 
-                {/* Category */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Category <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
+                    list={categoryListId}
                     disabled={isSubmitting}
                     className={`input-field ${errors.category ? 'border-red-500 focus:ring-red-500' : ''}`}
-                    placeholder="e.g. Business Cards, Stickers..."
+                    placeholder="Type existing category name (or paste category ID)"
                     value={category}
                     onChange={(e) => {
                       setCategory(e.target.value);
                       if (errors.category) setErrors(prev => ({ ...prev, category: undefined }));
                     }}
                   />
+                  <datalist id={categoryListId}>
+                    {knownCategories.map((entry) => (
+                      <option key={entry._id} value={entry.name} />
+                    ))}
+                  </datalist>
                   {errors.category && (
                     <p className="text-red-500 text-xs mt-1">{errors.category}</p>
                   )}
                 </div>
 
-                {/* Product Type & Stock */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -211,6 +421,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       value={productType}
                       onChange={(e) => {
                         setProductType(e.target.value as 'stocked' | 'on_demand');
+                        if (e.target.value === 'on_demand') {
+                          setErrors(prev => ({ ...prev, stock: undefined }));
+                        }
                       }}
                     >
                       <option value="stocked">Stocked</option>
@@ -230,7 +443,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                         className={`input-field ${errors.stock ? 'border-red-500 focus:ring-red-500' : ''}`}
                         value={stock}
                         onChange={(e) => {
-                          setStock(parseInt(e.target.value) || 0);
+                          setStock(parseInt(e.target.value, 10) || 0);
                           if (errors.stock) setErrors(prev => ({ ...prev, stock: undefined }));
                         }}
                       />
@@ -241,33 +454,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   )}
                 </div>
 
-                {/* Base Price */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Base Price <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">₹</span>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0.01"
-                      disabled={isSubmitting}
-                      className={`input-field pl-8 ${errors.basePrice ? 'border-red-500 focus:ring-red-500' : ''}`}
-                      placeholder="0.00"
-                      value={basePrice || ''}
-                      onChange={(e) => {
-                        setBasePrice(parseFloat(e.target.value) || 0);
-                        if (errors.basePrice) setErrors(prev => ({ ...prev, basePrice: undefined }));
-                      }}
-                    />
-                  </div>
-                  {errors.basePrice && (
-                    <p className="text-red-500 text-xs mt-1">{errors.basePrice}</p>
-                  )}
-                </div>
-
-                {/* Image Upload */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
                     Product Image <span className="text-red-500">*</span>
@@ -277,9 +463,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                     onDrop={handleDrop}
                     onClick={() => !isSubmitting && fileInputRef.current?.click()}
                     className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
-                      errors.image
-                        ? 'border-red-400 bg-red-50'
-                        : 'border-gray-200 hover:border-accent'
+                      errors.images ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-accent'
                     } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <input
@@ -297,7 +481,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                           alt="Preview"
                           className="mx-auto max-h-40 rounded-lg object-contain"
                         />
-                        <p className="text-sm text-gray-500">{image?.name}</p>
+                        <p className="text-sm text-gray-500">{images?.name}</p>
                         <p className="text-xs text-accent">Click or drag to replace</p>
                       </div>
                     ) : (
@@ -308,13 +492,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       </>
                     )}
                   </div>
-                  {errors.image && (
-                    <p className="text-red-500 text-xs mt-1">{errors.image}</p>
+                  {errors.images && (
+                    <p className="text-red-500 text-xs mt-1">{errors.images}</p>
                   )}
                 </div>
               </div>
 
-              {/* Footer */}
               <div className="p-6 bg-gray-50 flex justify-end gap-3">
                 <button
                   type="button"

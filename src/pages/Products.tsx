@@ -11,12 +11,91 @@ const Products: React.FC = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
+  const [categoryNameById, setCategoryNameById] = useState<Record<string, string>>({});
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [stockProduct, setStockProduct] = useState<Product | null>(null);
   const limit = 10;
+
+  const extractCategoriesFromPayload = (payload: any): Record<string, string> => {
+    const byId: Record<string, string> = {};
+    const visit = (node: any) => {
+      if (!node) return;
+      if (Array.isArray(node)) {
+        node.forEach(visit);
+        return;
+      }
+      if (typeof node !== 'object') return;
+
+      if (typeof node._id === 'string' && typeof node.name === 'string') {
+        byId[node._id] = node.name;
+      }
+      if (node.category && typeof node.category === 'object') {
+        if (typeof node.category._id === 'string' && typeof node.category.name === 'string') {
+          byId[node.category._id] = node.category.name;
+        }
+      }
+
+      Object.values(node).forEach(visit);
+    };
+    visit(payload);
+    return byId;
+  };
+
+  const getProductImageUrl = (product: any): string => {
+    const directCandidates = [product?.image, product?.imageUrl, product?.thumbnail, product?.thumbnailUrl];
+    for (const candidate of directCandidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        return candidate;
+      }
+    }
+
+    const arrayCandidates = [product?.images, product?.imageUrls, product?.productImages];
+    for (const candidate of arrayCandidates) {
+      if (Array.isArray(candidate) && candidate.length > 0) {
+        const first = candidate[0];
+        if (typeof first === 'string' && first.trim()) {
+          return first;
+        }
+        if (first && typeof first === 'object') {
+          const nested = first.url || first.secure_url || first.path || first.image || first.src;
+          if (typeof nested === 'string' && nested.trim()) {
+            return nested;
+          }
+        }
+      }
+    }
+
+    return 'https://picsum.photos/seed/product/100/100';
+  };
+
+  const getCategoryLabel = (product: any): string => {
+    if (product?.category && typeof product.category === 'object') {
+      return product.category.name || product.category._id || 'Unknown Category';
+    }
+    if (typeof product?.category === 'string') {
+      return categoryNameById[product.category] || product.category;
+    }
+    return 'Unknown Category';
+  };
+
+  const fetchCategoryLookup = async () => {
+    const endpoints = ['/admin/categories', '/categories', '/categories/all'];
+    const merged: Record<string, string> = {};
+    for (const endpoint of endpoints) {
+      try {
+        const response = await api.get(endpoint);
+        Object.assign(merged, extractCategoriesFromPayload(response.data));
+      } catch {
+        // Try next endpoint variant.
+      }
+    }
+    if (Object.keys(merged).length > 0) {
+      setCategoryNameById(prev => ({ ...prev, ...merged }));
+    }
+  };
 
   // Form states
   const [formData, setFormData] = useState({
@@ -83,8 +162,20 @@ const Products: React.FC = () => {
         count = findCount(response.data) ?? productsList.length;
       }
 
+      const mappedCategories: Record<string, string> = {};
+      productsList.forEach((product: any) => {
+        if (product?.category && typeof product.category === 'object') {
+          if (typeof product.category._id === 'string' && typeof product.category.name === 'string') {
+            mappedCategories[product.category._id] = product.category.name;
+          }
+        }
+      });
+
       setProducts(productsList);
       setTotalCount(count);
+      if (Object.keys(mappedCategories).length > 0) {
+        setCategoryNameById(prev => ({ ...prev, ...mappedCategories }));
+      }
     } catch (error) {
       console.error('Error fetching products', error);
       toast.error('Failed to load products');
@@ -96,6 +187,10 @@ const Products: React.FC = () => {
   useEffect(() => {
     fetchProducts();
   }, [page]);
+
+  useEffect(() => {
+    fetchCategoryLookup();
+  }, []);
 
   const handleOpenModal = (product?: Product) => {
     if (product) {
@@ -214,9 +309,9 @@ const Products: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
                         <img
-                          src={product.image || 'https://picsum.photos/seed/product/100/100'}
+                          src={getProductImageUrl(product)}
                           alt={product.name}
-                          className="w-12 h-12 rounded-lg object-cover bg-gray-100"
+                          className="w-14 h-14 rounded-lg object-contain bg-gray-100 p-1"
                           referrerPolicy="no-referrer"
                         />
                         <div>
@@ -226,9 +321,7 @@ const Products: React.FC = () => {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-600">
-                      {typeof product.category === 'object' 
-                        ? (product.category?.name || product.category?._id || 'Unknown Category')
-                        : (product.category || 'Unknown Category')}
+                      {getCategoryLabel(product)}
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${

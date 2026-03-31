@@ -18,8 +18,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const storedUser = Cookies.get('user');
-    const storedToken = Cookies.get('token');
+    const storedUser = Cookies.get('user') || localStorage.getItem('user');
+    const storedToken = Cookies.get('token') || localStorage.getItem('token');
     if (storedUser && storedToken) {
       try {
         setUser(JSON.parse(storedUser));
@@ -39,6 +39,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     Cookies.set('user', JSON.stringify(userData), { expires: 7 });
     Cookies.set('token', authToken, { expires: 7 });
     Cookies.set('refreshToken', refreshToken, { expires: 7 });
+    localStorage.setItem('user', JSON.stringify(userData));
+    localStorage.setItem('token', authToken);
+    localStorage.setItem('refreshToken', refreshToken);
   };
 
   const logout = () => {
@@ -47,6 +50,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     Cookies.remove('user');
     Cookies.remove('token');
     Cookies.remove('refreshToken');
+    localStorage.removeItem('user');
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
   };
 
   return (
