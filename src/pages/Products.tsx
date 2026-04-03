@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import api from '../lib/api';
+import apiClient from '../lib/apiClient';
 import { PaginatedResponse, Product } from '../types';
 import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, X, Upload, Package } from 'lucide-react';
 import { toast } from 'sonner';
@@ -86,7 +86,7 @@ const Products: React.FC = () => {
     const merged: Record<string, string> = {};
     for (const endpoint of endpoints) {
       try {
-        const response = await api.get(endpoint);
+        const response = await apiClient.get(endpoint);
         Object.assign(merged, extractCategoriesFromPayload(response.data));
       } catch {
         // Try next endpoint variant.
@@ -116,10 +116,9 @@ const Products: React.FC = () => {
   const fetchProducts = async () => {
     setIsLoading(true);
     try {
-      const response = await api.get<any>('/admin/products', {
+      const response = await apiClient.get<any>('/admin/products', {
         params: { page, limit }
       });
-      console.log('Products response raw:', response.data);
       
       let productsList: Product[] = [];
       let count = 0;
@@ -234,10 +233,10 @@ const Products: React.FC = () => {
 
     try {
       if (editingProduct) {
-        await api.patch(`/admin/products/${editingProduct._id}`, data);
+        await apiClient.patch(`/admin/products/${editingProduct._id}`, data);
         toast.success('Product updated successfully');
       } else {
-        await api.post('/admin/products', data);
+        await apiClient.post('/admin/products', data);
         toast.success('Product created successfully');
       }
       setIsModalOpen(false);
@@ -252,7 +251,7 @@ const Products: React.FC = () => {
     if (!stockProduct) return;
 
     try {
-      await api.patch(`/admin/products/${stockProduct._id}/stock`, stockData);
+      await apiClient.patch(`/admin/products/${stockProduct._id}/stock`, stockData);
       toast.success('Stock updated successfully');
       setIsStockModalOpen(false);
       fetchProducts();
