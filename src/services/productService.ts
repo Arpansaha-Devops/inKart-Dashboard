@@ -6,7 +6,7 @@ import apiClient from '../lib/apiClient';
 
 /**
  * Create a new product.
- * @param formData – multipart/form-data (name, description, category, productType, stock, basePrice, images)
+ * @param formData – multipart/form-data fields: Description, category, productType, stock, image, basePrice
  */
 export const createProduct = async (formData: FormData) => {
   return apiClient.post('/admin/products', formData);
@@ -48,7 +48,6 @@ export const fetchCategories = async () => {
       const response = await apiClient.get(endpoint);
       return response.data;
     } catch (error: any) {
-      // Only try next endpoint on 404; rethrow other errors
       if (error?.response?.status !== 404) {
         throw error;
       }

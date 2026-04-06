@@ -34,7 +34,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = (userData: User, authToken: string, refreshToken: string) => {
     setUser(userData);
     setToken(authToken);
-    
+
     // Set cookies to expire in 7 days
     Cookies.set('user', JSON.stringify(userData), { expires: 7 });
     Cookies.set('token', authToken, { expires: 7 });

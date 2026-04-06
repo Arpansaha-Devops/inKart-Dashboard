@@ -8,10 +8,10 @@
  */
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-//  Admin credentials (server-managed, not user-facing) 
+//  Admin credentials (server-managed, not user-facing)
 const TOKEN_STORAGE_KEY = 'inkart_admin_token';
 
-//  In-memory token cache 
+//  In-memory token cache
 let memoryToken: string | null = null;
 let isRefreshing = false;
 let failedQueue: Array<{
@@ -30,12 +30,12 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
-// Axios instance 
+// Axios instance
 const apiClient = axios.create({
-  baseURL: '/api/proxy',
+  baseURL: import.meta.env.VITE_API_BASE_URL,
 });
 
-// Token helpers 
+// Token helpers
 const getToken = (): string | null => {
   if (memoryToken) return memoryToken;
   if (typeof window === 'undefined') return null;
@@ -85,7 +85,7 @@ const authenticate = async (): Promise<string> => {
   }
 };
 
-//  Request interceptor — attach token (auto-login if missing) ─
+//  Request interceptor — attach token (auto-login if missing)
 apiClient.interceptors.request.use(async (config) => {
   let token = getToken();
   if (!token) {
@@ -95,7 +95,7 @@ apiClient.interceptors.request.use(async (config) => {
   return config;
 });
 
-//  Response interceptor — 401 silent retry 
+//  Response interceptor — 401 silent retry
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {

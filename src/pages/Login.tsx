@@ -21,9 +21,10 @@ const Login: React.FC = () => {
       console.log('Attempting login for:', email);
       const response = await api.post<AuthResponse>('/auth/login', { email, password });
       console.log('Login response:', response.data);
-      
-      const { data, user: directUser, token, refreshToken } = response.data;
-      const finalUser = directUser || data?.user;
+
+      // API returns: { success, token, refreshToken, data: { user } }
+      const { data, token, refreshToken } = response.data;
+      const finalUser = data?.user;
 
       if (!finalUser) {
         throw new Error('User data not found in response');
@@ -39,7 +40,10 @@ const Login: React.FC = () => {
       navigate('/dashboard');
     } catch (error: any) {
       console.error('Login error details:', error);
-      const message = error.response?.data?.message || error.message || 'Login failed. Please check your credentials.';
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        'Login failed. Please check your credentials.';
       toast.error(message);
     } finally {
       setIsLoading(false);
@@ -90,18 +94,12 @@ const Login: React.FC = () => {
             disabled={isLoading}
             className="w-full btn-primary flex items-center justify-center gap-2 h-11"
           >
-            {isLoading ? (
-              <Loader2 className="animate-spin" size={20} />
-            ) : (
-              'Sign In'
-            )}
+            {isLoading ? <Loader2 className="animate-spin" size={20} /> : 'Sign In'}
           </button>
         </form>
 
         <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-          <p className="text-xs text-gray-400">
-            © 2026 InkArt. All rights reserved.
-          </p>
+          <p className="text-xs text-gray-400">© 2026 InkArt. All rights reserved.</p>
         </div>
       </div>
     </div>

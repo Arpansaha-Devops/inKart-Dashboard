@@ -236,11 +236,11 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (productType === 'stocked') {
       formData.append('stock', String(stock));
     }
-    formData.append('images', images!);
+   formData.append('image', images!);
     formData.append('basePrice', String(basePrice));
 
     try {
-      await createProduct(formData, token);
+      await createProduct(formData);
       toast.success('Product created successfully!');
       resetForm();
       onClose();
