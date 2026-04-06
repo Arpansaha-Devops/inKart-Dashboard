@@ -11,7 +11,7 @@ import Products from './pages/Products';
 export default function App() {
   return (
     <AuthProvider>
-      <Router basename="/inkarts-admin"> {/* 👈 IMPORTANT */}
+      <Router  basename="/inkarts-admin" > 
         <Routes>
           <Route path="/login" element={<Login />} />
 
