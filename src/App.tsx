@@ -11,10 +11,10 @@ import Products from './pages/Products';
 export default function App() {
   return (
     <AuthProvider>
-      <Router>
+      <Router basename="/inkarts-admin"> {/* 👈 IMPORTANT */}
         <Routes>
           <Route path="/login" element={<Login />} />
-          
+
           <Route element={<PrivateRoute />}>
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<Dashboard />} />
@@ -27,6 +27,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Router>
+
       <Toaster position="top-right" richColors closeButton />
     </AuthProvider>
   );
