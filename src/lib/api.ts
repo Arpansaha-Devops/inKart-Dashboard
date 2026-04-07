@@ -2,7 +2,7 @@ import axios from "axios";
 import Cookies from "js-cookie";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "https://inkart-virid.vercel.app/api/v1",
+  baseURL: "https://inkart-virid.vercel.app/api/v1",
 });
 
 api.interceptors.request.use((config) => {
