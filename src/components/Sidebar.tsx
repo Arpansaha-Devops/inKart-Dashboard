@@ -62,7 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
         initial={false}
         animate={{ x: isOpen ? 0 : -256 }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="w-64 bg-primary text-white h-screen flex flex-col fixed left-0 top-0 z-40 lg:z-40 lg:translate-x-0"
+        className="w-64 bg-primary text-white h-screen flex flex-col fixed left-0 top-0 z-40 lg:relative lg:left-auto lg:top-auto"
       >
         <div className="p-4 sm:p-5 md:p-6 border-b border-white/10 flex items-center justify-between">
           <div className="flex-1">

@@ -280,9 +280,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[95vh] flex flex-col"
           >
-            <form onSubmit={handleSubmit} className="flex flex-col h-full">
+            <form onSubmit={handleSubmit} className="flex flex-col min-h-0">
               <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-primary text-white flex-shrink-0">
                 <h3 className="text-base sm:text-xl font-bold truncate">Create New Product</h3>
                 <button
@@ -296,7 +296,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </button>
               </div>
 
-              <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 overflow-y-auto flex-1">
+              <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto flex-1 min-h-0">
                 <div>
                   <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                     Product Name <span className="text-red-500">*</span>
@@ -317,7 +317,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <div>
                     <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                       Price <span className="text-red-500">*</span>
@@ -415,7 +415,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   <div>
                     <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                       Product Type <span className="text-red-500">*</span>
@@ -467,9 +467,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}
                     onClick={() => !isSubmitting && fileInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all cursor-pointer ${
+                    className={`border-2 border-dashed rounded-xl p-4 sm:p-6 text-center transition-all cursor-pointer ${
                       errors.images ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-accent'
-                    } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''} min-h-[150px] sm:min-h-[200px] flex flex-col items-center justify-center`}
+                    } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''} min-h-[120px] sm:min-h-[150px] flex flex-col items-center justify-center`}
                   >
                     <input
                       ref={fileInputRef}
@@ -480,18 +480,18 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       onChange={(e) => handleImageChange(e.target.files?.[0] || null)}
                     />
                     {imagePreview ? (
-                      <div className="space-y-2 sm:space-y-3 w-full">
+                      <div className="space-y-1 sm:space-y-2 w-full">
                         <img
                           src={imagePreview}
                           alt="Preview"
-                          className="mx-auto max-h-32 sm:max-h-40 rounded-lg object-contain"
+                          className="mx-auto max-h-24 sm:max-h-32 rounded-lg object-contain"
                         />
                         <p className="text-xs sm:text-sm text-gray-500 truncate">{images?.name}</p>
                         <p className="text-xs text-accent">Click or drag to replace</p>
                       </div>
                     ) : (
                       <>
-                        <Upload className="text-gray-400 mb-2 flex-shrink-0 w-6 h-6 sm:w-8 sm:h-8" />
+                        <Upload className="text-gray-400 mb-2 flex-shrink-0 w-5 h-5 sm:w-6 sm:h-6" />
                         <p className="text-xs sm:text-sm text-gray-500">Click or drag image to upload</p>
                         <p className="text-xs text-gray-400 mt-1">JPG, PNG, or WebP</p>
                       </>
@@ -503,23 +503,23 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
               </div>
 
-              <div className="p-4 sm:p-6 bg-gray-50 flex justify-end gap-2 sm:gap-3 flex-shrink-0 border-t border-gray-100">
+              <div className="p-3 sm:p-4 bg-gray-50 flex justify-end gap-2 flex-shrink-0 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={handleClose}
                   disabled={isSubmitting}
-                  className="px-4 py-2.5 sm:py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-sm sm:text-base disabled:opacity-50 min-h-[44px] sm:min-h-auto"
+                  className="px-3 sm:px-4 py-2 sm:py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-xs sm:text-sm disabled:opacity-50 min-h-[40px] sm:min-h-auto"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-6 py-2.5 sm:py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium flex items-center gap-2 text-sm sm:text-base disabled:opacity-50 min-h-[44px] sm:min-h-auto"
+                  className="px-4 sm:px-6 py-2 sm:py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium flex items-center gap-1 sm:gap-2 text-xs sm:text-sm disabled:opacity-50 min-h-[40px] sm:min-h-auto"
                 >
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="animate-spin flex-shrink-0" size={18} />
+                      <Loader2 className="animate-spin flex-shrink-0" size={16} />
                       <span className="hidden sm:inline">Creating...</span>
                     </>
                   ) : (
