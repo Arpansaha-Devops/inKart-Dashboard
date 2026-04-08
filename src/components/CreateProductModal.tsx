@@ -275,35 +275,36 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   return (
     <AnimatePresence>
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden"
+            className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col"
           >
-            <form onSubmit={handleSubmit}>
-              <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-primary text-white">
-                <h3 className="text-xl font-bold">Create New Product</h3>
+            <form onSubmit={handleSubmit} className="flex flex-col h-full">
+              <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-primary text-white flex-shrink-0">
+                <h3 className="text-base sm:text-xl font-bold truncate">Create New Product</h3>
                 <button
                   type="button"
                   onClick={handleClose}
                   disabled={isSubmitting}
-                  className="p-1 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50"
+                  className="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50 flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
+                  aria-label="Close modal"
                 >
-                  <X size={24} />
+                  <X size={20} />
                 </button>
               </div>
 
-              <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
+              <div className="p-4 sm:p-8 space-y-4 sm:space-y-6 overflow-y-auto flex-1">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                     Product Name <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     disabled={isSubmitting}
-                    className={`input-field ${errors.name ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    className={`input-field text-base sm:text-sm ${errors.name ? 'border-red-500 focus:ring-red-500' : ''}`}
                     placeholder="Enter product name..."
                     value={name}
                     onChange={(e) => {
@@ -316,19 +317,19 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                       Price <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">{'\u20B9'}</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium text-sm">{'\u20B9'}</span>
                       <input
                         type="number"
                         step="0.01"
                         min="0.01"
                         disabled={isSubmitting}
-                        className={`input-field pl-8 ${errors.price ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        className={`input-field pl-8 text-base sm:text-sm ${errors.price ? 'border-red-500 focus:ring-red-500' : ''}`}
                         placeholder="0.00"
                         value={price || ''}
                         onChange={(e) => {
@@ -343,17 +344,17 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                       Base Price <span className="text-red-500">*</span>
                     </label>
                     <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium">{'\u20B9'}</span>
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium text-sm">{'\u20B9'}</span>
                       <input
                         type="number"
                         step="0.01"
                         min="0.01"
                         disabled={isSubmitting}
-                        className={`input-field pl-8 ${errors.basePrice ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        className={`input-field pl-8 text-base sm:text-sm ${errors.basePrice ? 'border-red-500 focus:ring-red-500' : ''}`}
                         placeholder="0.00"
                         value={basePrice || ''}
                         onChange={(e) => {
@@ -369,13 +370,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                     Description <span className="text-red-500">*</span>
                   </label>
                   <textarea
                     rows={3}
                     disabled={isSubmitting}
-                    className={`input-field ${errors.description ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    className={`input-field text-base sm:text-sm ${errors.description ? 'border-red-500 focus:ring-red-500' : ''}`}
                     placeholder="Enter product description..."
                     value={description}
                     onChange={(e) => {
@@ -389,14 +390,14 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                     Category <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     list={categoryListId}
                     disabled={isSubmitting}
-                    className={`input-field ${errors.category ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    className={`input-field text-base sm:text-sm ${errors.category ? 'border-red-500 focus:ring-red-500' : ''}`}
                     placeholder="Type existing category name (or paste category ID)"
                     value={category}
                     onChange={(e) => {
@@ -414,14 +415,14 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   )}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-6">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                       Product Type <span className="text-red-500">*</span>
                     </label>
                     <select
                       disabled={isSubmitting}
-                      className="input-field"
+                      className="input-field text-base sm:text-sm"
                       value={productType}
                       onChange={(e) => {
                         setProductType(e.target.value as 'stocked' | 'on_demand');
@@ -436,7 +437,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
                   {productType === 'stocked' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                         Stock Quantity <span className="text-red-500">*</span>
                       </label>
                       <input
@@ -444,7 +445,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                         min="0"
                         disabled={isSubmitting}
                         placeholder="0"
-                        className={`input-field ${errors.stock ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        className={`input-field text-base sm:text-sm ${errors.stock ? 'border-red-500 focus:ring-red-500' : ''}`}
                         value={stock}
                         onChange={(e) => {
                           setStock(parseInt(e.target.value, 10) || 0);
@@ -459,16 +460,16 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
                     Product Image <span className="text-red-500">*</span>
                   </label>
                   <div
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}
                     onClick={() => !isSubmitting && fileInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-xl p-8 text-center transition-all cursor-pointer ${
+                    className={`border-2 border-dashed rounded-xl p-6 sm:p-8 text-center transition-all cursor-pointer ${
                       errors.images ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-accent'
-                    } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''} min-h-[150px] sm:min-h-[200px] flex flex-col items-center justify-center`}
                   >
                     <input
                       ref={fileInputRef}
@@ -479,19 +480,19 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       onChange={(e) => handleImageChange(e.target.files?.[0] || null)}
                     />
                     {imagePreview ? (
-                      <div className="space-y-3">
+                      <div className="space-y-2 sm:space-y-3 w-full">
                         <img
                           src={imagePreview}
                           alt="Preview"
-                          className="mx-auto max-h-40 rounded-lg object-contain"
+                          className="mx-auto max-h-32 sm:max-h-40 rounded-lg object-contain"
                         />
-                        <p className="text-sm text-gray-500">{images?.name}</p>
+                        <p className="text-xs sm:text-sm text-gray-500 truncate">{images?.name}</p>
                         <p className="text-xs text-accent">Click or drag to replace</p>
                       </div>
                     ) : (
                       <>
-                        <Upload className="mx-auto text-gray-400 mb-2" size={32} />
-                        <p className="text-sm text-gray-500">Click or drag image to upload</p>
+                        <Upload className="text-gray-400 mb-2 flex-shrink-0 w-6 h-6 sm:w-8 sm:h-8" />
+                        <p className="text-xs sm:text-sm text-gray-500">Click or drag image to upload</p>
                         <p className="text-xs text-gray-400 mt-1">JPG, PNG, or WebP</p>
                       </>
                     )}
@@ -502,24 +503,24 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
               </div>
 
-              <div className="p-6 bg-gray-50 flex justify-end gap-3">
+              <div className="p-4 sm:p-6 bg-gray-50 flex justify-end gap-2 sm:gap-3 flex-shrink-0 border-t border-gray-100">
                 <button
                   type="button"
                   onClick={handleClose}
                   disabled={isSubmitting}
-                  className="px-6 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium disabled:opacity-50"
+                  className="px-4 py-2.5 sm:py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-sm sm:text-base disabled:opacity-50 min-h-[44px] sm:min-h-auto"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmitting}
-                  className="px-6 py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium flex items-center gap-2 disabled:opacity-50"
+                  className="px-6 py-2.5 sm:py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium flex items-center gap-2 text-sm sm:text-base disabled:opacity-50 min-h-[44px] sm:min-h-auto"
                 >
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="animate-spin" size={18} />
-                      Creating...
+                      <Loader2 className="animate-spin flex-shrink-0" size={18} />
+                      <span className="hidden sm:inline">Creating...</span>
                     </>
                   ) : (
                     'Create Product'

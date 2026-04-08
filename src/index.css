@@ -11,16 +11,55 @@
   body {
     @apply bg-gray-50 text-gray-900 font-sans;
   }
+
+  /* Ensure 16px font size on input to prevent iOS zoom */
+  input,
+  textarea,
+  select {
+    @apply text-base sm:text-sm;
+  }
+
+  /* Scrollbar styling for tables */
+  .scrollbar-thin::-webkit-scrollbar {
+    @apply h-1.5;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    @apply bg-gray-100;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply bg-gray-300 rounded-full hover:bg-gray-400;
+  }
 }
 
 @layer components {
   .btn-primary {
-    @apply bg-primary text-white px-4 py-2 rounded-lg hover:opacity-90 transition-all disabled:opacity-50;
+    @apply bg-primary text-white px-4 py-2 rounded-lg hover:opacity-90 transition-all disabled:opacity-50 font-medium;
   }
+
   .input-field {
-    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent outline-none transition-all;
+    @apply w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-accent focus:border-transparent outline-none transition-all text-gray-900;
   }
+
   .card {
     @apply bg-white p-6 rounded-xl shadow-sm border border-gray-100;
   }
+
+  /* Responsive utilities */
+  .xs\:block {
+    @apply hidden;
+  }
+
+  @media (min-width: 375px) {
+    .xs\:block {
+      @apply block;
+    }
+  }
+}
+
+/* Ensure no horizontal scroll at any breakpoint */
+html,
+body {
+  @apply overflow-x-hidden;
 }

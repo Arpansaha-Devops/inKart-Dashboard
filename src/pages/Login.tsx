@@ -51,22 +51,22 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 p-4">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 border border-gray-100">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4">
+      <div className="w-full max-w-md bg-white rounded-lg sm:rounded-2xl shadow-lg sm:shadow-xl p-6 sm:p-8 border border-gray-100">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary tracking-tighter mb-2">InkArt</h1>
-          <p className="text-gray-500">Admin Management Portal</p>
+          <h1 className="text-3xl sm:text-4xl font-bold text-primary tracking-tighter mb-2">InkArt</h1>
+          <p className="text-sm sm:text-base text-gray-500">Admin Management Portal</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5 sm:mb-2">Email Address</label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5" />
               <input
                 type="email"
                 required
-                className="input-field pl-10"
+                className="input-field pl-10 text-base sm:text-sm min-h-[44px] sm:min-h-auto"
                 placeholder="admin@inkart.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -75,13 +75,13 @@ const Login: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5 sm:mb-2">Password</label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5" />
               <input
                 type="password"
                 required
-                className="input-field pl-10"
+                className="input-field pl-10 text-base sm:text-sm min-h-[44px] sm:min-h-auto"
                 placeholder="••••••••"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -92,7 +92,7 @@ const Login: React.FC = () => {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full btn-primary flex items-center justify-center gap-2 h-11"
+            className="w-full btn-primary flex items-center justify-center gap-2 min-h-[44px] sm:min-h-[44px] sm:py-2 text-sm sm:text-base font-medium"
           >
             {isLoading ? <Loader2 className="animate-spin" size={20} /> : 'Sign In'}
           </button>
