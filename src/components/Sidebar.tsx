@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Package, LogOut, X, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Users, Package, Tag, LogOut, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
 import api from '../lib/api';
@@ -36,6 +36,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Customers', path: '/customers', icon: Users },
     { name: 'Products', path: '/products', icon: Package },
+    { name: 'Coupons', path: '/coupons', icon: Tag },
   ];
 
   const handleNavClick = () => {

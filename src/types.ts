@@ -39,3 +39,40 @@ export interface PaginatedResponse<T> {
   page: number;
   limit: number;
 }
+
+export interface Coupon {
+  _id: string;
+  code: string;
+  description: string;
+  discountType: 'percentage' | 'flat';
+  discountValue: number;
+  maxDiscountAmount?: number;
+  minOrderAmount?: number;
+  usageLimit?: number;
+  perUserLimit?: number;
+  validFrom: string;
+  validUntil: string;
+  isActive: boolean;
+  applicableCategories: string[];
+  createdAt?: string;
+}
+
+export interface CreateCouponPayload {
+  code: string;
+  description: string;
+  discountType: 'percentage' | 'flat';
+  discountValue: number;
+  maxDiscountAmount?: number;
+  minOrderAmount?: number;
+  usageLimit?: number;
+  perUserLimit?: number;
+  validFrom: string;
+  validUntil: string;
+  isActive: boolean;
+  applicableCategories: string[];
+}
+
+export interface CouponResponse {
+  success: boolean;
+  data: { coupon: Coupon };
+}
