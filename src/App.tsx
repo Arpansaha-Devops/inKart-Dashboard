@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Products from './pages/Products';
+import Categories from './pages/Categories';
 import Coupons from './pages/Coupons';
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/products" element={<Products />} />
+              <Route path="/categories" element={<Categories />} />
               <Route path="/coupons" element={<Coupons />} />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Route>

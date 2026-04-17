@@ -25,11 +25,11 @@ const Layout: React.FC = () => {
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar isOpen={isLargeScreen || isSidebarOpen} onClose={closeSidebar} />
-      <div className="flex-1 flex flex-col w-full">
+      <div className="flex-1 flex flex-col w-full min-w-0">
         <Header onMenuToggle={toggleSidebar} isSidebarOpen={isSidebarOpen} />
-        <main className="p-3 sm:p-5 md:p-6 lg:p-8 bg-gray-50 flex-1 w-full overflow-x-hidden">
+        <main className="p-3 sm:p-5 md:p-6 lg:p-8 bg-gray-50 flex-1 w-full overflow-x-hidden overflow-y-auto">
           <Outlet />
         </main>
       </div>

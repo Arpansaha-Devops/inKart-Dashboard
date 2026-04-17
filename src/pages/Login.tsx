@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
-import api from '../lib/api';
+import apiClient from '../lib/apiClient';
 import { AuthResponse } from '../types';
 import { Mail, Lock, Loader2 } from 'lucide-react';
 
@@ -19,7 +19,7 @@ const Login: React.FC = () => {
 
     try {
       console.log('Attempting login for:', email);
-      const response = await api.post<AuthResponse>('/auth/login', { email, password });
+      const response = await apiClient.post<AuthResponse>('/auth/login', { email, password });
       console.log('Login response:', response.data);
 
       // API returns: { success, token, refreshToken, data: { user } }

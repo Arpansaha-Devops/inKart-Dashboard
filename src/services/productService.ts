@@ -1,48 +1,27 @@
-/**
- * Product service — all product-related API calls.
- * Uses the admin apiClient which auto-handles auth + 401 retry.
- */
+import type { StockUpdatePayload } from '../types';
 import apiClient from '../lib/apiClient';
 
-/**
- * Create a new product.
- * @param formData – multipart/form-data fields: Description, category, productType, stock, image, basePrice
- */
 export const createProduct = async (formData: FormData) => {
   return apiClient.post('/admin/products', formData);
 };
 
-/**
- * Fetch paginated product list.
- */
 export const getProducts = async (page = 1, limit = 10) => {
   return apiClient.get('/admin/products', {
     params: { page, limit },
   });
 };
 
-/**
- * Update an existing product.
- */
 export const updateProduct = async (productId: string, formData: FormData) => {
   return apiClient.patch(`/admin/products/${productId}`, formData);
 };
 
-/**
- * Update product stock (add/subtract).
- */
-export const updateStock = async (
-  productId: string,
-  data: { quantity: number; operation: 'add' | 'subtract' },
-) => {
+export const updateStock = async (productId: string, data: StockUpdatePayload) => {
   return apiClient.patch(`/admin/products/${productId}/stock`, data);
 };
 
-/**
- * Fetch categories from all known endpoint variants.
- */
 export const fetchCategories = async () => {
   const endpoints = ['/admin/categories', '/categories', '/categories/all'];
+
   for (const endpoint of endpoints) {
     try {
       const response = await apiClient.get(endpoint);
@@ -53,5 +32,10 @@ export const fetchCategories = async () => {
       }
     }
   }
+
   return null;
+};
+
+export const deleteProduct = async (productId: string): Promise<void> => {
+  await apiClient.delete(`/admin/products/${productId}`);
 };

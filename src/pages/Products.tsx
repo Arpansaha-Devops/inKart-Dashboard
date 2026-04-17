@@ -1,10 +1,88 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import apiClient from '../lib/apiClient';
-import { PaginatedResponse, Product } from '../types';
-import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, X, Upload, Package } from 'lucide-react';
+import { Product } from '../types';
+import { Plus, Edit2, Trash2, ChevronLeft, ChevronRight, X, Upload, Package, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
+import { deleteProduct } from '../services/productService';
+
+const isProductLike = (item: any): item is Product => {
+  return Boolean(
+    item &&
+      typeof item === 'object' &&
+      typeof item._id === 'string' &&
+      (typeof item.name === 'string' || typeof item.description === 'string')
+  );
+};
+
+const collectArrays = (node: unknown, arrays: any[][] = []): any[][] => {
+  if (Array.isArray(node)) {
+    arrays.push(node);
+    return arrays;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return arrays;
+  }
+
+  Object.values(node as Record<string, unknown>).forEach((value) => collectArrays(value, arrays));
+  return arrays;
+};
+
+const extractProducts = (payload: any): Product[] => {
+  const directCandidates = [
+    payload?.products,
+    payload?.data?.products,
+    payload?.data?.items,
+    payload?.data?.docs,
+    payload?.docs,
+    payload?.data,
+  ];
+
+  for (const candidate of directCandidates) {
+    if (Array.isArray(candidate) && candidate.some(isProductLike)) {
+      return candidate.filter(isProductLike);
+    }
+  }
+
+  const deepCandidates = collectArrays(payload);
+  const best = deepCandidates
+    .map((arr) => arr.filter(isProductLike))
+    .sort((a, b) => b.length - a.length)[0];
+
+  return best || [];
+};
+
+const extractTotalProducts = (payload: any, fallback = 0): number => {
+  const countKeys = [
+    'total',
+    'totalCount',
+    'count',
+    'totalProducts',
+    'totalResults',
+    'totalItems',
+  ];
+
+  const visit = (node: any): number | null => {
+    if (!node || typeof node !== 'object') return null;
+
+    for (const key of countKeys) {
+      if (typeof node[key] === 'number') {
+        return node[key];
+      }
+    }
+
+    for (const value of Object.values(node)) {
+      const found = visit(value);
+      if (found !== null) return found;
+    }
+
+    return null;
+  };
+
+  return visit(payload) ?? fallback;
+};
 
 const Products: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -15,9 +93,16 @@ const Products: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingProduct, setIsDeletingProduct] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [stockProduct, setStockProduct] = useState<Product | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
   const limit = 10;
+
+  const deleteModalOverlayRef = useRef<HTMLDivElement>(null);
+  const deleteModalContentRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
   const extractCategoriesFromPayload = (payload: any): Record<string, string> => {
     const byId: Record<string, string> = {};
@@ -81,6 +166,14 @@ const Products: React.FC = () => {
     return 'Unknown Category';
   };
 
+  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+    const selector =
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    return Array.from(container.querySelectorAll(selector)).filter(
+      (el: any) => !el.hasAttribute('disabled')
+    ) as HTMLElement[];
+  };
+
   const fetchCategoryLookup = async () => {
     const endpoints = ['/admin/categories', '/categories', '/categories/all'];
     const merged: Record<string, string> = {};
@@ -119,47 +212,9 @@ const Products: React.FC = () => {
       const response = await apiClient.get<any>('/admin/products', {
         params: { page, limit }
       });
-      
-      let productsList: Product[] = [];
-      let count = 0;
 
-      if (Array.isArray(response.data)) {
-        productsList = response.data;
-        count = response.data.length;
-      } else if (response.data && typeof response.data === 'object') {
-        const findArray = (obj: any): any[] | null => {
-          if (Array.isArray(obj)) return obj;
-          if (!obj || typeof obj !== 'object') return null;
-          
-          const commonKeys = ['data', 'products', 'results', 'items', 'list', 'inventory'];
-          for (const key of commonKeys) {
-            if (Array.isArray(obj[key])) return obj[key];
-          }
-          
-          for (const key in obj) {
-            const result = findArray(obj[key]);
-            if (result) return result;
-          }
-          return null;
-        };
-
-        productsList = findArray(response.data) || [];
-
-        const findCount = (obj: any): number | null => {
-          if (!obj || typeof obj !== 'object') return null;
-          const countKeys = ['totalCount', 'total', 'count', 'totalResults', 'length'];
-          for (const key of countKeys) {
-            if (typeof obj[key] === 'number') return obj[key];
-          }
-          for (const key in obj) {
-            const result = findCount(obj[key]);
-            if (result !== null) return result;
-          }
-          return null;
-        };
-
-        count = findCount(response.data) ?? productsList.length;
-      }
+      const productsList = extractProducts(response.data);
+      const count = extractTotalProducts(response.data, productsList.length);
 
       const mappedCategories: Record<string, string> = {};
       productsList.forEach((product: any) => {
@@ -190,6 +245,77 @@ const Products: React.FC = () => {
   useEffect(() => {
     fetchCategoryLookup();
   }, []);
+
+  useEffect(() => {
+    if (!isDeleteModalOpen) return;
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsDeleteModalOpen(false);
+        setDeletingProduct(null);
+      }
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        deleteModalOverlayRef.current &&
+        event.target === deleteModalOverlayRef.current
+      ) {
+        setIsDeleteModalOpen(false);
+        setDeletingProduct(null);
+      }
+    };
+
+    const focusableElements = deleteModalContentRef.current
+      ? getFocusableElements(deleteModalContentRef.current)
+      : [];
+
+    if (focusableElements.length > 0) {
+      previouslyFocusedElementRef.current = document.activeElement as HTMLElement;
+      focusableElements[0].focus();
+    }
+
+    const handleTabKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !deleteModalContentRef.current) {
+        return;
+      }
+
+      const focusableEls = getFocusableElements(deleteModalContentRef.current);
+      if (focusableEls.length === 0) return;
+
+      const firstEl = focusableEls[0];
+      const lastEl = focusableEls[focusableEls.length - 1];
+
+      if (event.shiftKey) {
+        if (document.activeElement === firstEl) {
+          event.preventDefault();
+          lastEl.focus();
+        }
+      } else if (document.activeElement === lastEl) {
+        event.preventDefault();
+        firstEl.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscapeKey);
+    document.addEventListener('keydown', handleTabKey);
+
+    const overlay = deleteModalOverlayRef.current;
+    overlay?.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('keydown', handleEscapeKey);
+      document.removeEventListener('keydown', handleTabKey);
+
+      if (overlay) {
+        overlay.removeEventListener('mousedown', handleClickOutside);
+      }
+
+      if (previouslyFocusedElementRef.current) {
+        previouslyFocusedElementRef.current.focus();
+      }
+    };
+  }, [isDeleteModalOpen]);
 
   const handleOpenModal = (product?: Product) => {
     if (product) {
@@ -257,6 +383,28 @@ const Products: React.FC = () => {
       fetchProducts();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Stock update failed');
+    }
+  };
+
+  const handleOpenDeleteModal = (product: Product) => {
+    setDeletingProduct(product);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteProduct = async () => {
+    if (!deletingProduct?._id) return;
+
+    setIsDeletingProduct(true);
+    try {
+      await deleteProduct(deletingProduct._id);
+      toast.success('Product deleted');
+      setIsDeleteModalOpen(false);
+      setDeletingProduct(null);
+      await fetchProducts();
+    } catch {
+      toast.error('Failed to delete product');
+    } finally {
+      setIsDeletingProduct(false);
     }
   };
 
@@ -356,6 +504,7 @@ const Products: React.FC = () => {
                             <Edit2 size={18} />
                           </button>
                           <button 
+                            onClick={() => handleOpenDeleteModal(product)}
                             className="p-2 text-gray-400 hover:text-red-500 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
                             aria-label="Delete product"
                           >
@@ -602,6 +751,61 @@ const Products: React.FC = () => {
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Delete Product Modal */}
+      <AnimatePresence>
+        {isDeleteModalOpen && (
+          <div
+            ref={deleteModalOverlayRef}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            role="presentation"
+          >
+            <motion.div
+              ref={deleteModalContentRef}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-product-title"
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
+                  <AlertTriangle className="w-6 h-6 text-red-600" aria-hidden="true" />
+                </div>
+                <h3 id="delete-product-title" className="text-lg sm:text-xl font-semibold text-center text-gray-900 mb-2">
+                  Delete product
+                </h3>
+                <p className="text-center text-gray-500 text-sm mb-6">
+                  Are you sure you want to delete <strong>{deletingProduct?.name}</strong>? This cannot be undone.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setIsDeleteModalOpen(false);
+                      setDeletingProduct(null);
+                    }}
+                    className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteProduct}
+                    disabled={isDeletingProduct}
+                    className="flex-1 px-4 py-2 text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
+                  >
+                    {isDeletingProduct && (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    )}
+                    Delete
+                  </button>
+                </div>
+              </div>
             </motion.div>
           </div>
         )}

@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Users, Package, Tag, LogOut, X, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { cn } from '../lib/utils';
-import api from '../lib/api';
+import apiClient from '../lib/apiClient';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -13,13 +13,13 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} }) => {
-  const { logout, token } = useAuth();
+  const { logout } = useAuth();
   const navigate = useNavigate();
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
 
   const handleLogout = async () => {
     try {
-      await api.post('/auth/logout');
+      await apiClient.post('/auth/logout');
       logout();
       toast.success('Logged out successfully');
       navigate('/login');
@@ -36,6 +36,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
     { name: 'Customers', path: '/customers', icon: Users },
     { name: 'Products', path: '/products', icon: Package },
+    { name: 'Categories', path: '/categories', icon: Tag },
     { name: 'Coupons', path: '/coupons', icon: Tag },
   ];
 
@@ -63,7 +64,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
         initial={false}
         animate={{ x: isOpen ? 0 : -256 }}
         transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="w-64 bg-primary text-white h-screen flex flex-col fixed left-0 top-0 z-40 lg:relative lg:left-auto lg:top-auto"
+        className="w-64 shrink-0 bg-primary text-white h-screen flex flex-col fixed left-0 top-0 z-40 lg:sticky lg:top-0 lg:left-auto"
       >
         <div className="p-4 sm:p-5 md:p-6 border-b border-white/10 flex items-center justify-between">
           <div className="flex-1">

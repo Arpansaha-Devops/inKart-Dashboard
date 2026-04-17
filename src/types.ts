@@ -76,3 +76,25 @@ export interface CouponResponse {
   success: boolean;
   data: { coupon: Coupon };
 }
+
+export interface Category {
+  _id: string;
+  name: string;
+  description?: string;
+  slug?: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateCategoryPayload {
+  name: string;
+  description?: string;
+  slug?: string;
+  isActive: boolean;
+}
+
+export interface StockUpdatePayload {
+  quantity: number;
+  operation: 'add' | 'subtract';
+}

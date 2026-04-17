@@ -4,7 +4,7 @@ import { X, Upload, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { createProduct } from '../services/productService';
-import api from '../lib/api';
+import apiClient from '../lib/apiClient';
 
 interface CreateProductModalProps {
   isOpen: boolean;
@@ -86,7 +86,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     try {
       for (const endpoint of categoryEndpoints) {
         try {
-          const response = await api.get(endpoint);
+          const response = await apiClient.get(endpoint);
           aggregated.push(...extractCategoriesFromPayload(response.data));
         } catch {
           // Try next endpoint variant.
@@ -94,7 +94,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       }
 
       if (aggregated.length === 0) {
-        const response = await api.get('/admin/products', {
+        const response = await apiClient.get('/admin/products', {
           params: { page: 1, limit: 200 },
         });
         aggregated.push(...extractCategoriesFromPayload(response.data));

@@ -1,9 +1,86 @@
-import React, { useEffect, useState } from 'react';
-import api from '../lib/api';
-import { PaginatedResponse, User } from '../types';
-import { Search, ChevronLeft, ChevronRight, Eye, X } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import apiClient from '../lib/apiClient';
+import { User } from '../types';
+import { Search, ChevronLeft, ChevronRight, Eye, X, Trash2, AlertTriangle } from 'lucide-react';
 import { formatDate } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { toast } from 'sonner';
+
+const isUserLike = (item: any): item is User => {
+  return Boolean(
+    item &&
+      typeof item === 'object' &&
+      typeof item._id === 'string' &&
+      (typeof item.email === 'string' || typeof item.name === 'string')
+  );
+};
+
+const collectArrays = (node: unknown, arrays: any[][] = []): any[][] => {
+  if (Array.isArray(node)) {
+    arrays.push(node);
+    return arrays;
+  }
+
+  if (!node || typeof node !== 'object') {
+    return arrays;
+  }
+
+  Object.values(node as Record<string, unknown>).forEach((value) => collectArrays(value, arrays));
+  return arrays;
+};
+
+const extractUsers = (payload: any): User[] => {
+  const directCandidates = [
+    payload?.users,
+    payload?.data?.users,
+    payload?.data?.data?.users,
+    payload?.data?.items,
+    payload?.data,
+  ];
+
+  for (const candidate of directCandidates) {
+    if (Array.isArray(candidate) && candidate.some(isUserLike)) {
+      return candidate.filter(isUserLike);
+    }
+  }
+
+  const deepCandidates = collectArrays(payload);
+  const best = deepCandidates
+    .map((arr) => arr.filter(isUserLike))
+    .sort((a, b) => b.length - a.length)[0];
+
+  return best || [];
+};
+
+const extractTotalUsers = (payload: any, fallback = 0): number => {
+  const countKeys = [
+    'total',
+    'totalCount',
+    'count',
+    'totalUsers',
+    'totalResults',
+    'totalItems',
+  ];
+
+  const visit = (node: any): number | null => {
+    if (!node || typeof node !== 'object') return null;
+
+    for (const key of countKeys) {
+      if (typeof node[key] === 'number') {
+        return node[key];
+      }
+    }
+
+    for (const value of Object.values(node)) {
+      const found = visit(value);
+      if (found !== null) return found;
+    }
+
+    return null;
+  };
+
+  return visit(payload) ?? fallback;
+};
 
 const Customers: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
@@ -12,7 +89,14 @@ const Customers: React.FC = () => {
   const [search, setSearch] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
   const limit = 10;
+
+  const deleteModalOverlayRef = useRef<HTMLDivElement>(null);
+  const deleteModalContentRef = useRef<HTMLDivElement>(null);
+  const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
   const fetchUsers = async () => {
     setIsLoading(true);
@@ -22,58 +106,16 @@ const Customers: React.FC = () => {
         params.search = search;
       }
       
-      const response = await api.get<any>(`/users/all`, { params });
-      console.log('Users response raw:', response.data);
-      
-      let usersList: User[] = [];
-      let count = 0;
+      const response = await apiClient.get<any>(`/users/all`, { params });
 
-      if (Array.isArray(response.data)) {
-        usersList = response.data;
-        count = response.data.length;
-      } else if (response.data && typeof response.data === 'object') {
-        // Deep search for arrays in the response
-        const findArray = (obj: any): any[] | null => {
-          if (Array.isArray(obj)) return obj;
-          if (!obj || typeof obj !== 'object') return null;
-          
-          // Check common keys first
-          const commonKeys = ['data', 'users', 'results', 'items', 'list', 'customers', 'allUsers'];
-          for (const key of commonKeys) {
-            if (Array.isArray(obj[key])) return obj[key];
-          }
-          
-          // Recursive search for any array
-          for (const key in obj) {
-            const result = findArray(obj[key]);
-            if (result) return result;
-          }
-          return null;
-        };
-
-        usersList = findArray(response.data) || [];
-        
-        // Extract count from various possible locations
-        const findCount = (obj: any): number | null => {
-          if (!obj || typeof obj !== 'object') return null;
-          const countKeys = ['totalCount', 'total', 'count', 'totalResults', 'length'];
-          for (const key of countKeys) {
-            if (typeof obj[key] === 'number') return obj[key];
-          }
-          for (const key in obj) {
-            const result = findCount(obj[key]);
-            if (result !== null) return result;
-          }
-          return null;
-        };
-
-        count = findCount(response.data) ?? usersList.length;
-      }
+      const usersList = extractUsers(response.data);
+      const count = extractTotalUsers(response.data, usersList.length);
 
       setUsers(usersList);
       setTotalCount(count);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error fetching users', error);
+      toast.error(error?.response?.data?.message || 'Failed to load customers');
     } finally {
       setIsLoading(false);
     }
@@ -85,6 +127,89 @@ const Customers: React.FC = () => {
     }, 300);
     return () => clearTimeout(timer);
   }, [page, search]);
+
+  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    return Array.from(container.querySelectorAll(selector)).filter(
+      (el: any) => !el.hasAttribute('disabled')
+    ) as HTMLElement[];
+  };
+
+  useEffect(() => {
+    if (!isDeleteModalOpen) return;
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsDeleteModalOpen(false);
+        setDeletingUser(null);
+      }
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (deleteModalOverlayRef.current && event.target === deleteModalOverlayRef.current) {
+        setIsDeleteModalOpen(false);
+        setDeletingUser(null);
+      }
+    };
+
+    const handleTabKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !deleteModalContentRef.current) return;
+
+      const focusableElements = getFocusableElements(deleteModalContentRef.current);
+      if (focusableElements.length === 0) return;
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey) {
+        if (document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    previouslyFocusedElementRef.current = document.activeElement as HTMLElement;
+    const focusable = deleteModalContentRef.current ? getFocusableElements(deleteModalContentRef.current) : [];
+    focusable[0]?.focus();
+
+    document.addEventListener('keydown', handleEscapeKey);
+    document.addEventListener('keydown', handleTabKey);
+    const overlay = deleteModalOverlayRef.current;
+    overlay?.addEventListener('mousedown', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('keydown', handleEscapeKey);
+      document.removeEventListener('keydown', handleTabKey);
+      overlay?.removeEventListener('mousedown', handleClickOutside);
+      previouslyFocusedElementRef.current?.focus();
+    };
+  }, [isDeleteModalOpen]);
+
+  const handleOpenDeleteModal = (user: User) => {
+    setDeletingUser(user);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deletingUser?._id) return;
+
+    setIsDeletingUser(true);
+    try {
+      await apiClient.delete(`/admin/users/${deletingUser._id}`);
+      toast.success('User deleted');
+      setIsDeleteModalOpen(false);
+      setDeletingUser(null);
+      await fetchUsers();
+    } catch {
+      toast.error('Failed to delete user');
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
 
   const totalPages = Math.ceil(totalCount / limit);
 
@@ -141,7 +266,7 @@ const Customers: React.FC = () => {
                   </tr>
                 ) : (
                   users.map((user, index) => (
-                    <tr key={user._id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={user._id} className="group hover:bg-gray-50 transition-colors">
                       <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-500">{(page - 1) * limit + index + 1}</td>
                       <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm font-medium text-gray-900 truncate">
                         {user.name}
@@ -163,13 +288,22 @@ const Customers: React.FC = () => {
                         {formatDate(user.createdAt)}
                       </td>
                       <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-center sm:text-right w-14 sm:w-auto">
-                        <button
-                          onClick={() => setSelectedUser(user)}
-                          className="inline-flex p-2 text-gray-400 hover:text-accent transition-colors min-h-[40px] min-w-[40px] items-center justify-center sm:min-h-auto sm:min-w-auto"
-                          aria-label="View details"
-                        >
-                          <Eye size={18} />
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-1 sm:gap-2">
+                          <button
+                            onClick={() => setSelectedUser(user)}
+                            className="inline-flex p-2 text-gray-400 hover:text-accent transition-colors min-h-[40px] min-w-[40px] items-center justify-center sm:min-h-auto sm:min-w-auto"
+                            aria-label="View details"
+                          >
+                            <Eye size={18} />
+                          </button>
+                          <button
+                            onClick={() => handleOpenDeleteModal(user)}
+                            className="inline-flex p-2 text-gray-400 hover:text-red-500 transition-all min-h-[40px] min-w-[40px] items-center justify-center sm:min-h-auto sm:min-w-auto opacity-0 group-hover:opacity-100 focus:opacity-100"
+                            aria-label="Delete user"
+                          >
+                            <Trash2 size={18} />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -217,6 +351,58 @@ const Customers: React.FC = () => {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {isDeleteModalOpen && deletingUser && (
+          <div
+            ref={deleteModalOverlayRef}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            role="presentation"
+          >
+            <motion.div
+              ref={deleteModalContentRef}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 sm:mx-0 overflow-hidden"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="delete-user-title"
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
+                  <AlertTriangle className="w-6 h-6 text-red-600" aria-hidden="true" />
+                </div>
+                <h3 id="delete-user-title" className="text-lg sm:text-xl font-semibold text-center text-gray-900 mb-2">
+                  Delete user
+                </h3>
+                <p className="text-center text-gray-500 text-sm mb-6">
+                  This will permanently delete <strong>{deletingUser.name}</strong> ({deletingUser.email}). This cannot be undone.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => {
+                      setIsDeleteModalOpen(false);
+                      setDeletingUser(null);
+                    }}
+                    className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleDeleteUser}
+                    disabled={isDeletingUser}
+                    className="flex-1 px-4 py-2 text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
+                  >
+                    {isDeletingUser && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {selectedUser && (
