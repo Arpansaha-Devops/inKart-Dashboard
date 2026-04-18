@@ -1,27 +1,33 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
   ArcElement,
+  BarElement,
+  CategoryScale,
+  Chart as ChartJS,
+  Legend,
+  LinearScale,
+  PointElement,
   Title,
   Tooltip,
-  Legend,
 } from 'chart.js';
 import { Bar, Doughnut } from 'react-chartjs-2';
-import { Users, Package, Tag, Layers, TrendingUp } from 'lucide-react';
-import { motion } from 'motion/react';
+import {
+  Package,
+  Tag,
+  Ticket,
+  TrendingUp,
+  UserCheck,
+  Users,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
+import { User } from '../types';
 
 ChartJS.register(
   CategoryScale,
   LinearScale,
   BarElement,
-  LineElement,
   PointElement,
   ArcElement,
   Title,
@@ -38,25 +44,27 @@ type DashboardStats = {
 
 const COMMON_ARRAY_KEYS = ['data', 'users', 'products', 'coupons', 'categories', 'results', 'items', 'list', 'docs'];
 const COMMON_COUNT_KEYS = ['totalCount', 'total', 'count', 'totalResults', 'length'];
-const CHART_COLORS = ['#534AB7', '#0F6E56', '#993C1D', '#185FA5', '#854F0B', '#A32D2D'];
+const CHART_COLORS = ['#F97316', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
 
-const doughnutOptions = {
-  responsive: true,
-  plugins: {
-    legend: { position: 'right' as const },
-    title: { display: true, text: 'Products by category' },
-  },
+type ChartThemeColors = {
+  textSecondary: string;
+  border: string;
 };
 
-const barOptions = {
-  responsive: true,
-  plugins: {
-    legend: { display: false },
-    title: { display: true, text: 'Coupon discount values (%)' },
-  },
-  scales: {
-    y: { beginAtZero: true },
-  },
+const getChartThemeColors = (): ChartThemeColors => {
+  if (typeof window === 'undefined') {
+    return {
+      textSecondary: '#a0a0a0',
+      border: '#2e2e2e',
+    };
+  }
+
+  const styles = getComputedStyle(document.body);
+
+  return {
+    textSecondary: styles.getPropertyValue('--text-secondary').trim() || '#a0a0a0',
+    border: styles.getPropertyValue('--border').trim() || '#2e2e2e',
+  };
 };
 
 const findCount = (payload: unknown): number | null => {
@@ -100,6 +108,14 @@ const isProductLike = (item: any): boolean =>
 const isCouponLike = (item: any): boolean =>
   Boolean(item && typeof item === 'object' && typeof item._id === 'string' && typeof item.code === 'string');
 
+const isUserLike = (item: any): item is User =>
+  Boolean(
+    item &&
+      typeof item === 'object' &&
+      typeof item._id === 'string' &&
+      (typeof item.email === 'string' || typeof item.name === 'string')
+  );
+
 const pickBestArray = (payload: any, validator: (item: any) => boolean, directCandidates: any[] = []) => {
   for (const candidate of directCandidates) {
     if (Array.isArray(candidate)) {
@@ -130,6 +146,29 @@ const collectArrays = (node: unknown, arrays: any[][] = []): any[][] => {
   return arrays;
 };
 
+const extractUsers = (payload: any): User[] => {
+  const directCandidates = [
+    payload?.users,
+    payload?.data?.users,
+    payload?.data?.data?.users,
+    payload?.data?.items,
+    payload?.data,
+  ];
+
+  for (const candidate of directCandidates) {
+    if (Array.isArray(candidate) && candidate.some(isUserLike)) {
+      return candidate.filter(isUserLike);
+    }
+  }
+
+  const deepCandidates = collectArrays(payload);
+  const best = deepCandidates
+    .map((arr) => arr.filter(isUserLike))
+    .sort((a, b) => b.length - a.length)[0];
+
+  return best || [];
+};
+
 const Dashboard: React.FC = () => {
   const [stats, setStats] = useState<DashboardStats>({
     totalUsers: 0,
@@ -138,7 +177,9 @@ const Dashboard: React.FC = () => {
     activeCategories: 0,
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [recentUsers, setRecentUsers] = useState<User[]>([]);
   const hasShownDashboardErrorRef = useRef(false);
+  const [chartTheme, setChartTheme] = useState<ChartThemeColors>(getChartThemeColors);
 
   const [doughnutData, setDoughnutData] = useState({
     labels: [] as string[],
@@ -146,6 +187,7 @@ const Dashboard: React.FC = () => {
       {
         data: [] as number[],
         backgroundColor: [] as string[],
+        borderWidth: 0,
       },
     ],
   });
@@ -155,10 +197,83 @@ const Dashboard: React.FC = () => {
     datasets: [
       {
         data: [] as number[],
-        backgroundColor: '#534AB7',
+        backgroundColor: '#F97316',
+        borderRadius: 8,
+        borderSkipped: false as const,
       },
     ],
   });
+
+  useEffect(() => {
+    const syncTheme = () => {
+      setChartTheme(getChartThemeColors());
+    };
+
+    syncTheme();
+
+    const observer = new MutationObserver(syncTheme);
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ['class'],
+    });
+
+    window.addEventListener('themechange', syncTheme as EventListener);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('themechange', syncTheme as EventListener);
+    };
+  }, []);
+
+  useEffect(() => {
+    ChartJS.defaults.color = chartTheme.textSecondary;
+    ChartJS.defaults.borderColor = chartTheme.border;
+    ChartJS.defaults.font.family = "'Inter', system-ui, sans-serif";
+  }, [chartTheme]);
+
+  const doughnutOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      cutout: '62%',
+      plugins: {
+        legend: {
+          position: 'bottom' as const,
+          labels: {
+            color: chartTheme.textSecondary,
+            font: { size: 13 },
+            boxWidth: 12,
+            padding: 16,
+          },
+        },
+        title: { display: false },
+      },
+    }),
+    [chartTheme]
+  );
+
+  const barOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        title: { display: false },
+      },
+      scales: {
+        x: {
+          grid: { color: chartTheme.border },
+          ticks: { color: chartTheme.textSecondary },
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: chartTheme.border },
+          ticks: { color: chartTheme.textSecondary },
+        },
+      },
+    }),
+    [chartTheme]
+  );
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -197,6 +312,7 @@ const Dashboard: React.FC = () => {
         const totalUsers = findCount(usersPayload) ?? 0;
         const totalProducts = findCount(productsPayload) ?? 0;
         const totalCoupons = findCount(couponsPayload) ?? 0;
+        const dashboardUsers = extractUsers(usersPayload);
 
         const categories = pickBestArray(categoriesPayload, isCategoryLike, [
           (categoriesPayload as any)?.categories,
@@ -211,6 +327,7 @@ const Dashboard: React.FC = () => {
           totalCoupons,
           activeCategories,
         });
+        setRecentUsers(dashboardUsers.slice(0, 5));
 
         const chartProducts = pickBestArray(chartProductsPayload, isProductLike, [
           (chartProductsPayload as any)?.products,
@@ -272,6 +389,7 @@ const Dashboard: React.FC = () => {
               {
                 data: counts,
                 backgroundColor: labels.map((_, index) => CHART_COLORS[index % CHART_COLORS.length]),
+                borderWidth: 0,
               },
             ],
           });
@@ -299,6 +417,7 @@ const Dashboard: React.FC = () => {
               {
                 data: values,
                 backgroundColor: labels.map((_, index) => CHART_COLORS[index % CHART_COLORS.length]),
+                borderWidth: 0,
               },
             ],
           });
@@ -316,7 +435,9 @@ const Dashboard: React.FC = () => {
           datasets: [
             {
               data: couponRows.map((coupon) => coupon.discountValue),
-              backgroundColor: '#534AB7',
+              backgroundColor: '#F97316',
+              borderRadius: 8,
+              borderSkipped: false,
             },
           ],
         });
@@ -353,97 +474,286 @@ const Dashboard: React.FC = () => {
   }, []);
 
   const statCards = [
-    { name: 'Total users', value: stats.totalUsers, icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
-    { name: 'Total products', value: stats.totalProducts, icon: Package, color: 'text-purple-600', bg: 'bg-purple-50' },
-    { name: 'Total coupons', value: stats.totalCoupons, icon: Tag, color: 'text-orange-600', bg: 'bg-orange-50' },
-    { name: 'Active categories', value: stats.activeCategories, icon: Layers, color: 'text-green-600', bg: 'bg-green-50' },
+    {
+      name: 'Total Users',
+      value: stats.totalUsers,
+      icon: Users,
+      iconColor: 'var(--accent)',
+      background: 'var(--accent-muted)',
+    },
+    {
+      name: 'Total Products',
+      value: stats.totalProducts,
+      icon: Package,
+      iconColor: 'var(--info)',
+      background: 'var(--info-muted)',
+    },
+    {
+      name: 'Total Coupons',
+      value: stats.totalCoupons,
+      icon: Ticket,
+      iconColor: 'var(--warning)',
+      background: 'var(--warning-muted)',
+    },
+    {
+      name: 'Active Categories',
+      value: stats.activeCategories,
+      icon: Tag,
+      iconColor: 'var(--success)',
+      background: 'var(--success-muted)',
+    },
+  ];
+
+  const quickActions = [
+    {
+      to: '/products',
+      icon: Package,
+      iconColor: 'var(--accent)',
+      title: 'Add Product',
+      description: 'Create a new listing',
+    },
+    {
+      to: '/customers',
+      icon: Users,
+      iconColor: 'var(--info)',
+      title: 'View Users',
+      description: 'Manage customers',
+    },
+    {
+      to: '/categories',
+      icon: Tag,
+      iconColor: 'var(--success)',
+      title: 'Add Category',
+      description: 'Create a new category',
+    },
+    {
+      to: '/coupons',
+      icon: Ticket,
+      iconColor: 'var(--warning)',
+      title: 'Add Coupon',
+      description: 'Create a discount',
+    },
   ];
 
   return (
-    <div className="space-y-6 md:space-y-8">
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 md:gap-5 lg:gap-6">
-        {statCards.map((stat, index) => (
-          <motion.div
+    <div className="page-wrapper">
+      <div className="stat-grid">
+        {statCards.map((stat) => (
+          <div
             key={stat.name}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.1 }}
-            className="card flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 p-4 sm:p-5 md:p-6"
+            className="card card-hover"
+            style={{ display: 'flex', alignItems: 'center', gap: '16px' }}
           >
-            <div className={`flex-shrink-0 p-2 sm:p-3 rounded-lg ${stat.bg} ${stat.color}`}>
-              <stat.icon size={20} className="sm:w-6 sm:h-6" />
+            <div className="icon-box" style={{ background: stat.background }}>
+              <stat.icon size={20} color={stat.iconColor} />
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-xs sm:text-sm font-medium text-gray-500">{stat.name}</p>
-              {isLoading ? (
-                <div className="h-8 sm:h-9 mt-1 w-20 rounded bg-gray-200 animate-pulse" />
-              ) : (
-                <h3 className="text-lg sm:text-xl md:text-2xl font-bold text-gray-900 truncate">{stat.value}</h3>
-              )}
+            <div>
+              <p
+                style={{
+                  fontSize: '13px',
+                  color: 'var(--text-secondary)',
+                  margin: '0 0 4px',
+                }}
+              >
+                {stat.name}
+              </p>
+              <p
+                style={{
+                  fontSize: '26px',
+                  fontWeight: 700,
+                  color: 'var(--text-primary)',
+                  lineHeight: 1,
+                  margin: 0,
+                }}
+              >
+                {isLoading ? (
+                  <span
+                    className="skeleton"
+                    style={{ width: 40, height: 26, display: 'inline-block' }}
+                  />
+                ) : (
+                  stat.value
+                )}
+              </p>
             </div>
-          </motion.div>
+          </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
-        <div className="card p-6">
-          {isLoading ? (
-            <div className="h-72 rounded bg-gray-100 animate-pulse" />
-          ) : doughnutData.labels.length === 0 ? (
-            <div className="h-72 flex items-center justify-center text-gray-500 text-sm">No data available</div>
-          ) : (
-            <Doughnut data={doughnutData} options={doughnutOptions} />
-          )}
+      <div className="chart-grid">
+        <div className="card" style={{ padding: '20px' }}>
+          <h3 className="section-title">Products by category</h3>
+          <div
+            style={{
+              height: '280px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {isLoading ? (
+              <div className="skeleton" style={{ width: '100%', height: '100%' }} />
+            ) : doughnutData.labels.length === 0 ? (
+              <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
+                No data available
+              </p>
+            ) : (
+              <Doughnut data={doughnutData} options={doughnutOptions} />
+            )}
+          </div>
         </div>
 
-        <div className="card p-6">
-          {isLoading ? (
-            <div className="h-72 rounded bg-gray-100 animate-pulse" />
-          ) : barData.labels.length === 0 ? (
-            <div className="h-72 flex items-center justify-center text-gray-500 text-sm">No data available</div>
-          ) : (
-            <Bar data={barData} options={barOptions} />
-          )}
+        <div className="card" style={{ padding: '20px' }}>
+          <h3 className="section-title">Coupon discounts</h3>
+          <div
+            style={{
+              height: '280px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {isLoading ? (
+              <div className="skeleton" style={{ width: '100%', height: '100%' }} />
+            ) : barData.labels.length === 0 ? (
+              <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
+                No data available
+              </p>
+            ) : (
+              <Bar data={barData} options={barOptions} />
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-        <div className="card p-4 sm:p-5 md:p-6">
-          <div className="flex items-center justify-between gap-3 mb-4 md:mb-6">
-            <h3 className="text-base sm:text-lg font-semibold text-gray-900">Recent Activity</h3>
-            <TrendingUp className="text-gray-400 flex-shrink-0" size={20} />
+      <div className="split-grid">
+        <div className="card" style={{ padding: '20px' }}>
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '16px',
+            }}
+          >
+            <h3 className="section-title" style={{ margin: 0 }}>
+              Recent Activity
+            </h3>
+            <TrendingUp size={16} color="var(--text-muted)" />
           </div>
-          <div className="space-y-3 sm:space-y-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div key={i} className="flex items-center gap-3 p-2 sm:p-3 hover:bg-gray-50 rounded-lg transition-colors">
-                <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 flex-shrink-0">
-                  <Users size={16} className="sm:w-5 sm:h-5" />
+
+          {isLoading ? (
+            <div style={{ display: 'grid', gap: '12px' }}>
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="skeleton" style={{ height: 60 }} />
+              ))}
+            </div>
+          ) : recentUsers.length === 0 ? (
+            <div
+              style={{
+                minHeight: 220,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'var(--text-muted)',
+                fontSize: '14px',
+              }}
+            >
+              No recent user activity available
+            </div>
+          ) : (
+            recentUsers.map((user) => (
+              <div
+                key={user._id}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '12px',
+                  padding: '12px 0',
+                  borderBottom: '1px solid var(--border)',
+                }}
+              >
+                <div
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: '50%',
+                    background: 'var(--bg-input)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}
+                >
+                  <UserCheck size={16} color="var(--text-muted)" />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">New user registered</p>
-                  <p className="text-xs text-gray-500">2 hours ago</p>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p
+                    style={{
+                      fontSize: '14px',
+                      color: 'var(--text-primary)',
+                      margin: 0,
+                    }}
+                  >
+                    New user registered
+                  </p>
+                  <p
+                    style={{
+                      fontSize: '12px',
+                      color: 'var(--text-muted)',
+                      margin: 0,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {user.name || 'Unnamed user'} · {user.email || 'No email'}
+                  </p>
                 </div>
-                <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded flex-shrink-0">User</span>
+                <span
+                  style={{
+                    background: 'var(--info-muted)',
+                    color: 'var(--info)',
+                    fontSize: '11px',
+                    padding: '2px 8px',
+                    borderRadius: '20px',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  User
+                </span>
               </div>
-            ))}
-          </div>
+            ))
+          )}
         </div>
 
-        <div className="card p-4 sm:p-5 md:p-6">
-          <div className="flex items-center justify-between gap-3 mb-4 md:mb-6">
-            <h3 className="text-base sm:text-lg font-semibold text-gray-900">Quick Actions</h3>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-            <button className="p-3 sm:p-4 border border-gray-200 rounded-xl hover:border-accent hover:bg-accent/5 transition-all text-left group min-h-[120px] sm:min-h-auto flex flex-col justify-center">
-              <Package className="text-gray-400 group-hover:text-accent mb-2 w-5 h-5 sm:w-6 sm:h-6" />
-              <p className="font-medium text-sm sm:text-base">Add Product</p>
-              <p className="text-xs text-gray-500">Create a new listing</p>
-            </button>
-            <button className="p-3 sm:p-4 border border-gray-200 rounded-xl hover:border-accent hover:bg-accent/5 transition-all text-left group min-h-[120px] sm:min-h-auto flex flex-col justify-center">
-              <Users className="text-gray-400 group-hover:text-accent mb-2 w-5 h-5 sm:w-6 sm:h-6" />
-              <p className="font-medium text-sm sm:text-base">View Users</p>
-              <p className="text-xs text-gray-500">Manage customers</p>
-            </button>
+        <div className="card" style={{ padding: '20px' }}>
+          <h3 className="section-title">Quick Actions</h3>
+          <div className="quick-actions-grid">
+            {quickActions.map((action) => (
+              <Link key={action.to} to={action.to} className="quick-action-card">
+                <action.icon size={22} color={action.iconColor} />
+                <p
+                  style={{
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    color: 'var(--text-primary)',
+                    margin: 0,
+                  }}
+                >
+                  {action.title}
+                </p>
+                <p
+                  style={{
+                    fontSize: '12px',
+                    color: 'var(--text-muted)',
+                    margin: 0,
+                  }}
+                >
+                  {action.description}
+                </p>
+              </Link>
+            ))}
           </div>
         </div>
       </div>

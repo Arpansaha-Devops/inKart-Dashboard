@@ -1,23 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Header from './Header';
+import NotificationPanel from './NotificationPanel';
 
 const Layout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isLargeScreen, setIsLargeScreen] = useState(window.innerWidth >= 1024);
-
-  useEffect(() => {
-    const handleResize = () => {
-      setIsLargeScreen(window.innerWidth >= 1024);
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   const toggleSidebar = () => {
-    setIsSidebarOpen(!isSidebarOpen);
+    setIsSidebarOpen((previous) => !previous);
   };
 
   const closeSidebar = () => {
@@ -25,14 +16,32 @@ const Layout: React.FC = () => {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar isOpen={isLargeScreen || isSidebarOpen} onClose={closeSidebar} />
-      <div className="flex-1 flex flex-col w-full min-w-0">
+    <div
+      style={{
+        display: 'flex',
+        height: '100vh',
+        overflow: 'hidden',
+        background: 'var(--bg-base)',
+      }}
+    >
+      <Sidebar isOpen={isSidebarOpen} onClose={closeSidebar} />
+
+      <div
+        style={{
+          flex: 1,
+          overflow: 'hidden',
+          display: 'flex',
+          flexDirection: 'column',
+          minWidth: 0,
+        }}
+      >
         <Header onMenuToggle={toggleSidebar} isSidebarOpen={isSidebarOpen} />
-        <main className="p-3 sm:p-5 md:p-6 lg:p-8 bg-gray-50 flex-1 w-full overflow-x-hidden overflow-y-auto">
+        <main className="hide-scrollbar" style={{ flex: 1, overflow: 'auto' }}>
           <Outlet />
         </main>
       </div>
+
+      <NotificationPanel />
     </div>
   );
 };

@@ -101,10 +101,10 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
 
   return (
     <AnimatePresence>
-      {isOpen && category && (
+      {isOpen && category ? (
         <div
           ref={overlayRef}
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+          className="modal-backdrop"
           role="presentation"
         >
           <motion.div
@@ -112,41 +112,65 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 sm:mx-0 overflow-hidden"
+            className="modal-box"
+            style={{ maxWidth: '400px' }}
             role="dialog"
             aria-modal="true"
             aria-labelledby="delete-category-title"
           >
-            <div className="p-6">
-              <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
-                <AlertTriangle className="w-6 h-6 text-red-600" aria-hidden="true" />
+            <div style={{ textAlign: 'center', padding: '8px 0 20px' }}>
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  background: 'var(--danger-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px',
+                }}
+              >
+                <AlertTriangle size={24} color="var(--danger)" />
               </div>
-              <h3 id="delete-category-title" className="text-lg sm:text-xl font-semibold text-center text-gray-900 mb-2">
-                Delete category
-              </h3>
-              <p className="text-center text-gray-500 text-sm mb-6">
-                Are you sure you want to delete <strong>{category.name}</strong>? This cannot be undone.
+              <h2
+                id="delete-category-title"
+                style={{
+                  fontSize: '18px',
+                  fontWeight: 600,
+                  margin: '0 0 8px',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Delete category?
+              </h2>
+              <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>
+                This will permanently delete {category.name}. This action cannot be undone.
               </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={onClose}
-                  className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={isDeleting}
-                  className="flex-1 px-4 py-2 text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
-                >
-                  {isDeleting && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  Delete
-                </button>
-              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                onClick={onClose}
+                className="btn-ghost"
+                style={{ flex: 1 }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="btn-danger"
+                style={{ flex: 1 }}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
             </div>
           </motion.div>
         </div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 };

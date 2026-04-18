@@ -22,7 +22,6 @@ const Login: React.FC = () => {
       const response = await apiClient.post<AuthResponse>('/auth/login', { email, password });
       console.log('Login response:', response.data);
 
-      // API returns: { success, token, refreshToken, data: { user } }
       const { data, token, refreshToken } = response.data;
       const finalUser = data?.user;
 
@@ -51,18 +50,45 @@ const Login: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-4">
-      <div className="w-full max-w-md bg-white rounded-lg sm:rounded-2xl shadow-lg sm:shadow-xl p-6 sm:p-8 border border-gray-100">
+    <div
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{
+        background: 'linear-gradient(135deg, var(--bg-base) 0%, var(--bg-surface) 100%)',
+      }}
+    >
+      <div
+        className="w-full max-w-md rounded-lg sm:rounded-2xl p-6 sm:p-8"
+        style={{
+          background: 'var(--bg-card)',
+          border: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-modal)',
+        }}
+      >
         <div className="text-center mb-8">
-          <h1 className="text-3xl sm:text-4xl font-bold text-primary tracking-tighter mb-2">InkArt</h1>
-          <p className="text-sm sm:text-base text-gray-500">Admin Management Portal</p>
+          <h1
+            className="text-3xl sm:text-4xl font-bold tracking-tighter mb-2"
+            style={{ color: 'var(--accent)' }}
+          >
+            InkArt
+          </h1>
+          <p className="text-sm sm:text-base" style={{ color: 'var(--text-secondary)' }}>
+            Admin Management Portal
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
           <div>
-            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5 sm:mb-2">Email Address</label>
+            <label
+              className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Email Address
+            </label>
             <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5" />
+              <Mail
+                className="absolute left-3 top-1/2 -translate-y-1/2 flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5"
+                style={{ color: 'var(--text-muted)' }}
+              />
               <input
                 type="email"
                 required
@@ -75,9 +101,17 @@ const Login: React.FC = () => {
           </div>
 
           <div>
-            <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1.5 sm:mb-2">Password</label>
+            <label
+              className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              Password
+            </label>
             <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5" />
+              <Lock
+                className="absolute left-3 top-1/2 -translate-y-1/2 flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5"
+                style={{ color: 'var(--text-muted)' }}
+              />
               <input
                 type="password"
                 required
@@ -98,8 +132,13 @@ const Login: React.FC = () => {
           </button>
         </form>
 
-        <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-          <p className="text-xs text-gray-400">© 2026 InkArt. All rights reserved.</p>
+        <div
+          className="mt-8 pt-6 text-center"
+          style={{ borderTop: '1px solid var(--border)' }}
+        >
+          <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            © 2026 InkArt. All rights reserved.
+          </p>
         </div>
       </div>
     </div>

@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import { X, Upload, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -42,9 +41,19 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [knownCategories, setKnownCategories] = useState<CategoryLookupItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const categoryListId = 'known-category-names';
 
   const isObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value.trim());
+
+  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    return Array.from(container.querySelectorAll(selector)).filter(
+      (element: any) => !element.hasAttribute('disabled')
+    ) as HTMLElement[];
+  };
 
   const extractCategoriesFromPayload = (payload: any): CategoryLookupItem[] => {
     const items: CategoryLookupItem[] = [];
@@ -130,6 +139,58 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    const handleOverlayMouseDown = (event: MouseEvent) => {
+      if (overlayRef.current && event.target === overlayRef.current) {
+        handleClose();
+      }
+    };
+
+    const handleTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !contentRef.current) return;
+
+      const focusableElements = getFocusableElements(contentRef.current);
+      if (focusableElements.length === 0) return;
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey) {
+        if (document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
+    focusable[0]?.focus();
+
+    const overlay = overlayRef.current;
+    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', handleTab);
+    overlay?.addEventListener('mousedown', handleOverlayMouseDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleTab);
+      overlay?.removeEventListener('mousedown', handleOverlayMouseDown);
+      previousFocusRef.current?.focus();
+    };
+  }, [isOpen]);
+
   const validate = (): boolean => {
     const newErrors: FormErrors = {};
 
@@ -162,8 +223,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   const handleImageChange = (file: File | null) => {
     if (file) {
       if (!file.type.startsWith('image/')) {
-        setErrors(prev => ({ ...prev, images: 'Only JPG, PNG, and WebP files are allowed' }));
-        // Clear the file input so user can reselect the same file
+        setErrors((prev) => ({ ...prev, images: 'Only JPG, PNG, and WebP files are allowed' }));
         if (fileInputRef.current) {
           fileInputRef.current.value = '';
         }
@@ -174,7 +234,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       }
       setImages(file);
       setImagePreview(URL.createObjectURL(file));
-      setErrors(prev => ({ ...prev, images: undefined }));
+      setErrors((prev) => ({ ...prev, images: undefined }));
     }
   };
 
@@ -236,7 +296,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (productType === 'stocked') {
       formData.append('stock', String(stock));
     }
-   formData.append('image', images!);
+    formData.append('image', images!);
     formData.append('basePrice', String(basePrice));
 
     try {
@@ -274,135 +334,188 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
   return (
     <AnimatePresence>
-      {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm">
+      {isOpen ? (
+        <div ref={overlayRef} className="modal-backdrop" role="presentation">
           <motion.div
+            ref={contentRef}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[95vh] flex flex-col"
+            className="modal-box modal-box-lg"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-product-title"
           >
-            <form onSubmit={handleSubmit} className="flex flex-col min-h-0">
-              <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-primary text-white flex-shrink-0">
-                <h3 className="text-base sm:text-xl font-bold truncate">Create New Product</h3>
+            <form onSubmit={handleSubmit}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '24px',
+                  gap: '12px',
+                }}
+              >
+                <h2
+                  id="create-product-title"
+                  style={{
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    margin: 0,
+                  }}
+                >
+                  Create Product
+                </h2>
                 <button
                   type="button"
                   onClick={handleClose}
                   disabled={isSubmitting}
-                  className="p-2 hover:bg-white/10 rounded-full transition-colors disabled:opacity-50 flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
+                  className="action-icon-button"
                   aria-label="Close modal"
                 >
                   <X size={20} />
                 </button>
               </div>
 
-              <div className="p-4 sm:p-6 space-y-3 sm:space-y-4 overflow-y-auto flex-1 min-h-0">
-                <div>
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                    Product Name <span className="text-red-500">*</span>
-                  </label>
+              <div style={{ display: 'grid', gap: '16px' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Product name</label>
                   <input
                     type="text"
                     disabled={isSubmitting}
-                    className={`input-field text-base sm:text-sm ${errors.name ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    className="input-field"
+                    style={errors.name ? { borderColor: 'var(--danger)' } : undefined}
                     placeholder="Enter product name..."
                     value={name}
                     onChange={(e) => {
                       setName(e.target.value);
-                      if (errors.name) setErrors(prev => ({ ...prev, name: undefined }));
+                      if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
                     }}
                   />
-                  {errors.name && (
-                    <p className="text-red-500 text-xs mt-1">{errors.name}</p>
-                  )}
+                  {errors.name ? (
+                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                      {errors.name}
+                    </p>
+                  ) : null}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                      Price <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium text-sm">{'\u20B9'}</span>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Price</label>
+                    <div style={{ position: 'relative' }}>
+                      <span
+                        style={{
+                          position: 'absolute',
+                          left: 14,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          color: 'var(--text-muted)',
+                          fontSize: '14px',
+                        }}
+                      >
+                        ₹
+                      </span>
                       <input
                         type="number"
                         step="0.01"
                         min="0.01"
                         disabled={isSubmitting}
-                        className={`input-field pl-8 text-base sm:text-sm ${errors.price ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        className="input-field"
+                        style={errors.price ? { paddingLeft: 30, borderColor: 'var(--danger)' } : { paddingLeft: 30 }}
                         placeholder="0.00"
                         value={price || ''}
                         onChange={(e) => {
                           setPrice(parseFloat(e.target.value) || 0);
-                          if (errors.price) setErrors(prev => ({ ...prev, price: undefined }));
+                          if (errors.price) setErrors((prev) => ({ ...prev, price: undefined }));
                         }}
                       />
                     </div>
-                    {errors.price && (
-                      <p className="text-red-500 text-xs mt-1">{errors.price}</p>
-                    )}
+                    {errors.price ? (
+                      <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                        {errors.price}
+                      </p>
+                    ) : null}
                   </div>
 
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                      Base Price <span className="text-red-500">*</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 font-medium text-sm">{'\u20B9'}</span>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Base price</label>
+                    <div style={{ position: 'relative' }}>
+                      <span
+                        style={{
+                          position: 'absolute',
+                          left: 14,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          color: 'var(--text-muted)',
+                          fontSize: '14px',
+                        }}
+                      >
+                        ₹
+                      </span>
                       <input
                         type="number"
                         step="0.01"
                         min="0.01"
                         disabled={isSubmitting}
-                        className={`input-field pl-8 text-base sm:text-sm ${errors.basePrice ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        className="input-field"
+                        style={errors.basePrice ? { paddingLeft: 30, borderColor: 'var(--danger)' } : { paddingLeft: 30 }}
                         placeholder="0.00"
                         value={basePrice || ''}
                         onChange={(e) => {
                           setBasePrice(parseFloat(e.target.value) || 0);
-                          if (errors.basePrice) setErrors(prev => ({ ...prev, basePrice: undefined }));
+                          if (errors.basePrice) setErrors((prev) => ({ ...prev, basePrice: undefined }));
                         }}
                       />
                     </div>
-                    {errors.basePrice && (
-                      <p className="text-red-500 text-xs mt-1">{errors.basePrice}</p>
-                    )}
+                    {errors.basePrice ? (
+                      <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                        {errors.basePrice}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                    Description <span className="text-red-500">*</span>
-                  </label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Description</label>
                   <textarea
                     rows={3}
                     disabled={isSubmitting}
-                    className={`input-field text-base sm:text-sm ${errors.description ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    className="input-field"
+                    style={errors.description ? { borderColor: 'var(--danger)' } : undefined}
                     placeholder="Enter product description..."
                     value={description}
                     onChange={(e) => {
                       setDescription(e.target.value);
-                      if (errors.description) setErrors(prev => ({ ...prev, description: undefined }));
+                      if (errors.description) setErrors((prev) => ({ ...prev, description: undefined }));
                     }}
                   />
-                  {errors.description && (
-                    <p className="text-red-500 text-xs mt-1">{errors.description}</p>
-                  )}
+                  {errors.description ? (
+                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                      {errors.description}
+                    </p>
+                  ) : null}
                 </div>
 
-                <div>
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                    Category <span className="text-red-500">*</span>
-                  </label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Category</label>
                   <input
                     type="text"
                     list={categoryListId}
                     disabled={isSubmitting}
-                    className={`input-field text-base sm:text-sm ${errors.category ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    className="input-field"
+                    style={errors.category ? { borderColor: 'var(--danger)' } : undefined}
                     placeholder="Type existing category name (or paste category ID)"
                     value={category}
                     onChange={(e) => {
                       setCategory(e.target.value);
-                      if (errors.category) setErrors(prev => ({ ...prev, category: undefined }));
+                      if (errors.category) setErrors((prev) => ({ ...prev, category: undefined }));
                     }}
                   />
                   <datalist id={categoryListId}>
@@ -410,24 +523,29 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       <option key={entry._id} value={entry.name} />
                     ))}
                   </datalist>
-                  {errors.category && (
-                    <p className="text-red-500 text-xs mt-1">{errors.category}</p>
-                  )}
+                  {errors.category ? (
+                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                      {errors.category}
+                    </p>
+                  ) : null}
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                      Product Type <span className="text-red-500">*</span>
-                    </label>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Product type</label>
                     <select
                       disabled={isSubmitting}
-                      className="input-field text-base sm:text-sm"
+                      className="input-field"
                       value={productType}
                       onChange={(e) => {
                         setProductType(e.target.value as 'stocked' | 'on_demand');
-                        // Clear stock error when switching product type
-                        setErrors(prev => ({ ...prev, stock: undefined }));
+                        setErrors((prev) => ({ ...prev, stock: undefined }));
                       }}
                     >
                       <option value="stocked">Stocked</option>
@@ -435,41 +553,47 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                     </select>
                   </div>
 
-                  {productType === 'stocked' && (
-                    <div>
-                      <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                        Stock Quantity <span className="text-red-500">*</span>
-                      </label>
+                  {productType === 'stocked' ? (
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">Stock quantity</label>
                       <input
                         type="number"
                         min="0"
                         disabled={isSubmitting}
                         placeholder="0"
-                        className={`input-field text-base sm:text-sm ${errors.stock ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        className="input-field"
+                        style={errors.stock ? { borderColor: 'var(--danger)' } : undefined}
                         value={stock}
                         onChange={(e) => {
                           setStock(parseInt(e.target.value, 10) || 0);
-                          if (errors.stock) setErrors(prev => ({ ...prev, stock: undefined }));
+                          if (errors.stock) setErrors((prev) => ({ ...prev, stock: undefined }));
                         }}
                       />
-                      {errors.stock && (
-                        <p className="text-red-500 text-xs mt-1">{errors.stock}</p>
-                      )}
+                      {errors.stock ? (
+                        <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                          {errors.stock}
+                        </p>
+                      ) : null}
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
-                <div>
-                  <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                    Product Image <span className="text-red-500">*</span>
-                  </label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Product image</label>
                   <div
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}
                     onClick={() => !isSubmitting && fileInputRef.current?.click()}
-                    className={`border-2 border-dashed rounded-xl p-4 sm:p-6 text-center transition-all cursor-pointer ${
-                      errors.images ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-accent'
-                    } ${isSubmitting ? 'opacity-50 cursor-not-allowed' : ''} min-h-[120px] sm:min-h-[150px] flex flex-col items-center justify-center`}
+                    style={{
+                      border: `1px dashed ${errors.images ? 'var(--danger)' : 'var(--border-active)'}`,
+                      borderRadius: 'var(--radius-md)',
+                      padding: '24px',
+                      textAlign: 'center',
+                      transition: 'border-color 0.2s, background 0.2s',
+                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      background: errors.images ? 'var(--danger-muted)' : 'var(--bg-surface)',
+                      opacity: isSubmitting ? 0.6 : 1,
+                    }}
                   >
                     <input
                       ref={fileInputRef}
@@ -480,47 +604,62 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       onChange={(e) => handleImageChange(e.target.files?.[0] || null)}
                     />
                     {imagePreview ? (
-                      <div className="space-y-1 sm:space-y-2 w-full">
+                      <div style={{ display: 'grid', gap: '8px' }}>
                         <img
                           src={imagePreview}
                           alt="Preview"
-                          className="mx-auto max-h-24 sm:max-h-32 rounded-lg object-contain"
+                          style={{
+                            margin: '0 auto',
+                            maxHeight: 128,
+                            borderRadius: 12,
+                            objectFit: 'contain',
+                          }}
                         />
-                        <p className="text-xs sm:text-sm text-gray-500 truncate">{images?.name}</p>
-                        <p className="text-xs text-accent">Click or drag to replace</p>
+                        <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px' }}>
+                          {images?.name}
+                        </p>
+                        <p style={{ margin: 0, color: 'var(--accent)', fontSize: '12px' }}>
+                          Click or drag to replace
+                        </p>
                       </div>
                     ) : (
-                      <>
-                        <Upload className="text-gray-400 mb-2 flex-shrink-0 w-5 h-5 sm:w-6 sm:h-6" />
-                        <p className="text-xs sm:text-sm text-gray-500">Click or drag image to upload</p>
-                        <p className="text-xs text-gray-400 mt-1">JPG, PNG, or WebP</p>
-                      </>
+                      <div style={{ display: 'grid', gap: '8px', justifyItems: 'center' }}>
+                        <Upload size={24} color="var(--text-muted)" />
+                        <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px' }}>
+                          Click or drag image to upload
+                        </p>
+                        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '12px' }}>
+                          JPG, PNG, or WebP
+                        </p>
+                      </div>
                     )}
                   </div>
-                  {errors.images && (
-                    <p className="text-red-500 text-xs mt-1">{errors.images}</p>
-                  )}
+                  {errors.images ? (
+                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                      {errors.images}
+                    </p>
+                  ) : null}
                 </div>
               </div>
 
-              <div className="p-3 sm:p-4 bg-gray-50 flex justify-end gap-2 flex-shrink-0 border-t border-gray-100">
-                <button
-                  type="button"
-                  onClick={handleClose}
-                  disabled={isSubmitting}
-                  className="px-3 sm:px-4 py-2 sm:py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-xs sm:text-sm disabled:opacity-50 min-h-[40px] sm:min-h-auto"
-                >
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '10px',
+                  justifyContent: 'flex-end',
+                  marginTop: '24px',
+                  paddingTop: '16px',
+                  borderTop: '1px solid var(--border)',
+                }}
+              >
+                <button type="button" onClick={handleClose} disabled={isSubmitting} className="btn-ghost">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 sm:px-6 py-2 sm:py-2 bg-accent text-white rounded-lg hover:opacity-90 transition-colors font-medium flex items-center gap-1 sm:gap-2 text-xs sm:text-sm disabled:opacity-50 min-h-[40px] sm:min-h-auto"
-                >
+                <button type="submit" disabled={isSubmitting} className="btn-primary">
                   {isSubmitting ? (
                     <>
-                      <Loader2 className="animate-spin flex-shrink-0" size={16} />
-                      <span className="hidden sm:inline">Creating...</span>
+                      <Loader2 className="animate-spin" size={16} />
+                      Creating...
                     </>
                   ) : (
                     'Create Product'
@@ -530,7 +669,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
             </form>
           </motion.div>
         </div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 };

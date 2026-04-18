@@ -55,91 +55,119 @@ const Categories: React.FC = () => {
   }, [categories, page]);
 
   return (
-    <div className="space-y-4 md:space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Categories</h2>
-        <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="btn-primary flex items-center justify-center gap-2 w-full sm:w-auto py-2.5 sm:py-2 text-sm sm:text-base min-h-[44px] sm:min-h-auto"
-        >
-          <Plus size={20} />
-          Add category
-        </button>
-      </div>
+    <div className="page-wrapper">
+      <div style={{ display: 'grid', gap: '24px' }}>
+        <div style={{ display: 'grid', gap: '6px' }}>
+          <h1 className="page-title">Categories</h1>
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>
+            Organize products and control whether each category is visible to the store.
+          </p>
+        </div>
 
-      <div className="card overflow-hidden !p-0 border-0 shadow-sm">
-        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-          <div className="inline-block min-w-full">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-gray-50 border-b border-gray-100">
+        <div className="toolbar-row" style={{ marginBottom: 0 }}>
+          <h2 className="section-title" style={{ marginBottom: 0 }}>
+            Categories
+          </h2>
+
+          <button
+            type="button"
+            onClick={() => setIsCreateModalOpen(true)}
+            className="btn-primary"
+          >
+            <Plus size={18} />
+            <span>Add Category</span>
+          </button>
+        </div>
+
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-container" style={{ border: 'none', borderRadius: 'inherit' }}>
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Name</th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Description</th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap text-center">Status</th>
-                  <th className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Created</th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right whitespace-nowrap">Actions</th>
+                  <th>Name</th>
+                  <th>Description</th>
+                  <th>Status</th>
+                  <th>Created</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+
+              <tbody>
                 {isLoading ? (
-                  Array.from({ length: 5 }).map((_, index) => (
-                    <tr key={index} className="animate-pulse">
-                      <td colSpan={5} className="px-3 sm:px-4 md:px-6 py-4">
-                        <div className="h-12 bg-gray-100 rounded w-full" />
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <tr key={index}>
+                      <td colSpan={5}>
+                        <div className="skeleton" style={{ height: 48 }} />
                       </td>
                     </tr>
                   ))
                 ) : categories.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-3 sm:px-4 md:px-6 py-10 text-center text-gray-500">
-                      <div className="flex flex-col items-center gap-3">
-                        <Tag size={36} className="text-gray-300" />
-                        <p className="text-base font-medium">No categories yet</p>
-                        <button
-                          onClick={() => setIsCreateModalOpen(true)}
-                          className="btn-primary px-4 py-2 text-sm"
-                        >
-                          Create your first category
-                        </button>
+                    <td colSpan={5}>
+                      <div
+                        style={{
+                          textAlign: 'center',
+                          padding: '60px 20px',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        <Tag size={40} style={{ margin: '0 auto 12px', opacity: 0.35 }} />
+                        <p style={{ fontSize: '15px', margin: '0 0 4px', color: 'var(--text-primary)' }}>
+                          No categories yet
+                        </p>
+                        <p style={{ fontSize: '13px', margin: 0 }}>
+                          Create your first category to start organizing the catalog.
+                        </p>
                       </div>
                     </td>
                   </tr>
                 ) : (
                   paginatedCategories.map((category) => (
-                    <tr key={category._id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-sm font-medium text-gray-900">
-                        {category.name}
-                      </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-sm text-gray-600 max-w-xs truncate">
+                    <tr key={category._id} className="group">
+                      <td style={{ fontWeight: 500 }}>{category.name}</td>
+                      <td
+                        style={{
+                          color: 'var(--text-secondary)',
+                          maxWidth: 200,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
                         {category.description?.trim() || 'N/A'}
                       </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-center">
-                        <span
-                          className={`px-2 py-1 rounded-full text-xs font-medium inline-block ${
-                            category.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'
-                          }`}
-                        >
+                      <td>
+                        <span className={category.isActive ? 'badge-active' : 'badge-inactive'}>
                           {category.isActive ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-sm text-gray-600">
+                      <td style={{ color: 'var(--text-secondary)' }}>
                         {category.createdAt ? formatDate(category.createdAt) : 'N/A'}
                       </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-right">
-                        <div className="flex items-center justify-end gap-1 sm:gap-2">
+                      <td style={{ textAlign: 'right' }}>
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            gap: '8px',
+                          }}
+                        >
                           <button
+                            type="button"
                             onClick={() => setEditingCategory(category)}
-                            className="p-2 text-gray-400 hover:text-blue-500 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
+                            className="action-icon-button"
                             aria-label="Edit category"
                           >
-                            <Edit2 size={18} />
+                            <Edit2 size={16} />
                           </button>
                           <button
+                            type="button"
                             onClick={() => setDeletingCategory(category)}
-                            className="p-2 text-gray-400 hover:text-red-500 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
+                            className="action-icon-button danger"
                             aria-label="Delete category"
                           >
-                            <Trash2 size={18} />
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       </td>
@@ -149,46 +177,44 @@ const Categories: React.FC = () => {
               </tbody>
             </table>
           </div>
-        </div>
 
-        {categories.length > 0 && totalPages > 1 && (
-          <div className="px-3 sm:px-4 md:px-6 py-3 md:py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-2 overflow-x-auto">
-            <button
-              disabled={page === 1}
-              onClick={() => setPage((prev) => prev - 1)}
-              className="flex items-center gap-1 text-xs sm:text-sm font-medium text-gray-600 disabled:opacity-50 hover:text-accent whitespace-nowrap"
+          {categories.length > 0 && totalPages > 1 ? (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 16px',
+                borderTop: '1px solid var(--border)',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
             >
-              <ChevronLeft size={16} className="sm:w-4 sm:h-4" />
-              <span className="hidden sm:inline">Previous</span>
-            </button>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {Array.from({ length: Math.min(totalPages, 5) }).map((_, index) => {
-                const pageNum = totalPages > 5 ? (page > 3 ? page - 2 + index : index + 1) : index + 1;
-                if (pageNum > totalPages) return null;
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                Page {page} of {totalPages}
+              </p>
 
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => setPage(pageNum)}
-                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs font-medium transition-all flex items-center justify-center ${
-                      page === pageNum ? 'bg-accent text-white' : 'text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                );
-              })}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={page === 1}
+                  onClick={() => setPage((previous) => previous - 1)}
+                >
+                  <ChevronLeft size={15} /> Prev
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((previous) => previous + 1)}
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              </div>
             </div>
-            <button
-              disabled={page === totalPages}
-              onClick={() => setPage((prev) => prev + 1)}
-              className="flex items-center gap-1 text-xs sm:text-sm font-medium text-gray-600 disabled:opacity-50 hover:text-accent whitespace-nowrap"
-            >
-              <span className="hidden sm:inline">Next</span>
-              <ChevronRight size={16} className="sm:w-4 sm:h-4" />
-            </button>
-          </div>
-        )}
+          ) : null}
+        </div>
       </div>
 
       <CreateCategoryModal

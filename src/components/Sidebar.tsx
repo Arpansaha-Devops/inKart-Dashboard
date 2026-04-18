@@ -1,16 +1,31 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Users, Package, Tag, LogOut, X, AlertTriangle } from 'lucide-react';
+import {
+  AlertTriangle,
+  LayoutDashboard,
+  LogOut,
+  Package,
+  Tag,
+  Ticket,
+  Users,
+  X,
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { cn } from '../lib/utils';
 import apiClient from '../lib/apiClient';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'motion/react';
 
 interface SidebarProps {
   isOpen?: boolean;
   onClose?: () => void;
 }
+
+const navItems = [
+  { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+  { name: 'Customers', path: '/customers', icon: Users },
+  { name: 'Products', path: '/products', icon: Package },
+  { name: 'Categories', path: '/categories', icon: Tag },
+  { name: 'Coupons', path: '/coupons', icon: Ticket },
+];
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} }) => {
   const { logout } = useAuth();
@@ -25,129 +40,268 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
       navigate('/login');
     } catch (error) {
       console.error('Logout error', error);
-      logout(); // Logout anyway
+      logout();
       navigate('/login');
     } finally {
       setIsLogoutModalOpen(false);
     }
   };
 
-  const navItems = [
-    { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    { name: 'Customers', path: '/customers', icon: Users },
-    { name: 'Products', path: '/products', icon: Package },
-    { name: 'Categories', path: '/categories', icon: Tag },
-    { name: 'Coupons', path: '/coupons', icon: Tag },
-  ];
-
   const handleNavClick = () => {
     onClose();
   };
 
-  return (
-    <>
-      {/* Mobile Backdrop */}
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm lg:hidden"
-            onClick={onClose}
-          />
-        )}
-      </AnimatePresence>
+  useEffect(() => {
+    if (!isLogoutModalOpen) return;
 
-      {/* Sidebar Container */}
-      <motion.div
-        initial={false}
-        animate={{ x: isOpen ? 0 : -256 }}
-        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-        className="w-64 shrink-0 bg-primary text-white h-screen flex flex-col fixed left-0 top-0 z-40 lg:sticky lg:top-0 lg:left-auto"
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsLogoutModalOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [isLogoutModalOpen]);
+
+  const renderNavigation = (mobile = false) => (
+    <>
+      <div
+        style={{
+          padding: mobile ? '20px 20px 18px' : '24px 20px 18px',
+          borderBottom: '1px solid var(--border)',
+          display: 'flex',
+          alignItems: 'flex-start',
+          justifyContent: 'space-between',
+          gap: '12px',
+        }}
       >
-        <div className="p-4 sm:p-5 md:p-6 border-b border-white/10 flex items-center justify-between">
-          <div className="flex-1">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tighter text-accent">InkArt</h1>
-            <p className="text-xs text-gray-400 mt-1 uppercase tracking-widest">Admin Panel</p>
-          </div>
+        <div>
+          <h1
+            style={{
+              margin: 0,
+              fontSize: '28px',
+              lineHeight: 1,
+              fontWeight: 700,
+              letterSpacing: '-0.04em',
+              color: 'var(--accent)',
+            }}
+          >
+            InkArt
+          </h1>
+          <p
+            style={{
+              margin: '8px 0 0',
+              fontSize: '11px',
+              lineHeight: 1.4,
+              color: 'var(--text-muted)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.16em',
+            }}
+          >
+            Admin Panel
+          </p>
+        </div>
+
+        {mobile ? (
           <button
+            type="button"
             onClick={onClose}
-            className="lg:hidden p-1 hover:bg-white/10 rounded-lg transition-colors"
+            className="action-icon-button lg:hidden"
+            aria-label="Close sidebar"
           >
             <X size={20} />
           </button>
-        </div>
+        ) : null}
+      </div>
 
-        <nav className="flex-1 p-3 sm:p-4 space-y-1 sm:space-y-2 overflow-y-auto">
+      <div
+        style={{
+          flex: 1,
+          padding: '20px',
+          display: 'flex',
+          flexDirection: 'column',
+          overflowY: 'auto',
+        }}
+      >
+        <p
+          style={{
+            margin: '0 0 16px',
+            fontSize: '11px',
+            color: 'var(--text-muted)',
+            textTransform: 'uppercase',
+            letterSpacing: '0.16em',
+          }}
+        >
+          Menu
+        </p>
+
+        <nav
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '6px',
+          }}
+        >
           {navItems.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}
               onClick={handleNavClick}
               className={({ isActive }) =>
-                cn(
-                  "flex items-center gap-3 px-3 sm:px-4 py-2 sm:py-3 rounded-lg transition-colors text-sm sm:text-base",
-                  isActive ? "bg-accent text-white" : "text-gray-400 hover:bg-white/5 hover:text-white"
-                )
+                `sidebar-nav-item ${isActive ? 'is-active' : ''}`
               }
             >
-              <item.icon size={20} />
-              <span className="font-medium">{item.name}</span>
+              <item.icon size={18} />
+              {item.name}
             </NavLink>
           ))}
         </nav>
+      </div>
 
-        <div className="p-3 sm:p-4 border-t border-white/10">
-          <button
-            onClick={() => setIsLogoutModalOpen(true)}
-            className="flex items-center gap-3 px-3 sm:px-4 py-2 sm:py-3 w-full rounded-lg text-gray-400 hover:bg-red-500/10 hover:text-red-500 transition-colors text-sm sm:text-base"
+      <div
+        style={{
+          padding: '20px',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => setIsLogoutModalOpen(true)}
+          className="sidebar-nav-item sidebar-nav-item--danger"
+        >
+          <LogOut size={18} />
+          Logout
+        </button>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+      <aside
+        className="hidden lg:flex lg:flex-col"
+        style={{
+          width: 'var(--sidebar-width)',
+          minWidth: 'var(--sidebar-width)',
+          background: 'var(--bg-surface)',
+          borderRight: '1px solid var(--border)',
+          height: '100vh',
+        }}
+      >
+        {renderNavigation()}
+      </aside>
+
+      <div
+        className="lg:hidden"
+        onClick={onClose}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onClose();
+          }
+        }}
+        role="button"
+        tabIndex={isOpen ? 0 : -1}
+        aria-label="Close sidebar"
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'var(--overlay-backdrop)',
+          opacity: isOpen ? 1 : 0,
+          pointerEvents: isOpen ? 'auto' : 'none',
+          transition: 'opacity 0.3s ease',
+          zIndex: 39,
+        }}
+      />
+
+      <aside
+        className="lg:hidden"
+        style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          bottom: 0,
+          width: 'var(--sidebar-width)',
+          maxWidth: '88vw',
+          background: 'var(--bg-surface)',
+          borderRight: '1px solid var(--border)',
+          zIndex: 40,
+          transform: isOpen ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.3s ease',
+          display: 'flex',
+          flexDirection: 'column',
+          boxShadow: 'var(--sidebar-panel-shadow)',
+        }}
+      >
+        {renderNavigation(true)}
+      </aside>
+
+      {isLogoutModalOpen ? (
+        <div className="modal-backdrop" onClick={() => setIsLogoutModalOpen(false)}>
+          <div
+            className="modal-box"
+            onClick={(event) => event.stopPropagation()}
+            style={{ maxWidth: '400px' }}
           >
-            <LogOut size={20} />
-            <span className="font-medium">Logout</span>
-          </button>
-        </div>
-      </motion.div>
-
-      {/* Logout Confirmation Modal */}
-      <AnimatePresence>
-        {isLogoutModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
-            >
-              <div className="p-6">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
-                  <AlertTriangle className="w-6 h-6 text-red-600" />
-                </div>
-                <h3 className="text-lg sm:text-xl font-semibold text-center text-gray-900 mb-2">
-                  Confirm Logout
-                </h3>
-                <p className="text-center text-gray-500 text-sm mb-6">
-                  Are you sure you want to log out? You will need to log in again to access the dashboard.
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setIsLogoutModalOpen(false)}
-                    className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleLogout}
-                    className="flex-1 px-4 py-2 text-white bg-red-600 hover:bg-red-700 rounded-lg font-medium transition-colors text-sm"
-                  >
-                    Log Out
-                  </button>
-                </div>
+            <div style={{ textAlign: 'center', padding: '8px 0 20px' }}>
+              <div
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: '50%',
+                  background: 'var(--danger-muted)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  margin: '0 auto 16px',
+                }}
+              >
+                <AlertTriangle size={24} color="var(--danger)" />
               </div>
-            </motion.div>
+
+              <h2
+                style={{
+                  fontSize: '18px',
+                  fontWeight: 600,
+                  margin: '0 0 8px',
+                  color: 'var(--text-primary)',
+                }}
+              >
+                Log out?
+              </h2>
+              <p
+                style={{
+                  fontSize: '14px',
+                  color: 'var(--text-secondary)',
+                  margin: 0,
+                }}
+              >
+                You’ll need to sign in again to access the dashboard.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ flex: 1 }}
+                onClick={() => setIsLogoutModalOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn-danger"
+                style={{ flex: 1 }}
+                onClick={handleLogout}
+              >
+                Log Out
+              </button>
+            </div>
           </div>
-        )}
-      </AnimatePresence>
+        </div>
+      ) : null}
     </>
   );
 };

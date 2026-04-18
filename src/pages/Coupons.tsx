@@ -1,5 +1,17 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Search, Plus, Edit2, Trash2, ChevronLeft, ChevronRight, X, Tag, AlertTriangle } from 'lucide-react';
+import {
+  Plus,
+  Edit2,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Tag,
+  AlertTriangle,
+  Ticket,
+  BadgePercent,
+  Clock3,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import { Coupon, CreateCouponPayload } from '../types';
@@ -7,16 +19,83 @@ import { createCoupon, updateCoupon, deleteCoupon } from '../services/couponServ
 import { formatDate } from '../lib/utils';
 import apiClient from '../lib/apiClient';
 
+const formatCurrency = (value?: number) =>
+  typeof value === 'number'
+    ? new Intl.NumberFormat('en-IN', {
+        style: 'currency',
+        currency: 'INR',
+        maximumFractionDigits: 2,
+      }).format(value)
+    : '\u2014';
+
+const COUPON_COUNT_KEYS = [
+  'total',
+  'totalCount',
+  'count',
+  'totalCoupons',
+  'totalResults',
+  'totalItems',
+];
+
+const extractCoupons = (payload: any): Coupon[] => {
+  if (Array.isArray(payload)) {
+    return payload;
+  }
+
+  if (payload && typeof payload === 'object') {
+    const findArray = (obj: any): any[] | null => {
+      if (Array.isArray(obj)) return obj;
+      if (!obj || typeof obj !== 'object') return null;
+
+      const commonKeys = ['data', 'coupons', 'results', 'items', 'list'];
+      for (const key of commonKeys) {
+        if (Array.isArray(obj[key])) return obj[key];
+      }
+
+      for (const key in obj) {
+        const result = findArray(obj[key]);
+        if (result) return result;
+      }
+      return null;
+    };
+
+    return findArray(payload) || [];
+  }
+
+  return [];
+};
+
+const extractTotalCoupons = (payload: any, fallback = 0): number => {
+  const visit = (node: any): number | null => {
+    if (!node || typeof node !== 'object') return null;
+
+    for (const key of COUPON_COUNT_KEYS) {
+      if (typeof node[key] === 'number') {
+        return node[key];
+      }
+    }
+
+    for (const value of Object.values(node)) {
+      const found = visit(value);
+      if (found !== null) return found;
+    }
+
+    return null;
+  };
+
+  return visit(payload) ?? fallback;
+};
+
 const Coupons: React.FC = () => {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [isLoadingAPI, setIsLoadingAPI] = useState(false);
-  const [activeFilters, setActiveFilters] = useState(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [deletingCoupon, setDeletingCoupon] = useState<Coupon | null>(null);
-  
+
   const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
   const [formData, setFormData] = useState<CreateCouponPayload>({
     code: '',
@@ -37,23 +116,24 @@ const Coupons: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const limit = 10;
-  const totalCount = coupons.length;
-  const totalPages = Math.ceil(totalCount / limit);
-  const displayedCoupons = coupons.slice((page - 1) * limit, page * limit);
+  const isServerPaginated = totalCount > coupons.length;
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  const displayedCoupons = isServerPaginated
+    ? coupons
+    : coupons.length <= limit
+      ? coupons
+      : coupons.slice((page - 1) * limit, page * limit);
 
-  const activeCouponsCount = coupons.filter((c) => c.isActive).length;
-  const expiredCouponsCount = coupons.filter(
-    (c) => new Date(c.validUntil) < new Date()
-  ).length;
+  const now = new Date();
+  const activeCouponsCount = coupons.filter((coupon) => coupon.isActive && new Date(coupon.validUntil) > now).length;
+  const expiredCouponsCount = coupons.filter((coupon) => !coupon.isActive || new Date(coupon.validUntil) <= now).length;
 
-  // Modal refs for accessibility (focus trap & click-outside)
   const modalOverlayRef = useRef<HTMLDivElement>(null);
   const deleteModalOverlayRef = useRef<HTMLDivElement>(null);
   const modalContentRef = useRef<HTMLDivElement>(null);
   const deleteModalContentRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
-  // Helper: Get all focusable elements
   const getFocusableElements = (container: HTMLElement): HTMLButtonElement[] => {
     const selector =
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -62,7 +142,6 @@ const Coupons: React.FC = () => {
     ) as HTMLButtonElement[];
   };
 
-  // Handle Escape key for Create/Edit modal
   useEffect(() => {
     if (!isModalOpen) return;
 
@@ -72,7 +151,6 @@ const Coupons: React.FC = () => {
       }
     };
 
-    // Handle click outside on overlay only
     const handleClickOutside = (event: MouseEvent) => {
       if (
         modalOverlayRef.current &&
@@ -82,7 +160,6 @@ const Coupons: React.FC = () => {
       }
     };
 
-    // Set initial focus to first focusable element
     const focusableElements = modalContentRef.current
       ? getFocusableElements(modalContentRef.current)
       : [];
@@ -91,7 +168,6 @@ const Coupons: React.FC = () => {
       focusableElements[0].focus();
     }
 
-    // Focus trap: prevent focus from leaving modal
     const handleTabKey = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return;
 
@@ -117,26 +193,24 @@ const Coupons: React.FC = () => {
 
     document.addEventListener('keydown', handleEscapeKey);
     document.addEventListener('keydown', handleTabKey);
-    
+
     const overlay = modalOverlayRef.current;
     overlay?.addEventListener('mousedown', handleClickOutside);
 
     return () => {
       document.removeEventListener('keydown', handleEscapeKey);
       document.removeEventListener('keydown', handleTabKey);
-      
+
       if (overlay) {
         overlay.removeEventListener('mousedown', handleClickOutside);
       }
 
-      // Restore focus
       if (previouslyFocusedElementRef.current) {
         previouslyFocusedElementRef.current.focus();
       }
     };
   }, [isModalOpen]);
 
-  // Handle Escape key for Delete modal
   useEffect(() => {
     if (!isDeleteModalOpen) return;
 
@@ -147,7 +221,6 @@ const Coupons: React.FC = () => {
       }
     };
 
-    // Handle click outside on overlay only
     const handleClickOutside = (event: MouseEvent) => {
       if (
         deleteModalOverlayRef.current &&
@@ -158,7 +231,6 @@ const Coupons: React.FC = () => {
       }
     };
 
-    // Set initial focus to Cancel/first button
     const focusableElements = deleteModalContentRef.current
       ? getFocusableElements(deleteModalContentRef.current)
       : [];
@@ -167,7 +239,6 @@ const Coupons: React.FC = () => {
       focusableElements[0].focus();
     }
 
-    // Focus trap: prevent focus from leaving modal
     const handleTabKey = (event: KeyboardEvent) => {
       if (event.key !== 'Tab') return;
 
@@ -193,71 +264,47 @@ const Coupons: React.FC = () => {
 
     document.addEventListener('keydown', handleEscapeKey);
     document.addEventListener('keydown', handleTabKey);
-    
+
     const deleteOverlay = deleteModalOverlayRef.current;
     deleteOverlay?.addEventListener('mousedown', handleClickOutside);
 
     return () => {
       document.removeEventListener('keydown', handleEscapeKey);
       document.removeEventListener('keydown', handleTabKey);
-      
+
       if (deleteOverlay) {
         deleteOverlay.removeEventListener('mousedown', handleClickOutside);
       }
 
-      // Restore focus
       if (previouslyFocusedElementRef.current) {
         previouslyFocusedElementRef.current.focus();
       }
     };
   }, [isDeleteModalOpen]);
-  // Fetch coupons from API on mount and when page changes
+
   useEffect(() => {
     const fetchCoupons = async () => {
       setIsLoadingAPI(true);
       try {
         const response = await apiClient.get<any>('/admin/coupons', {
-          params: { page, limit: 10 },
+          params: { page, limit },
         });
 
-        let couponsList: Coupon[] = [];
-
-        if (Array.isArray(response.data)) {
-          couponsList = response.data;
-        } else if (response.data && typeof response.data === 'object') {
-          // Helper to find array in nested response
-          const findArray = (obj: any): any[] | null => {
-            if (Array.isArray(obj)) return obj;
-            if (!obj || typeof obj !== 'object') return null;
-
-            const commonKeys = ['data', 'coupons', 'results', 'items', 'list'];
-            for (const key of commonKeys) {
-              if (Array.isArray(obj[key])) return obj[key];
-            }
-
-            for (const key in obj) {
-              const result = findArray(obj[key]);
-              if (result) return result;
-            }
-            return null;
-          };
-
-          couponsList = findArray(response.data) || [];
-        }
+        const couponsList = extractCoupons(response.data);
+        const count = extractTotalCoupons(response.data, couponsList.length);
 
         setCoupons(couponsList);
+        setTotalCount(count);
       } catch (error: any) {
-        // Gracefully handle 404 or other errors if endpoint not available yet
         console.error('Error fetching coupons:', error.response?.status, error.message);
-        // Don't show error toast since endpoint may not exist yet
-        // Keep existing coupons in local state
       } finally {
         setIsLoadingAPI(false);
       }
     };
 
     fetchCoupons();
-  }, [page]);
+  }, [page, limit]);
+
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
 
@@ -273,10 +320,10 @@ const Coupons: React.FC = () => {
     if (formData.discountType === 'percentage' && formData.discountValue > 100) {
       errors.discountValue = 'Percentage cannot exceed 100';
     }
-    
+
     const validFrom = new Date(formData.validFrom);
     const validUntil = new Date(formData.validUntil);
-    
+
     if (validUntil <= validFrom) {
       errors.validUntil = 'Valid Until must be after Valid From';
     }
@@ -341,13 +388,27 @@ const Coupons: React.FC = () => {
         const response = await updateCoupon(editingCoupon._id, payload);
         const updatedCoupon = response.data.coupon;
         setCoupons((prev) =>
-          prev.map((c) => (c._id === editingCoupon._id ? updatedCoupon : c))
+          prev.map((coupon) => (coupon._id === editingCoupon._id ? updatedCoupon : coupon))
         );
         toast.success('Coupon updated successfully!');
       } else {
         const response = await createCoupon(payload);
         const newCoupon = response.data.coupon;
-        setCoupons((prev) => [newCoupon, ...prev]);
+        setCoupons((prev) => {
+          if (!isServerPaginated) {
+            return [newCoupon, ...prev];
+          }
+
+          if (page === 1) {
+            return [newCoupon, ...prev].slice(0, limit);
+          }
+
+          return prev;
+        });
+        setTotalCount((prev) => prev + 1);
+        if (isServerPaginated && page !== 1) {
+          setPage(1);
+        }
         toast.success('Coupon created successfully!');
       }
 
@@ -366,7 +427,11 @@ const Coupons: React.FC = () => {
     setIsLoadingAPI(true);
     try {
       await deleteCoupon(deletingCoupon._id);
-      setCoupons((prev) => prev.filter((c) => c._id !== deletingCoupon._id));
+      setCoupons((prev) => prev.filter((coupon) => coupon._id !== deletingCoupon._id));
+      setTotalCount((prev) => Math.max(0, prev - 1));
+      if (!isServerPaginated && page > 1 && displayedCoupons.length === 1) {
+        setPage((prev) => prev - 1);
+      }
       toast.success('Coupon deleted successfully!');
       setIsDeleteModalOpen(false);
       setDeletingCoupon(null);
@@ -382,7 +447,7 @@ const Coupons: React.FC = () => {
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     const { name, value, type } = e.target;
-    
+
     if (name === 'code') {
       setFormData((prev) => ({
         ...prev,
@@ -396,7 +461,7 @@ const Coupons: React.FC = () => {
     } else if (name === 'applicableCategories') {
       setFormData((prev) => ({
         ...prev,
-        applicableCategories: value.split(',').map((c) => c.trim()).filter((c) => c),
+        applicableCategories: value.split(',').map((category) => category.trim()).filter((category) => category),
       }));
     } else {
       setFormData((prev) => ({
@@ -413,220 +478,238 @@ const Coupons: React.FC = () => {
     if (coupon.discountType === 'percentage') {
       return `${coupon.discountValue}%`;
     }
-    return `₹${coupon.discountValue}`;
+    return formatCurrency(coupon.discountValue);
   };
 
   const getMinOrderLabel = (coupon: Coupon): string => {
-    return coupon.minOrderAmount ? `₹${coupon.minOrderAmount}` : '—';
+    return coupon.minOrderAmount ? formatCurrency(coupon.minOrderAmount) : '\u2014';
   };
 
   return (
-    <div className="space-y-4 md:space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Coupons</h2>
-        <button
-          onClick={() => handleOpenModal()}
-          className="btn-primary flex items-center justify-center gap-2 bg-accent w-full sm:w-auto py-2.5 sm:py-2 text-sm sm:text-base min-h-[44px] sm:min-h-auto"
-        >
-          <Plus size={20} /> Create Coupon
-        </button>
-      </div>
+    <div className="page-wrapper">
+      <div style={{ display: 'grid', gap: '24px' }}>
+        <div style={{ display: 'grid', gap: '6px' }}>
+          <h1 className="page-title">Coupons</h1>
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>
+            Create promotional offers and monitor which codes are still live.
+          </p>
+        </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
-        {[
-          { label: 'Total Coupons', value: totalCount, color: 'blue' },
-          { label: 'Active', value: activeCouponsCount, color: 'green' },
-          { label: 'Expired', value: expiredCouponsCount, color: 'red' },
-        ].map((stat) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: 'spring', stiffness: 100 }}
-            className="card"
-          >
-            <div className="flex items-center justify-between">
+        <div className="mini-stats-grid">
+          {[
+            {
+              label: 'Total Coupons',
+              value: totalCount,
+              color: 'var(--info)',
+              bg: 'var(--info-muted)',
+              icon: Ticket,
+            },
+            {
+              label: 'Active',
+              value: activeCouponsCount,
+              color: 'var(--success)',
+              bg: 'var(--success-muted)',
+              icon: BadgePercent,
+            },
+            {
+              label: 'Expired',
+              value: expiredCouponsCount,
+              color: 'var(--danger)',
+              bg: 'var(--danger-muted)',
+              icon: Clock3,
+            },
+          ].map(({ label, value, color, bg, icon: Icon }) => (
+            <div
+              key={label}
+              className="card"
+              style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+            >
               <div>
-                <p className="text-sm text-gray-500 font-medium">{stat.label}</p>
-                <p className={`text-2xl sm:text-3xl font-bold mt-1 ${
-                  stat.color === 'blue' ? 'text-blue-600' :
-                  stat.color === 'green' ? 'text-green-600' :
-                  'text-red-600'
-                }`}>
-                  {stat.value}
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 4px' }}>
+                  {label}
                 </p>
+                <p style={{ fontSize: '24px', fontWeight: 700, color, margin: 0 }}>{value}</p>
               </div>
-              <div className={`p-3 rounded-lg ${
-                stat.color === 'blue' ? 'bg-blue-100' :
-                stat.color === 'green' ? 'bg-green-100' :
-                'bg-red-100'
-              }`}>
-                <Tag className={`${
-                  stat.color === 'blue' ? 'text-blue-600' :
-                  stat.color === 'green' ? 'text-green-600' :
-                  'text-red-600'
-                }`} size={24} />
+              <div className="icon-box" style={{ background: bg }}>
+                <Icon size={20} color={color} />
               </div>
             </div>
-          </motion.div>
-        ))}
-      </div>
+          ))}
+        </div>
 
-      {/* Coupons Table */}
-      <div className="card overflow-hidden !p-0 border-0 shadow-sm">
-        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-          <div className="inline-block min-w-full">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-gray-50 border-b border-gray-100">
+        <div className="toolbar-row" style={{ marginBottom: 0 }}>
+          <h2 className="section-title" style={{ marginBottom: 0 }}>
+            Coupons
+          </h2>
+
+          <button type="button" onClick={() => handleOpenModal()} className="btn-primary">
+            <Plus size={18} />
+            <span>Create Coupon</span>
+          </button>
+        </div>
+
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-container" style={{ border: 'none', borderRadius: 'inherit' }}>
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Code
-                  </th>
-                  <th className="hidden sm:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Description
-                  </th>
-                  <th className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Type
-                  </th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap text-center">
-                    Discount
-                  </th>
-                  <th className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Min Order
-                  </th>
-                  <th className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                    Valid Until
-                  </th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap text-center">
-                    Status
-                  </th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right whitespace-nowrap">
-                    Actions
-                  </th>
+                  <th>Code</th>
+                  <th>Description</th>
+                  <th>Type</th>
+                  <th>Discount</th>
+                  <th>Min Order</th>
+                  <th>Valid Until</th>
+                  <th>Status</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
-                {displayedCoupons.length === 0 ? (
+
+              <tbody>
+                {isLoadingAPI ? (
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <tr key={index}>
+                      <td colSpan={8}>
+                        <div className="skeleton" style={{ height: 48 }} />
+                      </td>
+                    </tr>
+                  ))
+                ) : displayedCoupons.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-3 sm:px-4 md:px-6 py-8 sm:py-12 text-center text-gray-500 text-sm sm:text-base">
-                      <div className="flex flex-col items-center justify-center">
-                        <Tag size={40} className="text-gray-300 mb-3" />
-                        <p className="font-medium">No coupons yet</p>
-                        <p className="text-xs sm:text-sm">Create your first coupon to get started</p>
+                    <td colSpan={8}>
+                      <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-muted)' }}>
+                        <Tag size={40} style={{ margin: '0 auto 12px', opacity: 0.3 }} />
+                        <p style={{ fontSize: '15px', margin: '0 0 4px', color: 'var(--text-primary)' }}>
+                          No coupons yet
+                        </p>
+                        <p style={{ fontSize: '13px', margin: 0 }}>
+                          Create your first coupon to get started
+                        </p>
                       </div>
                     </td>
                   </tr>
                 ) : (
-                  displayedCoupons.map((coupon) => (
-                    <tr key={coupon._id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4">
-                        <span className="inline-block bg-accent text-white px-2 sm:px-3 py-1 rounded-full text-xs sm:text-sm font-mono font-bold">
-                          {coupon.code}
-                        </span>
-                      </td>
-                      <td className="hidden sm:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-600 max-w-xs truncate">
-                        {coupon.description}
-                      </td>
-                      <td className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium inline-block ${
-                          coupon.discountType === 'percentage'
-                            ? 'bg-blue-100 text-blue-700'
-                            : 'bg-green-100 text-green-700'
-                        }`}>
-                          {coupon.discountType === 'percentage' ? 'Percentage' : 'Flat Amount'}
-                        </span>
-                      </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm font-semibold text-center text-gray-900">
-                        {getDiscountLabel(coupon)}
-                      </td>
-                      <td className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-600">
-                        {getMinOrderLabel(coupon)}
-                      </td>
-                      <td className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-600">
-                        {formatDate(coupon.validUntil)}
-                      </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm text-center">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium inline-block ${
-                          coupon.isActive ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-                        }`}>
-                          {coupon.isActive ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-right">
-                        <div className="flex items-center justify-end gap-1 sm:gap-2">
-                          <button
-                            onClick={() => handleOpenModal(coupon)}
-                            className="p-2 text-gray-400 hover:text-blue-500 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
-                            aria-label="Edit coupon"
-                          >
-                            <Edit2 size={18} />
-                          </button>
-                          <button
-                            onClick={() => {
-                              setDeletingCoupon(coupon);
-                              setIsDeleteModalOpen(true);
+                  displayedCoupons.map((coupon) => {
+                    const isExpired = !coupon.isActive || new Date(coupon.validUntil) <= now;
+
+                    return (
+                      <tr key={coupon._id} className="group">
+                        <td>
+                          <span
+                            style={{
+                              fontFamily: "'SFMono-Regular', Consolas, monospace",
+                              color: 'var(--accent)',
+                              fontWeight: 600,
                             }}
-                            className="p-2 text-gray-400 hover:text-red-500 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
-                            aria-label="Delete coupon"
                           >
-                            <Trash2 size={18} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                            {coupon.code}
+                          </span>
+                        </td>
+                        <td style={{ color: 'var(--text-secondary)', maxWidth: 280 }}>
+                          <div
+                            style={{
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {coupon.description}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={coupon.discountType === 'percentage' ? 'badge-info' : 'badge-warning'}>
+                            {coupon.discountType === 'percentage' ? 'Percentage' : 'Flat'}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{getDiscountLabel(coupon)}</td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{getMinOrderLabel(coupon)}</td>
+                        <td style={{ color: 'var(--text-secondary)' }}>{formatDate(coupon.validUntil)}</td>
+                        <td>
+                          <span className={isExpired ? 'badge-danger' : 'badge-active'}>
+                            {isExpired ? 'Expired' : 'Active'}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <div
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'flex-end',
+                              gap: '8px',
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => handleOpenModal(coupon)}
+                              className="action-icon-button"
+                              aria-label="Edit coupon"
+                            >
+                              <Edit2 size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setDeletingCoupon(coupon);
+                                setIsDeleteModalOpen(true);
+                              }}
+                              className="action-icon-button danger opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
+                              aria-label="Delete coupon"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
-        </div>
 
-        {totalPages > 1 && (
-          <div className="px-3 sm:px-4 md:px-6 py-3 md:py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-2 overflow-x-auto">
-            <button
-              disabled={page === 1}
-              onClick={() => setPage((p) => p - 1)}
-              className="flex items-center gap-1 text-xs sm:text-sm font-medium text-gray-600 disabled:opacity-50 hover:text-accent whitespace-nowrap"
+          {totalPages > 1 ? (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 16px',
+                borderTop: '1px solid var(--border)',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
             >
-              <ChevronLeft size={16} className="sm:w-4 sm:h-4" />
-              <span className="hidden sm:inline">Previous</span>
-            </button>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
-                const pageNum = totalPages > 5 ? (page > 3 ? page - 2 + i : i + 1) : i + 1;
-                if (pageNum > totalPages) return null;
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => setPage(pageNum)}
-                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs font-medium transition-all flex items-center justify-center ${
-                      page === pageNum ? 'bg-accent text-white' : 'text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                );
-              })}
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                Page {page} of {totalPages}
+              </p>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={page === 1}
+                  onClick={() => setPage((previous) => previous - 1)}
+                >
+                  <ChevronLeft size={15} /> Prev
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((previous) => previous + 1)}
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              </div>
             </div>
-            <button
-              disabled={page === totalPages}
-              onClick={() => setPage((p) => p + 1)}
-              className="flex items-center gap-1 text-xs sm:text-sm font-medium text-gray-600 disabled:opacity-50 hover:text-accent whitespace-nowrap"
-            >
-              <span className="hidden sm:inline">Next</span>
-              <ChevronRight size={16} className="sm:w-4 sm:h-4" />
-            </button>
-          </div>
-        )}
+          ) : null}
+        </div>
       </div>
 
-      {/* Create/Edit Coupon Modal */}
       <AnimatePresence>
-        {isModalOpen && (
-          <div 
+        {isModalOpen ? (
+          <div
             ref={modalOverlayRef}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            className="modal-backdrop"
             role="presentation"
           >
             <motion.div
@@ -634,29 +717,48 @@ const Coupons: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[95vh] flex flex-col overflow-hidden"
+              className="modal-box modal-box-lg"
               role="dialog"
               aria-modal="true"
-              aria-labelledby="modal-title"
+              aria-labelledby="coupon-modal-title"
             >
-              <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200">
-                <h3 id="modal-title" className="text-lg sm:text-xl font-semibold text-gray-900">
-                  {editingCoupon ? 'Edit Coupon' : 'Create Coupon'}
-                </h3>
-                <button
-                  onClick={() => setIsModalOpen(false)}
-                  className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '24px',
+                  gap: '12px',
+                }}
+              >
+                <h2
+                  id="coupon-modal-title"
+                  style={{
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    margin: 0,
+                  }}
                 >
-                  <X size={20} className="text-gray-600" />
+                  {editingCoupon ? 'Edit Coupon' : 'Create Coupon'}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="action-icon-button"
+                  aria-label="Close coupon modal"
+                >
+                  <X size={20} />
                 </button>
               </div>
 
-              <form id="coupon-form" onSubmit={handleSubmitForm} className="flex-1 overflow-y-auto min-h-0 p-4 sm:p-6 space-y-3 sm:space-y-4">
-                {/* Coupon Code */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Coupon Code *
-                  </label>
+              <form
+                id="coupon-form"
+                onSubmit={handleSubmitForm}
+                style={{ display: 'grid', gap: '16px' }}
+              >
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Coupon code</label>
                   <input
                     type="text"
                     name="code"
@@ -666,35 +768,39 @@ const Coupons: React.FC = () => {
                     maxLength={20}
                     className="input-field"
                   />
-                  {formErrors.code && (
-                    <p className="text-red-500 text-xs mt-1">{formErrors.code}</p>
-                  )}
+                  {formErrors.code ? (
+                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                      {formErrors.code}
+                    </p>
+                  ) : null}
                 </div>
 
-                {/* Description */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Description *
-                  </label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Description</label>
                   <textarea
                     name="description"
                     value={formData.description}
                     onChange={handleInputChange}
                     placeholder="30% off on orders above ₹500"
                     rows={2}
-                    className="input-field resize-none"
+                    className="input-field"
                   />
-                  {formErrors.description && (
-                    <p className="text-red-500 text-xs mt-1">{formErrors.description}</p>
-                  )}
+                  {formErrors.description ? (
+                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                      {formErrors.description}
+                    </p>
+                  ) : null}
                 </div>
 
-                {/* Discount Type & Value */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Discount Type *
-                    </label>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Discount type</label>
                     <select
                       name="discountType"
                       value={formData.discountType}
@@ -705,10 +811,9 @@ const Coupons: React.FC = () => {
                       <option value="flat">Flat Amount (₹)</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Discount Value *
-                    </label>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Discount value</label>
                     <input
                       type="number"
                       name="discountValue"
@@ -719,18 +824,17 @@ const Coupons: React.FC = () => {
                       step="0.01"
                       className="input-field"
                     />
-                    {formErrors.discountValue && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.discountValue}</p>
-                    )}
+                    {formErrors.discountValue ? (
+                      <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                        {formErrors.discountValue}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
-                {/* Max Discount Amount (only for percentage) */}
-                {formData.discountType === 'percentage' && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Max Discount Amount (₹)
-                    </label>
+                {formData.discountType === 'percentage' ? (
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Max discount amount</label>
                     <input
                       type="number"
                       name="maxDiscountAmount"
@@ -742,31 +846,31 @@ const Coupons: React.FC = () => {
                       className="input-field"
                     />
                   </div>
-                )}
+                ) : null}
 
-                {/* Min Order Amount */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Minimum Order Amount (₹)
-                  </label>
-                  <input
-                    type="number"
-                    name="minOrderAmount"
-                    value={formData.minOrderAmount || ''}
-                    onChange={handleInputChange}
-                    placeholder="400"
-                    min="0"
-                    step="0.01"
-                    className="input-field"
-                  />
-                </div>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Minimum order amount</label>
+                    <input
+                      type="number"
+                      name="minOrderAmount"
+                      value={formData.minOrderAmount || ''}
+                      onChange={handleInputChange}
+                      placeholder="400"
+                      min="0"
+                      step="0.01"
+                      className="input-field"
+                    />
+                  </div>
 
-                {/* Usage Limits */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Total Usage Limit
-                    </label>
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Usage limit</label>
                     <input
                       type="number"
                       name="usageLimit"
@@ -777,10 +881,17 @@ const Coupons: React.FC = () => {
                       className="input-field"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Per User Limit
-                    </label>
+                </div>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Per user limit</label>
                     <input
                       type="number"
                       name="perUserLimit"
@@ -791,14 +902,29 @@ const Coupons: React.FC = () => {
                       className="input-field"
                     />
                   </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Applicable categories</label>
+                    <input
+                      type="text"
+                      name="applicableCategories"
+                      value={formData.applicableCategories.join(', ')}
+                      onChange={handleInputChange}
+                      placeholder="Books, Electronics, Clothing"
+                      className="input-field"
+                    />
+                  </div>
                 </div>
 
-                {/* Valid From & Until */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Valid From *
-                    </label>
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Valid from</label>
                     <input
                       type="datetime-local"
                       name="validFrom"
@@ -807,10 +933,9 @@ const Coupons: React.FC = () => {
                       className="input-field"
                     />
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Valid Until *
-                    </label>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Valid until</label>
                     <input
                       type="datetime-local"
                       name="validUntil"
@@ -818,52 +943,56 @@ const Coupons: React.FC = () => {
                       onChange={handleInputChange}
                       className="input-field"
                     />
-                    {formErrors.validUntil && (
-                      <p className="text-red-500 text-xs mt-1">{formErrors.validUntil}</p>
-                    )}
+                    {formErrors.validUntil ? (
+                      <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                        {formErrors.validUntil}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
-                {/* Status */}
-                <div className="flex items-center">
-                  <input
-                    type="checkbox"
-                    name="isActive"
-                    checked={formData.isActive}
-                    onChange={handleInputChange}
-                    className="w-4 h-4 rounded border-gray-300 text-accent focus:ring-accent cursor-pointer"
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    type="button"
+                    className={`status-toggle ${formData.isActive ? 'is-active' : ''}`}
+                    onClick={() => setFormData((prev) => ({ ...prev, isActive: !prev.isActive }))}
+                    aria-pressed={formData.isActive}
+                    aria-label="Toggle coupon status"
+                    style={{ cursor: 'pointer' }}
                   />
-                  <label className="ml-2 text-sm font-medium text-gray-700 cursor-pointer">
-                    Active
-                  </label>
+                  <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    {formData.isActive ? 'Active' : 'Inactive'}
+                  </span>
                 </div>
 
-                {/* Applicable Categories */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Applicable Categories
-                  </label>
-                  <textarea
-                    name="applicableCategories"
-                    value={formData.applicableCategories.join(', ')}
-                    onChange={handleInputChange}
-                    placeholder="Electronics, Books, Clothing"
-                    rows={2}
-                    className="input-field resize-none"
-                  />
-                  <div className="mt-2 p-2 bg-blue-50 border border-blue-100 rounded-lg">
-                    <p className="text-xs text-blue-700 font-medium">💡 How to add multiple categories:</p>
-                    <p className="text-xs text-blue-600 mt-1">Type category names separated by commas. Example: <code className="bg-blue-100 px-1 rounded">Books, Electronics, Clothing</code></p>
-                    <p className="text-xs text-blue-600 mt-1">Leave empty to apply to all categories</p>
-                  </div>
+                <div
+                  style={{
+                    padding: '14px',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-surface)',
+                    border: '1px solid var(--border)',
+                    color: 'var(--text-secondary)',
+                    fontSize: '13px',
+                  }}
+                >
+                  Separate category names with commas. Leave this empty to apply the coupon to all categories.
                 </div>
               </form>
 
-              <div className="flex gap-3 p-4 sm:p-6 border-t border-gray-200 bg-gray-50">
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '10px',
+                  justifyContent: 'flex-end',
+                  marginTop: '24px',
+                  paddingTop: '16px',
+                  borderTop: '1px solid var(--border)',
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="flex-1 px-4 py-2 text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 rounded-lg font-medium transition-colors text-sm"
+                  className="btn-ghost"
                 >
                   Cancel
                 </button>
@@ -871,25 +1000,21 @@ const Coupons: React.FC = () => {
                   type="submit"
                   form="coupon-form"
                   disabled={isSubmitting}
-                  className="flex-1 px-4 py-2 bg-accent text-white hover:bg-accent/90 disabled:opacity-50 rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
+                  className="btn-primary"
                 >
-                  {isSubmitting && (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  )}
-                  {editingCoupon ? 'Update' : 'Create'}
+                  {isSubmitting ? (editingCoupon ? 'Updating...' : 'Creating...') : editingCoupon ? 'Update' : 'Create'}
                 </button>
               </div>
             </motion.div>
           </div>
-        )}
+        ) : null}
       </AnimatePresence>
 
-      {/* Delete Confirmation Modal */}
       <AnimatePresence>
-        {isDeleteModalOpen && (
-          <div 
+        {isDeleteModalOpen ? (
+          <div
             ref={deleteModalOverlayRef}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            className="modal-backdrop"
             role="presentation"
           >
             <motion.div
@@ -897,46 +1022,68 @@ const Coupons: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
+              className="modal-box"
+              style={{ maxWidth: '400px' }}
               role="dialog"
               aria-modal="true"
-              aria-labelledby="delete-modal-title"
+              aria-labelledby="delete-coupon-title"
             >
-              <div className="p-6">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
-                  <AlertTriangle className="w-6 h-6 text-red-600" aria-hidden="true" />
+              <div style={{ textAlign: 'center', padding: '8px 0 20px' }}>
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: '50%',
+                    background: 'var(--danger-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                  }}
+                >
+                  <AlertTriangle size={24} color="var(--danger)" />
                 </div>
-                <h3 id="delete-modal-title" className="text-lg sm:text-xl font-semibold text-center text-gray-900 mb-2">
-                  Delete Coupon?
-                </h3>
-                <p className="text-center text-gray-500 text-sm mb-6">
-                  Are you sure you want to delete the coupon <strong>{deletingCoupon?.code}</strong>? This action cannot be undone.
+                <h2
+                  id="delete-coupon-title"
+                  style={{
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    margin: '0 0 8px',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  Delete coupon?
+                </h2>
+                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>
+                  This will permanently delete {deletingCoupon?.code}. This action cannot be undone.
                 </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      setIsDeleteModalOpen(false);
-                      setDeletingCoupon(null);
-                    }}
-                    className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDelete}
-                    disabled={isLoadingAPI}
-                    className="flex-1 px-4 py-2 text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
-                  >
-                    {isLoadingAPI && (
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    )}
-                    Delete
-                  </button>
-                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteModalOpen(false);
+                    setDeletingCoupon(null);
+                  }}
+                  className="btn-ghost"
+                  style={{ flex: 1 }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={isLoadingAPI}
+                  className="btn-danger"
+                  style={{ flex: 1 }}
+                >
+                  {isLoadingAPI ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </motion.div>
           </div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

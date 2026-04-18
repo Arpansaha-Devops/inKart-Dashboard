@@ -1,7 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import apiClient from '../lib/apiClient';
 import { Product } from '../types';
-import { Plus, Edit2, Trash2, ChevronLeft, ChevronRight, X, Upload, Package, AlertTriangle } from 'lucide-react';
+import {
+  Plus,
+  Edit2,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  X,
+  Upload,
+  Package,
+  AlertTriangle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
@@ -84,6 +94,16 @@ const extractTotalProducts = (payload: any, fallback = 0): number => {
   return visit(payload) ?? fallback;
 };
 
+const formatCurrency = (value: number) =>
+  new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2,
+  }).format(value || 0);
+
+const PRODUCT_PLACEHOLDER_IMAGE =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Crect width='160' height='160' rx='18' fill='%231a1a1a'/%3E%3Crect x='20' y='20' width='120' height='120' rx='14' fill='%232a2a2a' stroke='%23404040'/%3E%3Cpath d='M52 102l20-24 14 16 18-24 18 32H52z' fill='%23f97316' opacity='.8'/%3E%3Ccircle cx='62' cy='58' r='10' fill='%23f97316' opacity='.9'/%3E%3C/svg%3E";
+
 const Products: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -153,7 +173,7 @@ const Products: React.FC = () => {
       }
     }
 
-    return 'https://picsum.photos/seed/product/100/100';
+    return PRODUCT_PLACEHOLDER_IMAGE;
   };
 
   const getCategoryLabel = (product: any): string => {
@@ -186,11 +206,10 @@ const Products: React.FC = () => {
       }
     }
     if (Object.keys(merged).length > 0) {
-      setCategoryNameById(prev => ({ ...prev, ...merged }));
+      setCategoryNameById((prev) => ({ ...prev, ...merged }));
     }
   };
 
-  // Form states
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -228,7 +247,7 @@ const Products: React.FC = () => {
       setProducts(productsList);
       setTotalCount(count);
       if (Object.keys(mappedCategories).length > 0) {
-        setCategoryNameById(prev => ({ ...prev, ...mappedCategories }));
+        setCategoryNameById((prev) => ({ ...prev, ...mappedCategories }));
       }
     } catch (error) {
       console.error('Error fetching products', error);
@@ -316,6 +335,32 @@ const Products: React.FC = () => {
       }
     };
   }, [isDeleteModalOpen]);
+
+  useEffect(() => {
+    if (!isModalOpen) return;
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsModalOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscapeKey);
+    return () => document.removeEventListener('keydown', handleEscapeKey);
+  }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!isStockModalOpen) return;
+
+    const handleEscapeKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsStockModalOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscapeKey);
+    return () => document.removeEventListener('keydown', handleEscapeKey);
+  }, [isStockModalOpen]);
 
   const handleOpenModal = (product?: Product) => {
     if (product) {
@@ -411,104 +456,158 @@ const Products: React.FC = () => {
   const totalPages = Math.ceil(totalCount / limit);
 
   return (
-    <div className="space-y-4 md:space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-        <h2 className="text-xl sm:text-2xl font-bold text-gray-900">Product Inventory</h2>
-        <button
-          onClick={() => setIsCreateModalOpen(true)}
-          className="btn-primary flex items-center justify-center gap-2 bg-accent w-full sm:w-auto py-2.5 sm:py-2 text-sm sm:text-base min-h-[44px] sm:min-h-auto"
-        >
-          <Plus size={20} /> Create Product
-        </button>
-      </div>
+    <div className="page-wrapper">
+      <div style={{ display: 'grid', gap: '24px' }}>
+        <div style={{ display: 'grid', gap: '6px' }}>
+          <h1 className="page-title">Products</h1>
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>
+            Review inventory, pricing, and stock changes across the catalog.
+          </p>
+        </div>
 
-      <div className="card overflow-hidden !p-0 border-0 shadow-sm">
-        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
-          <div className="inline-block min-w-full">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-gray-50 border-b border-gray-100">
+        <div className="toolbar-row" style={{ marginBottom: 0 }}>
+          <div>
+            <h2 className="section-title" style={{ marginBottom: 0 }}>
+              Product Inventory
+            </h2>
+          </div>
+
+          <button type="button" onClick={() => setIsCreateModalOpen(true)} className="btn-primary">
+            <Plus size={18} />
+            <span>Create Product</span>
+          </button>
+        </div>
+
+        <div className="card" style={{ padding: 0 }}>
+          <div className="table-container" style={{ border: 'none', borderRadius: 'inherit' }}>
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Product</th>
-                  <th className="hidden sm:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Category</th>
-                  <th className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Type</th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-center whitespace-nowrap">Stock</th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">Price</th>
-                  <th className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs font-semibold text-gray-500 uppercase tracking-wider text-right whitespace-nowrap">Actions</th>
+                  <th>Product</th>
+                  <th>Category</th>
+                  <th>Type</th>
+                  <th>Stock</th>
+                  <th>Price</th>
+                  <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100">
+
+              <tbody>
                 {isLoading ? (
-                  Array.from({ length: 5 }).map((_, i) => (
-                    <tr key={i} className="animate-pulse">
-                      <td colSpan={6} className="px-3 sm:px-4 md:px-6 py-4">
-                        <div className="h-12 bg-gray-100 rounded w-full"></div>
+                  Array.from({ length: 6 }).map((_, index) => (
+                    <tr key={index}>
+                      <td colSpan={6}>
+                        <div className="skeleton" style={{ height: 52 }} />
                       </td>
                     </tr>
                   ))
                 ) : products.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-3 sm:px-4 md:px-6 py-8 sm:py-12 text-center text-gray-500 text-sm sm:text-base">
-                      No products found. Start by adding one!
+                    <td colSpan={6}>
+                      <div
+                        style={{
+                          textAlign: 'center',
+                          padding: '56px 20px',
+                          color: 'var(--text-muted)',
+                        }}
+                      >
+                        No products found. Start by adding one.
+                      </div>
                     </td>
                   </tr>
                 ) : (
                   products.map((product) => (
-                    <tr key={product._id} className="hover:bg-gray-50 transition-colors">
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4">
-                        <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
+                    <tr key={product._id} className="group">
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <img
-                            src={getProductImageUrl(product)}
+                            src={getProductImageUrl(product) || PRODUCT_PLACEHOLDER_IMAGE}
                             alt={product.name}
-                            className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 rounded-lg object-contain bg-gray-100 p-1 flex-shrink-0"
+                            style={{
+                              width: 40,
+                              height: 40,
+                              borderRadius: 8,
+                              objectFit: 'cover',
+                              border: '1px solid var(--border)',
+                              flexShrink: 0,
+                              background: 'var(--bg-surface)',
+                            }}
                             referrerPolicy="no-referrer"
+                            onError={(event) => {
+                              (event.target as HTMLImageElement).src = PRODUCT_PLACEHOLDER_IMAGE;
+                            }}
                           />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs sm:text-sm font-medium text-gray-900 truncate">{product.name}</p>
-                            <p className="text-xs text-gray-500 truncate hidden sm:block max-w-[150px] md:max-w-[200px]">{product.description}</p>
+                          <div style={{ minWidth: 0 }}>
+                            <p style={{ fontWeight: 500, margin: 0, fontSize: 14 }}>
+                              {product.name}
+                            </p>
+                            <p
+                              style={{
+                                color: 'var(--text-muted)',
+                                margin: 0,
+                                fontSize: 12,
+                                maxWidth: 200,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                              }}
+                            >
+                              {product.description}
+                            </p>
                           </div>
                         </div>
                       </td>
-                      <td className="hidden sm:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm text-gray-600">
-                        {getCategoryLabel(product)}
-                      </td>
-                      <td className="hidden md:table-cell px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium inline-block ${
-                          product.productType === 'stocked' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'
-                        }`}>
-                          {product.productType ? String(product.productType).replace('_', ' ') : 'N/A'}
+                      <td style={{ color: 'var(--text-secondary)' }}>{getCategoryLabel(product)}</td>
+                      <td>
+                        <span className={product.productType === 'stocked' ? 'badge-stocked' : 'badge-on-demand'}>
+                          {product.productType === 'stocked' ? 'Stocked' : 'On Demand'}
                         </span>
                       </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm text-center">
+                      <td>
                         <button
+                          type="button"
                           onClick={() => {
                             setStockProduct(product);
                             setStockData({ quantity: 0, operation: 'add' });
                             setIsStockModalOpen(true);
                           }}
-                          className={`w-full min-h-[40px] sm:min-h-auto font-bold hover:underline cursor-pointer ${product.stock < 10 ? 'text-red-500' : 'text-gray-900'}`}
+                          style={{
+                            color: (product.stock ?? 0) === 0 ? 'var(--danger)' : 'var(--text-primary)',
+                            fontWeight: 500,
+                            background: 'none',
+                            border: 'none',
+                            padding: 0,
+                            cursor: 'pointer',
+                          }}
                         >
-                          {product.stock}
+                          {product.stock ?? 0}
                         </button>
                       </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-xs sm:text-sm font-bold text-gray-900">
-                        <span className="hidden sm:inline">${product.basePrice}</span>
-                        <span className="sm:hidden">${product.basePrice}</span>
-                      </td>
-                      <td className="px-3 sm:px-4 md:px-6 py-3 sm:py-4 text-right">
-                        <div className="flex items-center justify-end gap-1 sm:gap-2">
+                      <td style={{ fontWeight: 600 }}>{formatCurrency(product.basePrice || 0)}</td>
+                      <td style={{ textAlign: 'right' }}>
+                        <div
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'flex-end',
+                            gap: '8px',
+                          }}
+                        >
                           <button
+                            type="button"
                             onClick={() => handleOpenModal(product)}
-                            className="p-2 text-gray-400 hover:text-blue-500 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
+                            className="action-icon-button"
                             aria-label="Edit product"
                           >
-                            <Edit2 size={18} />
+                            <Edit2 size={16} />
                           </button>
-                          <button 
+                          <button
+                            type="button"
                             onClick={() => handleOpenDeleteModal(product)}
-                            className="p-2 text-gray-400 hover:text-red-500 transition-colors min-h-[40px] min-w-[40px] flex items-center justify-center sm:min-h-auto sm:min-w-auto"
+                            className="action-icon-button danger opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                             aria-label="Delete product"
                           >
-                            <Trash2 size={18} />
+                            <Trash2 size={16} />
                           </button>
                         </div>
                       </td>
@@ -518,250 +617,357 @@ const Products: React.FC = () => {
               </tbody>
             </table>
           </div>
-        </div>
 
-        {totalPages > 1 && (
-          <div className="px-3 sm:px-4 md:px-6 py-3 md:py-4 bg-gray-50 border-t border-gray-100 flex items-center justify-between gap-2 overflow-x-auto">
-            <button
-              disabled={page === 1}
-              onClick={() => setPage(p => p - 1)}
-              className="flex items-center gap-1 text-xs sm:text-sm font-medium text-gray-600 disabled:opacity-50 hover:text-accent whitespace-nowrap"
+          {totalPages > 1 ? (
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                padding: '14px 16px',
+                borderTop: '1px solid var(--border)',
+                gap: '12px',
+                flexWrap: 'wrap',
+              }}
             >
-              <ChevronLeft size={16} className="sm:w-4 sm:h-4" /> 
-              <span className="hidden sm:inline">Previous</span>
-            </button>
-            <div className="flex items-center gap-1 flex-shrink-0">
-              {Array.from({ length: Math.min(totalPages, 5) }).map((_, i) => {
-                const pageNum = totalPages > 5 ? (page > 3 ? page - 2 + i : i + 1) : i + 1;
-                if (pageNum > totalPages) return null;
-                return (
-                  <button
-                    key={pageNum}
-                    onClick={() => setPage(pageNum)}
-                    className={`w-7 h-7 sm:w-8 sm:h-8 rounded-lg text-xs font-medium transition-all flex items-center justify-center ${
-                      page === pageNum ? 'bg-accent text-white' : 'text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                );
-              })}
+              <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
+                Page {page} of {totalPages}
+              </p>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={page === 1}
+                  onClick={() => setPage((previous) => previous - 1)}
+                >
+                  <ChevronLeft size={15} /> Prev
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={page === totalPages}
+                  onClick={() => setPage((previous) => previous + 1)}
+                >
+                  Next <ChevronRight size={15} />
+                </button>
+              </div>
             </div>
-            <button
-              disabled={page === totalPages}
-              onClick={() => setPage(p => p + 1)}
-              className="flex items-center gap-1 text-xs sm:text-sm font-medium text-gray-600 disabled:opacity-50 hover:text-accent whitespace-nowrap"
-            >
-              <span className="hidden sm:inline">Next</span>
-              <ChevronRight size={16} className="sm:w-4 sm:h-4" />
-            </button>
-          </div>
-        )}
+          ) : null}
+        </div>
       </div>
 
-      {/* Product Create/Edit Modal */}
       <AnimatePresence>
-        {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm">
+        {isModalOpen ? (
+          <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              className="modal-box modal-box-lg"
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="product-edit-title"
             >
-              <form onSubmit={handleSubmit} className="flex flex-col h-full">
-                <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-primary text-white flex-shrink-0">
-                  <h3 className="text-base sm:text-xl font-bold truncate">{editingProduct ? 'Edit Product' : 'Create New Product'}</h3>
-                  <button type="button" onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center sm:min-h-auto sm:min-w-auto">
+              <form onSubmit={handleSubmit}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '24px',
+                    gap: '12px',
+                  }}
+                >
+                  <h2
+                    id="product-edit-title"
+                    style={{
+                      fontSize: '18px',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)',
+                      margin: 0,
+                    }}
+                  >
+                    {editingProduct ? 'Edit Product' : 'Create Product'}
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="action-icon-button"
+                    aria-label="Close product modal"
+                  >
                     <X size={20} />
                   </button>
                 </div>
-                <div className="p-4 sm:p-8 grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6 overflow-y-auto flex-1">
-                  <div className="md:col-span-2">
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Product Name</label>
+
+                <div
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
+                    gap: '16px',
+                  }}
+                >
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="form-label">Product name</label>
                     <input
                       type="text"
                       required
-                      className="input-field text-sm sm:text-base"
+                      className="input-field"
                       value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      onChange={(event) => setFormData({ ...formData, name: event.target.value })}
                     />
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Description</label>
+
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="form-label">Description</label>
                     <textarea
                       required
                       rows={3}
-                      className="input-field text-sm sm:text-base"
+                      className="input-field"
                       value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      onChange={(event) => setFormData({ ...formData, description: event.target.value })}
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Category</label>
+
+                  <div className="form-group">
+                    <label className="form-label">Category</label>
                     <input
                       type="text"
                       required
-                      className="input-field text-sm sm:text-base"
+                      className="input-field"
                       value={formData.category}
-                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      onChange={(event) => setFormData({ ...formData, category: event.target.value })}
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Product Type</label>
+
+                  <div className="form-group">
+                    <label className="form-label">Product type</label>
                     <select
-                      className="input-field text-sm sm:text-base"
+                      className="input-field"
                       value={formData.productType}
-                      onChange={(e) => setFormData({ ...formData, productType: e.target.value as any })}
+                      onChange={(event) =>
+                        setFormData({ ...formData, productType: event.target.value as any })
+                      }
                     >
                       <option value="stocked">Stocked</option>
                       <option value="on_demand">On Demand</option>
                     </select>
                   </div>
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Initial Stock</label>
+
+                  <div className="form-group">
+                    <label className="form-label">Initial stock</label>
                     <input
                       type="number"
                       required
-                      className="input-field text-sm sm:text-base"
+                      className="input-field"
                       value={formData.stock}
-                      onChange={(e) => setFormData({ ...formData, stock: parseInt(e.target.value) })}
+                      onChange={(event) =>
+                        setFormData({ ...formData, stock: parseInt(event.target.value, 10) || 0 })
+                      }
                     />
                   </div>
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Base Price ($)</label>
+
+                  <div className="form-group">
+                    <label className="form-label">Base price</label>
                     <input
                       type="number"
                       required
                       step="0.01"
-                      className="input-field text-sm sm:text-base"
+                      className="input-field"
                       value={formData.basePrice}
-                      onChange={(e) => setFormData({ ...formData, basePrice: parseFloat(e.target.value) })}
+                      onChange={(event) =>
+                        setFormData({ ...formData, basePrice: parseFloat(event.target.value) || 0 })
+                      }
                     />
                   </div>
-                  <div className="md:col-span-2">
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Product Image</label>
-                    <div className="border-2 border-dashed border-gray-200 rounded-xl p-6 sm:p-8 text-center hover:border-accent transition-all cursor-pointer relative">
+
+                  <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <label className="form-label">Product image</label>
+                    <div
+                      style={{
+                        border: '1px dashed var(--border-active)',
+                        borderRadius: 'var(--radius-md)',
+                        padding: '24px',
+                        textAlign: 'center',
+                        background: 'var(--bg-surface)',
+                        position: 'relative',
+                      }}
+                    >
                       <input
                         type="file"
-                        className="absolute inset-0 opacity-0 cursor-pointer"
-                        onChange={(e) => setFormData({ ...formData, image: e.target.files?.[0] || null })}
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          opacity: 0,
+                          cursor: 'pointer',
+                        }}
+                        onChange={(event) =>
+                          setFormData({ ...formData, image: event.target.files?.[0] || null })
+                        }
                       />
-                      <Upload className="mx-auto text-gray-400 mb-2 w-8 h-8" />
-                      <p className="text-xs sm:text-sm text-gray-500">
+                      <Upload size={24} color="var(--text-muted)" style={{ marginBottom: 8 }} />
+                      <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px' }}>
                         {formData.image ? formData.image.name : 'Click or drag image to upload'}
                       </p>
                     </div>
                   </div>
                 </div>
-                <div className="p-4 sm:p-6 bg-gray-50 flex justify-end gap-3 flex-shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setIsModalOpen(false)}
-                    className="px-4 py-2.5 sm:py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium text-sm sm:text-base min-h-[44px] sm:min-h-auto"
-                  >
+
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '10px',
+                    justifyContent: 'flex-end',
+                    marginTop: '24px',
+                    paddingTop: '16px',
+                    borderTop: '1px solid var(--border)',
+                  }}
+                >
+                  <button type="button" className="btn-ghost" onClick={() => setIsModalOpen(false)}>
                     Cancel
                   </button>
-                  <button
-                    type="submit"
-                    className="px-6 py-2.5 sm:py-2 bg-accent text-white rounded-lg hover:bg-opacity-90 transition-colors font-medium text-sm sm:text-base min-h-[44px] sm:min-h-auto"
-                  >
+                  <button type="submit" className="btn-primary">
                     {editingProduct ? 'Save Changes' : 'Create Product'}
                   </button>
                 </div>
               </form>
             </motion.div>
           </div>
-        )}
+        ) : null}
       </AnimatePresence>
 
-      {/* Stock Update Modal */}
       <AnimatePresence>
-        {isStockModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50 backdrop-blur-sm">
+        {isStockModalOpen ? (
+          <div className="modal-backdrop" onClick={() => setIsStockModalOpen(false)}>
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-xl sm:rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden"
+              className="modal-box"
+              onClick={(event) => event.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="product-stock-title"
             >
               <form onSubmit={handleUpdateStock}>
-                <div className="p-4 sm:p-6 border-b border-gray-100 flex items-center justify-between bg-primary text-white">
-                  <h3 className="text-base sm:text-lg font-bold truncate">Update Stock</h3>
-                  <button type="button" onClick={() => setIsStockModalOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors flex-shrink-0 min-h-[44px] min-w-[44px] flex items-center justify-center sm:min-h-auto sm:min-w-auto">
-                    <X size={20} />
-                  </button>
-                </div>
-                <div className="p-4 sm:p-6 space-y-4">
-                  <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg mb-4">
-                    <Package className="text-accent flex-shrink-0 w-6 h-6" />
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold truncate">{stockProduct?.name}</p>
-                      <p className="text-xs text-gray-500">Current Stock: {stockProduct?.stock}</p>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">Operation</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setStockData({ ...stockData, operation: 'add' })}
-                        className={`py-2 rounded-lg text-xs sm:text-sm font-bold border transition-all min-h-[44px] sm:min-h-auto ${
-                          stockData.operation === 'add' ? 'bg-green-500 text-white border-green-500' : 'bg-white text-gray-600 border-gray-200'
-                        }`}
-                      >
-                        Add
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setStockData({ ...stockData, operation: 'subtract' })}
-                        className={`py-2 rounded-lg text-xs sm:text-sm font-bold border transition-all min-h-[44px] sm:min-h-auto ${
-                          stockData.operation === 'subtract' ? 'bg-red-500 text-white border-red-500' : 'bg-white text-gray-600 border-gray-200'
-                        }`}
-                      >
-                        Subtract
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-1">Quantity</label>
-                    <input
-                      type="number"
-                      required
-                      min="1"
-                      className="input-field text-sm sm:text-base"
-                      value={stockData.quantity}
-                      onChange={(e) => setStockData({ ...stockData, quantity: parseInt(e.target.value) })}
-                    />
-                  </div>
-                </div>
-                <div className="p-4 sm:p-6 bg-gray-50 flex justify-end gap-3">
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    marginBottom: '24px',
+                    gap: '12px',
+                  }}
+                >
+                  <h2
+                    id="product-stock-title"
+                    style={{
+                      fontSize: '18px',
+                      fontWeight: 600,
+                      color: 'var(--text-primary)',
+                      margin: 0,
+                    }}
+                  >
+                    Update Stock
+                  </h2>
                   <button
                     type="button"
                     onClick={() => setIsStockModalOpen(false)}
-                    className="px-4 py-2 text-xs sm:text-sm font-medium text-gray-600 hover:text-gray-900 min-h-[44px] sm:min-h-auto flex items-center justify-center"
+                    className="action-icon-button"
+                    aria-label="Close stock modal"
                   >
+                    <X size={20} />
+                  </button>
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '14px',
+                    border: '1px solid var(--border)',
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-surface)',
+                    marginBottom: '16px',
+                  }}
+                >
+                  <div className="icon-box" style={{ background: 'var(--accent-muted)' }}>
+                    <Package size={18} color="var(--accent)" />
+                  </div>
+                  <div>
+                    <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary)' }}>
+                      {stockProduct?.name}
+                    </p>
+                    <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
+                      Current stock: {stockProduct?.stock}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">Operation</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => setStockData({ ...stockData, operation: 'add' })}
+                      className={stockData.operation === 'add' ? 'btn-primary' : 'btn-ghost'}
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStockData({ ...stockData, operation: 'subtract' })}
+                      className={stockData.operation === 'subtract' ? 'btn-danger' : 'btn-ghost'}
+                    >
+                      Subtract
+                    </button>
+                  </div>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Quantity</label>
+                  <input
+                    type="number"
+                    required
+                    min="1"
+                    className="input-field"
+                    value={stockData.quantity}
+                    onChange={(event) =>
+                      setStockData({ ...stockData, quantity: parseInt(event.target.value, 10) || 0 })
+                    }
+                  />
+                </div>
+
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: '10px',
+                    justifyContent: 'flex-end',
+                    marginTop: '24px',
+                    paddingTop: '16px',
+                    borderTop: '1px solid var(--border)',
+                  }}
+                >
+                  <button type="button" className="btn-ghost" onClick={() => setIsStockModalOpen(false)}>
                     Cancel
                   </button>
-                  <button
-                    type="submit"
-                    className="px-6 py-2.5 sm:py-2 bg-primary text-white rounded-lg hover:bg-opacity-90 transition-colors font-medium text-sm sm:text-base min-h-[44px] sm:min-h-auto"
-                  >
+                  <button type="submit" className="btn-primary">
                     Update
                   </button>
                 </div>
               </form>
             </motion.div>
           </div>
-        )}
+        ) : null}
       </AnimatePresence>
 
-      {/* Delete Product Modal */}
       <AnimatePresence>
-        {isDeleteModalOpen && (
+        {isDeleteModalOpen ? (
           <div
             ref={deleteModalOverlayRef}
-            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
+            className="modal-backdrop"
             role="presentation"
           >
             <motion.div
@@ -769,49 +975,70 @@ const Products: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="bg-white rounded-xl shadow-xl w-full max-w-sm overflow-hidden"
+              className="modal-box"
+              style={{ maxWidth: '400px' }}
               role="dialog"
               aria-modal="true"
               aria-labelledby="delete-product-title"
             >
-              <div className="p-6">
-                <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full mb-4">
-                  <AlertTriangle className="w-6 h-6 text-red-600" aria-hidden="true" />
+              <div style={{ textAlign: 'center', padding: '8px 0 20px' }}>
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: '50%',
+                    background: 'var(--danger-muted)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    margin: '0 auto 16px',
+                  }}
+                >
+                  <AlertTriangle size={24} color="var(--danger)" />
                 </div>
-                <h3 id="delete-product-title" className="text-lg sm:text-xl font-semibold text-center text-gray-900 mb-2">
-                  Delete product
-                </h3>
-                <p className="text-center text-gray-500 text-sm mb-6">
-                  Are you sure you want to delete <strong>{deletingProduct?.name}</strong>? This cannot be undone.
+                <h2
+                  id="delete-product-title"
+                  style={{
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    margin: '0 0 8px',
+                    color: 'var(--text-primary)',
+                  }}
+                >
+                  Delete product?
+                </h2>
+                <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>
+                  Are you sure you want to delete {deletingProduct?.name}? This action cannot be undone.
                 </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => {
-                      setIsDeleteModalOpen(false);
-                      setDeletingProduct(null);
-                    }}
-                    className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg font-medium transition-colors text-sm"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleDeleteProduct}
-                    disabled={isDeletingProduct}
-                    className="flex-1 px-4 py-2 text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded-lg font-medium transition-colors text-sm flex items-center justify-center gap-2"
-                  >
-                    {isDeletingProduct && (
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    )}
-                    Delete
-                  </button>
-                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ flex: 1 }}
+                  onClick={() => {
+                    setIsDeleteModalOpen(false);
+                    setDeletingProduct(null);
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="btn-danger"
+                  style={{ flex: 1 }}
+                  onClick={handleDeleteProduct}
+                  disabled={isDeletingProduct}
+                >
+                  {isDeletingProduct ? 'Deleting...' : 'Delete'}
+                </button>
               </div>
             </motion.div>
           </div>
-        )}
+        ) : null}
       </AnimatePresence>
 
-      {/* Create Product Modal */}
       <CreateProductModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}

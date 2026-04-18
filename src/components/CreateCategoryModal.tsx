@@ -136,34 +136,52 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
 
   return (
     <AnimatePresence>
-      {isOpen && (
-        <div ref={overlayRef} className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" role="presentation">
+      {isOpen ? (
+        <div ref={overlayRef} className="modal-backdrop" role="presentation">
           <motion.div
             ref={contentRef}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="bg-white rounded-xl shadow-xl w-full max-w-xl mx-4 sm:mx-0 overflow-hidden"
+            className="modal-box"
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-category-title"
           >
             <form onSubmit={handleSubmit}>
-              <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-100 bg-primary text-white">
-                <h3 id="create-category-title" className="text-base sm:text-xl font-bold">Create Category</h3>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: '24px',
+                  gap: '12px',
+                }}
+              >
+                <h2
+                  id="create-category-title"
+                  style={{
+                    fontSize: '18px',
+                    fontWeight: 600,
+                    color: 'var(--text-primary)',
+                    margin: 0,
+                  }}
+                >
+                  Create Category
+                </h2>
                 <button
                   type="button"
                   onClick={onClose}
-                  className="p-2 hover:bg-white/10 rounded-full transition-colors min-h-[44px] min-w-[44px] sm:min-h-auto sm:min-w-auto"
+                  className="action-icon-button"
                   aria-label="Close"
                 >
                   <X size={20} />
                 </button>
               </div>
 
-              <div className="p-4 sm:p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
+              <div style={{ display: 'grid', gap: '16px' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Name</label>
                   <input
                     type="text"
                     value={formData.name}
@@ -174,19 +192,19 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Description</label>
                   <textarea
                     value={formData.description || ''}
                     onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
-                    className="input-field resize-none"
+                    className="input-field"
                     rows={3}
                     placeholder="All electronic products"
                   />
                 </div>
 
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Slug</label>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label">Slug</label>
                   <input
                     type="text"
                     value={formData.slug || ''}
@@ -199,38 +217,42 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
                   />
                 </div>
 
-                <label className="flex items-center gap-3 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={formData.isActive}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, isActive: e.target.checked }))}
-                    className="w-4 h-4 rounded border-gray-300 text-accent focus:ring-accent"
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <button
+                    type="button"
+                    onClick={() => setFormData((prev) => ({ ...prev, isActive: !prev.isActive }))}
+                    className={`status-toggle ${formData.isActive ? 'is-active' : ''}`}
+                    aria-pressed={formData.isActive}
+                    aria-label="Toggle category status"
+                    style={{ cursor: 'pointer' }}
                   />
-                  <span className="text-sm font-medium text-gray-700">Is Active</span>
-                </label>
+                  <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                    {formData.isActive ? 'Active' : 'Inactive'}
+                  </span>
+                </div>
               </div>
 
-              <div className="p-4 sm:p-6 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2.5 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition-colors font-medium min-h-[44px] sm:min-h-auto"
-                >
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '10px',
+                  justifyContent: 'flex-end',
+                  marginTop: '24px',
+                  paddingTop: '16px',
+                  borderTop: '1px solid var(--border)',
+                }}
+              >
+                <button type="button" onClick={onClose} className="btn-ghost">
                   Cancel
                 </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="btn-primary px-5 py-2.5 min-h-[44px] sm:min-h-auto disabled:opacity-60 flex items-center justify-center gap-2"
-                >
-                  {isSubmitting && <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />}
-                  Create
+                <button type="submit" disabled={isSubmitting} className="btn-primary">
+                  {isSubmitting ? 'Creating...' : 'Create'}
                 </button>
               </div>
             </form>
           </motion.div>
         </div>
-      )}
+      ) : null}
     </AnimatePresence>
   );
 };

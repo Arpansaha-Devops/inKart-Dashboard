@@ -1,48 +1,137 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
+import { Menu, MoonStar, SunMedium } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { Menu } from 'lucide-react';
 
 interface HeaderProps {
   onMenuToggle?: () => void;
   isSidebarOpen?: boolean;
 }
 
-const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen = false }) => {
-  const { user } = useAuth();
-  const location = useLocation();
+type ThemeMode = 'dark' | 'light';
 
-  const getPageTitle = () => {
-    const path = location.pathname.split('/')[1];
-    return path.charAt(0).toUpperCase() + path.slice(1) || 'Dashboard';
-  };
+const THEME_STORAGE_KEY = 'inkart-dashboard-theme';
+
+const getStoredTheme = (): ThemeMode => {
+  if (typeof window === 'undefined') {
+    return 'dark';
+  }
+
+  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  return savedTheme === 'light' ? 'light' : 'dark';
+};
+
+const pageTitles: Record<string, string> = {
+  dashboard: 'Dashboard',
+  customers: 'Customers',
+  products: 'Products',
+  categories: 'Categories',
+  coupons: 'Coupons',
+};
+
+const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen = false }) => {
+  const location = useLocation();
+  const { user } = useAuth();
+  const [theme, setTheme] = useState<ThemeMode>(getStoredTheme);
+
+  const currentKey = location.pathname.split('/')[1] || 'dashboard';
+  const pageTitle = pageTitles[currentKey] || 'Dashboard';
+  const avatarInitial = user?.name?.trim().charAt(0).toUpperCase() || 'I';
+  const toggleLabel = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+
+  useEffect(() => {
+    document.body.classList.remove('dark', 'light');
+    document.body.classList.add(theme);
+    document.body.style.colorScheme = theme;
+    window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    window.dispatchEvent(new CustomEvent('themechange', { detail: theme }));
+  }, [theme]);
 
   return (
-    <header className="h-14 sm:h-16 md:h-16 lg:h-16 bg-white border-b border-gray-200 flex items-center justify-between px-3 sm:px-4 md:px-6 lg:px-8 sticky top-0 z-20">
-      <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+    <header
+      style={{
+        background: 'var(--bg-base)',
+        borderBottom: '1px solid var(--border)',
+        minHeight: 60,
+        height: 60,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '0 24px',
+        position: 'sticky',
+        top: 0,
+        zIndex: 20,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          minWidth: 0,
+        }}
+      >
         <button
+          type="button"
           onClick={onMenuToggle}
-          className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0"
-          aria-label="Toggle menu"
+          aria-label="Toggle sidebar"
+          aria-expanded={isSidebarOpen}
+          className="action-icon-button mobile-header-toggle"
         >
-          <Menu size={20} className="text-gray-600" />
+          <Menu size={20} />
         </button>
-        <h2 className="text-base sm:text-lg md:text-xl lg:text-xl font-semibold text-gray-800 truncate">
-          {getPageTitle()}
+
+        <h2
+          style={{
+            margin: 0,
+            fontSize: '16px',
+            fontWeight: 500,
+            color: 'var(--text-primary)',
+            whiteSpace: 'nowrap',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+          }}
+        >
+          {pageTitle}
         </h2>
       </div>
-      
-      <div className="flex items-center gap-2 sm:gap-3 md:gap-4 flex-shrink-0">
-        <div className="text-right hidden xs:block">
-          <p className="text-xs sm:text-sm font-medium text-gray-900 truncate max-w-[120px] sm:max-w-[150px]">
-            Welcome, {user?.name?.split(' ')[0] || 'Admin'}
-          </p>
-          <p className="text-xs text-gray-500 truncate max-w-[120px] sm:max-w-[150px]">
-            {user?.email?.split('@')[0] || 'admin'}
-          </p>
-        </div>
-        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-accent flex items-center justify-center text-white font-bold text-xs sm:text-sm flex-shrink-0">
-          {user?.name?.charAt(0) || 'A'}
+
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          flexShrink: 0,
+        }}
+      >
+        <button
+          type="button"
+          className="theme-toggle-button"
+          onClick={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))}
+          aria-label={toggleLabel}
+          title={toggleLabel}
+        >
+          {theme === 'dark' ? <SunMedium size={18} /> : <MoonStar size={18} />}
+        </button>
+
+        <div
+          title={user?.name || 'InkArt Admin'}
+          style={{
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            background: 'var(--accent)',
+            color: '#ffffff',
+            fontWeight: 600,
+            fontSize: 14,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+            boxShadow: 'var(--avatar-shadow)',
+          }}
+        >
+          {avatarInitial}
         </div>
       </div>
     </header>
