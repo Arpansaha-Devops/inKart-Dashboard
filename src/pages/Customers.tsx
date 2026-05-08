@@ -13,6 +13,8 @@ import {
 import { formatDate } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
+import { useAuth } from '../context/AuthContext';
+import Cookies from 'js-cookie';
 
 const isUserLike = (item: any): item is User => {
   return Boolean(
@@ -91,6 +93,7 @@ const extractTotalUsers = (payload: any, fallback = 0): number => {
 };
 
 const Customers: React.FC = () => {
+  const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -218,15 +221,33 @@ const Customers: React.FC = () => {
   const handleDeleteUser = async () => {
     if (!deletingUser?._id) return;
 
+    console.log('Deleting user:', deletingUser);
+
+    if (currentUser?._id && deletingUser._id === currentUser._id) {
+      toast.error('You cannot delete your own admin account');
+      return;
+    }
+
     setIsDeletingUser(true);
     try {
-      await apiClient.delete(`/admin/users/${deletingUser._id}`);
+      const token = Cookies.get('token') || localStorage.getItem('token');
+      console.log('Token being sent:', token);
+
+      await apiClient.delete(`/admin/users/${deletingUser._id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       toast.success('User deleted');
       setIsDeleteModalOpen(false);
       setDeletingUser(null);
       await fetchUsers();
-    } catch {
-      toast.error('Failed to delete user');
+    } catch (error: any) {
+      const message =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        'Failed to delete user';
+      toast.error(message);
+      setIsDeleteModalOpen(false);
+      setDeletingUser(null);
     } finally {
       setIsDeletingUser(false);
     }

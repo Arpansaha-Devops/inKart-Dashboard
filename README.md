@@ -185,7 +185,7 @@ Otherwise redirect to `/login`.
 - Resolves category input to ObjectId or matched known category name
 - Validates required form fields
 - Uses multipart `FormData`
-- Sends product image as `image` key
+- Sends product image as `images` key
 
 ### 9.5 Coupons (`src/pages/Coupons.tsx`)
 

@@ -748,6 +748,22 @@ table.data-table tbody td {
     padding: 16px;
   }
 
+  .app-header {
+    width: 100%;
+    max-width: 100vw;
+    overflow: hidden;
+    padding: 0 16px !important;
+  }
+
+  .app-header-title {
+    min-width: 0;
+    max-width: calc(100% - 112px);
+  }
+
+  .app-header-actions {
+    flex-shrink: 0;
+  }
+
   .hide-mobile {
     display: none !important;
   }
@@ -759,6 +775,146 @@ table.data-table tbody td {
 
   .toolbar-row {
     align-items: stretch;
+  }
+
+  .products-page,
+  .products-page * {
+    box-sizing: border-box;
+  }
+
+  .products-page {
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  .products-page > div,
+  .products-table-card,
+  .products-table-container {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .products-toolbar {
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 12px;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .products-toolbar > div {
+    min-width: 0;
+    overflow: hidden;
+
+
+
+    
+  }
+
+  .products-toolbar .section-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .products-toolbar .btn-primary {
+    flex: 0 0 auto;
+    margin-left: auto;
+    position: sticky;
+    right: 0;
+    z-index: 2;
+    padding-inline: 14px;
+  }
+
+  .products-table-container {
+    overflow-x: hidden;
+    width: 100%;
+  }
+
+  .products-table {
+    table-layout: fixed;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .products-table th,
+  .products-table td {
+    overflow: hidden;
+    padding: 12px 10px;
+  }
+
+  .products-table th:nth-child(1),
+  .products-table td:nth-child(1) {
+    width: 44%;
+  }
+
+  .products-table th:nth-child(2),
+  .products-table td:nth-child(2) {
+    width: 24%;
+  }
+
+  .products-table th:nth-child(3),
+  .products-table td:nth-child(3) {
+    width: 20%;
+  }
+
+  .products-table th:nth-child(4),
+  .products-table td:nth-child(4) {
+    width: 12%;
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .products-table thead th {
+    font-size: 10px;
+    letter-spacing: 0.04em;
+  }
+
+  .products-table tbody td {
+    font-size: 13px;
+  }
+
+  .products-table tbody td:first-child > div {
+    width: 100%;
+    min-width: 0;
+    gap: 8px !important;
+  }
+
+  .products-table tbody td:first-child img {
+    width: 36px !important;
+    height: 36px !important;
+  }
+
+  .products-table tbody td:first-child > div > div {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .products-table tbody td:first-child p {
+    max-width: 100% !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .products-table tbody td:nth-child(2) {
+    overflow-wrap: anywhere;
+  }
+
+  .products-table .badge-stocked,
+  .products-table .badge-on-demand {
+    max-width: 100%;
+    overflow: hidden;
+    padding: 3px 8px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .products-table tbody td:nth-child(4) button {
+    max-width: 100%;
+    min-width: 44px;
+    min-height: 44px;
   }
 
   .mini-stats-grid,
@@ -792,11 +948,59 @@ table.data-table tbody td {
     display: none;
   }
 
+  .products-page {
+    padding: 12px;
+  }
+
+  .products-toolbar {
+    gap: 10px;
+  }
+
+  .products-toolbar .btn-primary {
+    width: 44px;
+    min-width: 44px;
+    height: 40px;
+    padding: 0;
+  }
+
   table.data-table thead th:nth-child(n + 4) {
     display: none;
   }
 
   table.data-table tbody td:nth-child(n + 4) {
     display: none;
+  }
+
+  .products-table th,
+  .products-table td {
+    padding: 10px 8px;
+  }
+
+  .products-table th:nth-child(1),
+  .products-table td:nth-child(1) {
+    width: 48%;
+    padding-left: 10px;
+  }
+
+  .products-table th:nth-child(2),
+  .products-table td:nth-child(2) {
+    width: 26%;
+  }
+
+  .products-table th:nth-child(3),
+  .products-table td:nth-child(3) {
+    width: 26%;
+    padding-right: 10px;
+  }
+
+  .products-table tbody td:first-child img {
+    width: 34px !important;
+    height: 34px !important;
+  }
+
+  .products-table .badge-stocked,
+  .products-table .badge-on-demand {
+    font-size: 11px;
+    padding: 3px 6px;
   }
 }

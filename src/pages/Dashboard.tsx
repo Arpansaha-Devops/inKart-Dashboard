@@ -45,6 +45,7 @@ type DashboardStats = {
 const COMMON_ARRAY_KEYS = ['data', 'users', 'products', 'coupons', 'categories', 'results', 'items', 'list', 'docs'];
 const COMMON_COUNT_KEYS = ['totalCount', 'total', 'count', 'totalResults', 'length'];
 const CHART_COLORS = ['#F97316', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
+const DELETED_PRODUCTS_STORAGE_KEY = 'inkart-dashboard-deleted-products';
 
 type ChartThemeColors = {
   textSecondary: string;
@@ -115,6 +116,23 @@ const isUserLike = (item: any): item is User =>
       typeof item._id === 'string' &&
       (typeof item.email === 'string' || typeof item.name === 'string')
   );
+
+const readDeletedProductIds = (): string[] => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const storedIds = window.localStorage.getItem(DELETED_PRODUCTS_STORAGE_KEY);
+    const parsedIds = storedIds ? JSON.parse(storedIds) : [];
+
+    return Array.isArray(parsedIds)
+      ? parsedIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
 
 const pickBestArray = (payload: any, validator: (item: any) => boolean, directCandidates: any[] = []) => {
   for (const candidate of directCandidates) {
@@ -336,6 +354,10 @@ const Dashboard: React.FC = () => {
           (chartProductsPayload as any)?.data?.docs,
           (chartProductsPayload as any)?.data,
         ]);
+        const deletedProductIds = new Set(readDeletedProductIds());
+        const visibleChartProducts = chartProducts.filter(
+          (product: any) => !deletedProductIds.has(product._id)
+        );
         const chartCoupons = pickBestArray(chartCouponsPayload, isCouponLike, [
           (chartCouponsPayload as any)?.coupons,
           (chartCouponsPayload as any)?.data?.coupons,
@@ -351,7 +373,7 @@ const Dashboard: React.FC = () => {
             const categoryName = normalizeValue(category?.name);
             const categorySlug = normalizeValue(category?.slug);
 
-            return chartProducts.reduce((total: number, product: any) => {
+            return visibleChartProducts.reduce((total: number, product: any) => {
               const productCategory = product?.category;
 
               if (typeof productCategory === 'string') {
@@ -396,7 +418,7 @@ const Dashboard: React.FC = () => {
         } else {
           const fallbackMap = new Map<string, number>();
 
-          chartProducts.forEach((product: any) => {
+          visibleChartProducts.forEach((product: any) => {
             const categoryValue =
               typeof product?.category === 'string'
                 ? product.category

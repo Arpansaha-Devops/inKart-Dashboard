@@ -128,11 +128,7 @@ const NotificationPanel: React.FC = () => {
   const panelWidth = Math.min(PANEL_WIDTH, Math.max(280, viewportWidth - 16));
   const isDockedDesktop = viewportWidth >= DOCK_BREAKPOINT;
   const spacerWidth = isDockedDesktop && isOpen ? panelWidth : 0;
-  const toggleButtonRight = isOpen
-    ? isDockedDesktop
-      ? panelWidth + 18
-      : 18
-    : CLOSED_BUTTON_RIGHT;
+  const toggleButtonRight = isOpen ? 18 : CLOSED_BUTTON_RIGHT;
 
   return (
     <>
@@ -181,7 +177,7 @@ const NotificationPanel: React.FC = () => {
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
-          zIndex: 31,
+          zIndex: 40,
           transition:
             'right 280ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease, transform 120ms ease',
           boxShadow: isOpen ? '0 10px 24px rgba(249, 115, 22, 0.14)' : 'var(--shadow-card)',

@@ -25,7 +25,20 @@ interface FormErrors {
 interface CategoryLookupItem {
   _id: string;
   name: string;
+  isActive: boolean;
 }
+
+const slugifyProductName = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const createUniqueProductSlug = (value: string) => {
+  const baseSlug = slugifyProductName(value) || 'product';
+  return `${baseSlug}-${Date.now().toString(36)}`;
+};
 
 const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [name, setName] = useState('');
@@ -65,13 +78,21 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       }
       if (typeof node !== 'object') return;
 
-      if (typeof node._id === 'string' && typeof node.name === 'string') {
-        items.push({ _id: node._id, name: node.name });
+      if (
+        typeof node._id === 'string' &&
+        typeof node.name === 'string' &&
+        node.isActive === true
+      ) {
+        items.push({ _id: node._id, name: node.name, isActive: true });
       }
 
       if (node.category && typeof node.category === 'object') {
-        if (typeof node.category._id === 'string' && typeof node.category.name === 'string') {
-          items.push({ _id: node.category._id, name: node.category.name });
+        if (
+          typeof node.category._id === 'string' &&
+          typeof node.category.name === 'string' &&
+          node.category.isActive === true
+        ) {
+          items.push({ _id: node.category._id, name: node.category.name, isActive: true });
         }
       }
 
@@ -125,7 +146,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   const resolveCategoryId = (input: string): string | null => {
     const normalized = input.trim();
     if (!normalized) return null;
-    if (isObjectId(normalized)) return normalized;
+    if (isObjectId(normalized)) {
+      if (knownCategories.length === 0) return normalized;
+      return knownCategories.some((entry) => entry._id === normalized) ? normalized : null;
+    }
 
     const match = knownCategories.find(
       (entry) => entry.name.trim().toLowerCase() === normalized.toLowerCase(),
@@ -271,7 +295,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       setErrors((prev) => ({
         ...prev,
         category:
-          'Category not recognized. Use an existing category name or paste its 24-character category ID.',
+          'Category not recognized. Use an active category name or paste its 24-character active category ID.',
       }));
       return;
     }
@@ -289,6 +313,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
     const formData = new FormData();
     formData.append('name', name);
+    formData.append('slug', createUniqueProductSlug(name));
     formData.append('price', String(price));
     formData.append('description', description);
     formData.append('category', resolvedCategoryId);
@@ -296,7 +321,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (productType === 'stocked') {
       formData.append('stock', String(stock));
     }
-    formData.append('image', images!);
+    formData.append('images', images!);
     formData.append('basePrice', String(basePrice));
 
     try {

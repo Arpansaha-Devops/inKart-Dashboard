@@ -101,8 +101,62 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 2,
   }).format(value || 0);
 
+const slugifyProductName = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+const createUniqueProductSlug = (value: string) => {
+  const baseSlug = slugifyProductName(value) || 'product';
+  return `${baseSlug}-${Date.now().toString(36)}`;
+};
+
 const PRODUCT_PLACEHOLDER_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Crect width='160' height='160' rx='18' fill='%231a1a1a'/%3E%3Crect x='20' y='20' width='120' height='120' rx='14' fill='%232a2a2a' stroke='%23404040'/%3E%3Cpath d='M52 102l20-24 14 16 18-24 18 32H52z' fill='%23f97316' opacity='.8'/%3E%3Ccircle cx='62' cy='58' r='10' fill='%23f97316' opacity='.9'/%3E%3C/svg%3E";
+
+const DELETED_PRODUCTS_STORAGE_KEY = 'inkart-dashboard-deleted-products';
+
+const readDeletedProductIds = (): string[] => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const storedIds = window.localStorage.getItem(DELETED_PRODUCTS_STORAGE_KEY);
+    const parsedIds = storedIds ? JSON.parse(storedIds) : [];
+
+    return Array.isArray(parsedIds)
+      ? parsedIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveDeletedProductIds = (productIds: string[]) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      DELETED_PRODUCTS_STORAGE_KEY,
+      JSON.stringify(Array.from(new Set(productIds)))
+    );
+  } catch {
+    // Keep the API delete flow unaffected if browser storage is unavailable.
+  }
+};
+
+const rememberDeletedProductId = (productId: string) => {
+  const deletedProductIds = readDeletedProductIds();
+
+  if (!deletedProductIds.includes(productId)) {
+    saveDeletedProductIds([...deletedProductIds, productId]);
+  }
+};
 
 const Products: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
@@ -233,10 +287,15 @@ const Products: React.FC = () => {
       });
 
       const productsList = extractProducts(response.data);
-      const count = extractTotalProducts(response.data, productsList.length);
+      const deletedProductIds = new Set(readDeletedProductIds());
+      const visibleProductsList = productsList.filter(
+        (product) => !deletedProductIds.has(product._id)
+      );
+      const hiddenProductsCount = productsList.length - visibleProductsList.length;
+      const count = extractTotalProducts(response.data, visibleProductsList.length);
 
       const mappedCategories: Record<string, string> = {};
-      productsList.forEach((product: any) => {
+      visibleProductsList.forEach((product: any) => {
         if (product?.category && typeof product.category === 'object') {
           if (typeof product.category._id === 'string' && typeof product.category.name === 'string') {
             mappedCategories[product.category._id] = product.category.name;
@@ -244,8 +303,8 @@ const Products: React.FC = () => {
         }
       });
 
-      setProducts(productsList);
-      setTotalCount(count);
+      setProducts(visibleProductsList);
+      setTotalCount(Math.max(0, count - hiddenProductsCount));
       if (Object.keys(mappedCategories).length > 0) {
         setCategoryNameById((prev) => ({ ...prev, ...mappedCategories }));
       }
@@ -395,7 +454,7 @@ const Products: React.FC = () => {
     Object.entries(formData).forEach(([key, value]) => {
       if (value !== null && value !== undefined) {
         if (value instanceof File) {
-          data.append(key, value);
+          data.append(key === 'image' ? 'images' : key, value);
         } else {
           data.append(key, String(value));
         }
@@ -407,6 +466,7 @@ const Products: React.FC = () => {
         await apiClient.patch(`/admin/products/${editingProduct._id}`, data);
         toast.success('Product updated successfully');
       } else {
+        data.append('slug', createUniqueProductSlug(formData.name));
         await apiClient.post('/admin/products', data);
         toast.success('Product created successfully');
       }
@@ -439,13 +499,21 @@ const Products: React.FC = () => {
   const handleDeleteProduct = async () => {
     if (!deletingProduct?._id) return;
 
+    const productId = deletingProduct._id;
     setIsDeletingProduct(true);
     try {
-      await deleteProduct(deletingProduct._id);
+      await deleteProduct(productId);
+      rememberDeletedProductId(productId);
+      setProducts((currentProducts) =>
+        currentProducts.filter((product) => product._id !== productId)
+      );
+      setTotalCount((currentTotal) => Math.max(0, currentTotal - 1));
       toast.success('Product deleted');
       setIsDeleteModalOpen(false);
       setDeletingProduct(null);
-      await fetchProducts();
+      if (products.length === 1 && page > 1) {
+        setPage((currentPage) => Math.max(1, currentPage - 1));
+      }
     } catch {
       toast.error('Failed to delete product');
     } finally {
@@ -456,7 +524,7 @@ const Products: React.FC = () => {
   const totalPages = Math.ceil(totalCount / limit);
 
   return (
-    <div className="page-wrapper">
+    <div className="page-wrapper products-page">
       <div style={{ display: 'grid', gap: '24px' }}>
         <div style={{ display: 'grid', gap: '6px' }}>
           <h1 className="page-title">Products</h1>
@@ -465,7 +533,7 @@ const Products: React.FC = () => {
           </p>
         </div>
 
-        <div className="toolbar-row" style={{ marginBottom: 0 }}>
+        <div className="toolbar-row products-toolbar" style={{ marginBottom: 0 }}>
           <div>
             <h2 className="section-title" style={{ marginBottom: 0 }}>
               Product Inventory
@@ -478,9 +546,9 @@ const Products: React.FC = () => {
           </button>
         </div>
 
-        <div className="card" style={{ padding: 0 }}>
-          <div className="table-container" style={{ border: 'none', borderRadius: 'inherit' }}>
-            <table className="data-table">
+        <div className="card products-table-card" style={{ padding: 0 }}>
+          <div className="table-container products-table-container" style={{ border: 'none', borderRadius: 'inherit' }}>
+            <table className="data-table products-table">
               <thead>
                 <tr>
                   <th>Product</th>

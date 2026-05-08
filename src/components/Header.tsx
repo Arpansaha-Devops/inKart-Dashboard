@@ -49,6 +49,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen = false }) 
 
   return (
     <header
+      className="app-header"
       style={{
         background: 'var(--bg-base)',
         borderBottom: '1px solid var(--border)',
@@ -64,6 +65,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen = false }) 
       }}
     >
       <div
+        className="app-header-title"
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -97,6 +99,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen = false }) 
       </div>
 
       <div
+        className="app-header-actions"
         style={{
           display: 'flex',
           alignItems: 'center',
