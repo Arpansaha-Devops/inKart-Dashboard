@@ -98,3 +98,35 @@ export interface StockUpdatePayload {
   quantity: number;
   operation: 'add' | 'subtract';
 }
+
+export interface RevenueDataPoint {
+  label: string;
+  revenue: number;
+  date?: string;
+}
+
+export interface AnalyticsMetric {
+  key: string;
+  label: string;
+  value: number;
+  trend?: number | null;
+}
+
+export interface AnalyticsDashboardStats {
+  totalRevenue: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  metrics: AnalyticsMetric[];
+}
+
+export interface RevenueOverTimeResponse {
+  success: boolean;
+  data: RevenueDataPoint[];
+  raw?: unknown;
+}
+
+export interface DashboardStatsResponse {
+  success: boolean;
+  data: AnalyticsDashboardStats;
+  raw?: unknown;
+}

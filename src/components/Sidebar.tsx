@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
+  BarChart2,
   LayoutDashboard,
   LogOut,
   Package,
@@ -21,6 +22,7 @@ interface SidebarProps {
 
 const navItems = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+  { name: 'Analytics', path: '/analytics', icon: BarChart2 },
   { name: 'Customers', path: '/customers', icon: Users },
   { name: 'Products', path: '/products', icon: Package },
   { name: 'Categories', path: '/categories', icon: Tag },

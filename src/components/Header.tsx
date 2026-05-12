@@ -23,6 +23,7 @@ const getStoredTheme = (): ThemeMode => {
 
 const pageTitles: Record<string, string> = {
   dashboard: 'Dashboard',
+  analytics: 'Order Analytics',
   customers: 'Customers',
   products: 'Products',
   categories: 'Categories',
