@@ -48,8 +48,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   const [productType, setProductType] = useState<'stocked' | 'on_demand'>('stocked');
   const [stock, setStock] = useState<number>(0);
   const [basePrice, setBasePrice] = useState<number>(0);
-  const [images, setImages] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [images, setImages] = useState<File[]>([]);
+  const [imagePreview, setImagePreview] = useState<string[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [knownCategories, setKnownCategories] = useState<CategoryLookupItem[]>([]);
@@ -236,30 +236,51 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (!basePrice || basePrice <= 0) {
       newErrors.basePrice = 'Base price must be greater than 0';
     }
-    if (!images) {
-      newErrors.images = 'Product image is required';
+    if (images.length === 0) {
+      newErrors.images = 'At least one product image is required';
     }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleImageChange = (file: File | null) => {
-    if (file) {
+  const handleImageChange = (newFiles: FileList | null) => {
+    if (!newFiles || newFiles.length === 0) return;
+    
+    const filesToAdd: File[] = [];
+    const newPreviews: string[] = [...imagePreview];
+    
+    for (let i = 0; i < newFiles.length; i++) {
+      const file = newFiles[i];
+      if (images.length + filesToAdd.length >= 5) {
+        toast.error('Maximum 5 images allowed');
+        break;
+      }
       if (!file.type.startsWith('image/')) {
-        setErrors((prev) => ({ ...prev, images: 'Only JPG, PNG, and WebP files are allowed' }));
-        if (fileInputRef.current) {
-          fileInputRef.current.value = '';
-        }
-        return;
+        toast.error(`${file.name} is not a valid image file`);
+        continue;
       }
-      if (imagePreview) {
-        URL.revokeObjectURL(imagePreview);
-      }
-      setImages(file);
-      setImagePreview(URL.createObjectURL(file));
+      filesToAdd.push(file);
+      newPreviews.push(URL.createObjectURL(file));
+    }
+    
+    if (filesToAdd.length > 0) {
+      setImages([...images, ...filesToAdd]);
+      setImagePreview(newPreviews);
       setErrors((prev) => ({ ...prev, images: undefined }));
     }
+    
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeImage = (index: number) => {
+    const newImages = images.filter((_, i) => i !== index);
+    const newPreviews = imagePreview.filter((_, i) => i !== index);
+    URL.revokeObjectURL(imagePreview[index]);
+    setImages(newImages);
+    setImagePreview(newPreviews);
   };
 
   const resetForm = () => {
@@ -270,11 +291,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     setProductType('stocked');
     setStock(0);
     setBasePrice(0);
-    setImages(null);
-    if (imagePreview) {
-      URL.revokeObjectURL(imagePreview);
-    }
-    setImagePreview(null);
+    setImages([]);
+    imagePreview.forEach((preview) => URL.revokeObjectURL(preview));
+    setImagePreview([]);
     setErrors({});
     setIsSubmitting(false);
   };
@@ -321,7 +340,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (productType === 'stocked') {
       formData.append('stock', String(stock));
     }
-    formData.append('images', images!);
+    images.forEach((image, index) => {
+      formData.append('images', image);
+    });
     formData.append('basePrice', String(basePrice));
 
     try {
@@ -351,9 +372,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    const file = e.dataTransfer.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      handleImageChange(file);
+    if (e.dataTransfer.files) {
+      handleImageChange(e.dataTransfer.files);
     }
   };
 
@@ -606,18 +626,18 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Product image</label>
+                  <label className="form-label">Product images ({images.length}/5)</label>
                   <div
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}
-                    onClick={() => !isSubmitting && fileInputRef.current?.click()}
+                    onClick={() => !isSubmitting && images.length < 5 && fileInputRef.current?.click()}
                     style={{
                       border: `1px dashed ${errors.images ? 'var(--danger)' : 'var(--border-active)'}`,
                       borderRadius: 'var(--radius-md)',
                       padding: '24px',
                       textAlign: 'center',
                       transition: 'border-color 0.2s, background 0.2s',
-                      cursor: isSubmitting ? 'not-allowed' : 'pointer',
+                      cursor: isSubmitting || images.length >= 5 ? 'not-allowed' : 'pointer',
                       background: errors.images ? 'var(--danger-muted)' : 'var(--bg-surface)',
                       opacity: isSubmitting ? 0.6 : 1,
                     }}
@@ -627,36 +647,80 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       type="file"
                       className="hidden"
                       accept="image/jpeg,image/png,image/webp"
+                      multiple
                       disabled={isSubmitting}
-                      onChange={(e) => handleImageChange(e.target.files?.[0] || null)}
+                      onChange={(e) => handleImageChange(e.target.files)}
                     />
-                    {imagePreview ? (
-                      <div style={{ display: 'grid', gap: '8px' }}>
-                        <img
-                          src={imagePreview}
-                          alt="Preview"
-                          style={{
-                            margin: '0 auto',
-                            maxHeight: 128,
-                            borderRadius: 12,
-                            objectFit: 'contain',
-                          }}
-                        />
-                        <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px' }}>
-                          {images?.name}
-                        </p>
-                        <p style={{ margin: 0, color: 'var(--accent)', fontSize: '12px' }}>
-                          Click or drag to replace
-                        </p>
+                    {imagePreview.length > 0 ? (
+                      <div style={{ display: 'grid', gap: '12px' }}>
+                        <div style={{
+                          display: 'grid',
+                          gridTemplateColumns: 'repeat(auto-fill, minmax(100px, 1fr))',
+                          gap: '12px',
+                        }}>
+                          {imagePreview.map((preview, index) => (
+                            <div key={index} style={{
+                              position: 'relative',
+                              borderRadius: 12,
+                              overflow: 'hidden',
+                              background: 'var(--bg-secondary)',
+                            }}>
+                              <img
+                                src={preview}
+                                alt={`Preview ${index + 1}`}
+                                style={{
+                                  width: '100%',
+                                  height: '100px',
+                                  objectFit: 'cover',
+                                }}
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  removeImage(index);
+                                }}
+                                disabled={isSubmitting}
+                                style={{
+                                  position: 'absolute',
+                                  top: '4px',
+                                  right: '4px',
+                                  background: 'rgba(0, 0, 0, 0.6)',
+                                  border: 'none',
+                                  borderRadius: '50%',
+                                  width: '24px',
+                                  height: '24px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  color: 'white',
+                                  fontSize: '16px',
+                                  padding: 0,
+                                  transition: 'background 0.2s',
+                                }}
+                                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(0, 0, 0, 0.8)')}
+                                onMouseLeave={(e) => (e.currentTarget.style.background = 'rgba(0, 0, 0, 0.6)')}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        {images.length < 5 && (
+                          <p style={{ margin: 0, color: 'var(--accent)', fontSize: '12px' }}>
+                            Click or drag to add more images
+                          </p>
+                        )}
                       </div>
                     ) : (
                       <div style={{ display: 'grid', gap: '8px', justifyItems: 'center' }}>
                         <Upload size={24} color="var(--text-muted)" />
                         <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px' }}>
-                          Click or drag image to upload
+                          Click or drag images to upload
                         </p>
                         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '12px' }}>
-                          JPG, PNG, or WebP
+                          JPG, PNG, or WebP (up to 5 images)
                         </p>
                       </div>
                     )}
