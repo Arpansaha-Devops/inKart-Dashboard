@@ -249,18 +249,14 @@ const Products: React.FC = () => {
   };
 
   const fetchCategoryLookup = async () => {
-    const endpoints = ['/admin/categories', '/categories', '/categories/all'];
-    const merged: Record<string, string> = {};
-    for (const endpoint of endpoints) {
-      try {
-        const response = await apiClient.get(endpoint);
-        Object.assign(merged, extractCategoriesFromPayload(response.data));
-      } catch {
-        // Try next endpoint variant.
+    try {
+      const response = await apiClient.get('/admin/categories');
+      const categories = extractCategoriesFromPayload(response.data);
+      if (Object.keys(categories).length > 0) {
+        setCategoryNameById((prev) => ({ ...prev, ...categories }));
       }
-    }
-    if (Object.keys(merged).length > 0) {
-      setCategoryNameById((prev) => ({ ...prev, ...merged }));
+    } catch (error) {
+      // Silently fail - categories will be extracted from product data
     }
   };
 

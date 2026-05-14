@@ -221,8 +221,6 @@ const Customers: React.FC = () => {
   const handleDeleteUser = async () => {
     if (!deletingUser?._id) return;
 
-    console.log('Deleting user:', deletingUser);
-
     if (currentUser?._id && deletingUser._id === currentUser._id) {
       toast.error('You cannot delete your own admin account');
       return;
@@ -231,8 +229,6 @@ const Customers: React.FC = () => {
     setIsDeletingUser(true);
     try {
       const token = Cookies.get('token') || localStorage.getItem('token');
-      console.log('Token being sent:', token);
-
       await apiClient.delete(`/admin/users/${deletingUser._id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });

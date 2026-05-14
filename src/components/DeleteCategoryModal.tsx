@@ -10,6 +10,7 @@ type DeleteCategoryModalProps = {
   category: Category | null;
   onClose: () => void;
   onSuccess: () => void;
+  onDeleteSuccess?: (categoryId: string) => void;
 };
 
 const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
@@ -17,6 +18,7 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
   category,
   onClose,
   onSuccess,
+  onDeleteSuccess,
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -90,6 +92,7 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
     try {
       await deleteCategory(category._id);
       toast.success('Category deleted');
+      onDeleteSuccess?.(category._id);
       onClose();
       onSuccess();
     } catch (error: any) {

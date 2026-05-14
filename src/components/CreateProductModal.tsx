@@ -570,7 +570,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       value={productType}
                       onChange={(e) => {
                         setProductType(e.target.value as 'stocked' | 'on_demand');
-                        setErrors((prev) => ({ ...prev, stock: undefined }));
+                        setErrors((prev) => ({ ...prev, stock: undefined }
+                          
+                        ));
                       }}
                     >
                       <option value="stocked">Stocked</option>

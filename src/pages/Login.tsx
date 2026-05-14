@@ -18,9 +18,7 @@ const Login: React.FC = () => {
     setIsLoading(true);
 
     try {
-      console.log('Attempting login for:', email);
       const response = await apiClient.post<AuthResponse>('/auth/login', { email, password });
-      console.log('Login response:', response.data);
 
       const { data, token, refreshToken } = response.data;
       const finalUser = data?.user;
@@ -38,7 +36,6 @@ const Login: React.FC = () => {
       toast.success('Login successful');
       navigate('/dashboard');
     } catch (error: any) {
-      console.error('Login error details:', error);
       const message =
         error.response?.data?.message ||
         error.message ||

@@ -8,6 +8,48 @@ import CreateCategoryModal from '../components/CreateCategoryModal';
 import EditCategoryModal from '../components/EditCategoryModal';
 import DeleteCategoryModal from '../components/DeleteCategoryModal';
 
+const DELETED_CATEGORIES_STORAGE_KEY = 'inkart-dashboard-deleted-categories';
+
+const readDeletedCategoryIds = (): string[] => {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  try {
+    const storedIds = window.localStorage.getItem(DELETED_CATEGORIES_STORAGE_KEY);
+    const parsedIds = storedIds ? JSON.parse(storedIds) : [];
+
+    return Array.isArray(parsedIds)
+      ? parsedIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
+      : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveDeletedCategoryIds = (categoryIds: string[]) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      DELETED_CATEGORIES_STORAGE_KEY,
+      JSON.stringify(Array.from(new Set(categoryIds)))
+    );
+  } catch {
+    // Keep the API delete flow unaffected if browser storage is unavailable.
+  }
+};
+
+const rememberDeletedCategoryId = (categoryId: string) => {
+  const deletedCategoryIds = readDeletedCategoryIds();
+
+  if (!deletedCategoryIds.includes(categoryId)) {
+    saveDeletedCategoryIds([...deletedCategoryIds, categoryId]);
+  }
+};
+
 const Categories: React.FC = () => {
   const [categories, setCategories] = useState<Category[]>([]);
   const [page, setPage] = useState(1);
@@ -23,7 +65,11 @@ const Categories: React.FC = () => {
     setIsLoading(true);
     try {
       const list = await getCategories();
-      const normalized = [...list].sort((a, b) => {
+      const deletedCategoryIds = new Set(readDeletedCategoryIds());
+      const visibleCategoriesList = list.filter(
+        (category) => !deletedCategoryIds.has(category._id)
+      );
+      const normalized = [...visibleCategoriesList].sort((a, b) => {
         const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime;
@@ -234,6 +280,7 @@ const Categories: React.FC = () => {
         isOpen={Boolean(deletingCategory)}
         category={deletingCategory}
         onClose={() => setDeletingCategory(null)}
+        onDeleteSuccess={rememberDeletedCategoryId}
         onSuccess={fetchCategoriesData}
       />
     </div>

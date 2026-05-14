@@ -193,8 +193,12 @@ const StatsSkeleton: React.FC = () => (
   <div
     style={{
       display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-      gap: '16px',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+      gap: '12px',
+      '@media (min-width: 640px)': {
+        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+        gap: '16px',
+      },
     }}
   >
     {Array.from({ length: 4 }).map((_, index) => (
@@ -444,15 +448,15 @@ const Analytics: React.FC = () => {
 
   return (
     <div className="page-wrapper">
-      <div style={{ display: 'grid', gap: '24px' }}>
-        <div style={{ display: 'grid', gap: '6px' }}>
-          <h1 className="page-title">Order Analytics</h1>
-          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '14px' }}>
+        <div style={{ display: 'grid', gap: 'clamp(16px, 4vw, 24px)' }}>
+        <div style={{ display: 'grid', gap: 'clamp(8px, 2vw, 12px)' }}>
+          <h1 className="page-title" style={{ fontSize: 'clamp(24px, 6vw, 32px)', margin: 0 }}>Order Analytics</h1>
+          <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 'clamp(12px, 3vw, 14px)' }}>
             Track order performance, revenue movement, and the latest admin analytics snapshot.
           </p>
         </div>
 
-        <section style={{ display: 'grid', gap: '16px' }} aria-labelledby="analytics-kpi-heading">
+        <section style={{ display: 'grid', gap: 'clamp(12px, 3vw, 16px)' }} aria-labelledby="analytics-kpi-heading">
           <div
             style={{
               display: 'flex',
@@ -462,7 +466,7 @@ const Analytics: React.FC = () => {
               flexWrap: 'wrap',
             }}
           >
-            <h2 id="analytics-kpi-heading" className="section-title" style={{ marginBottom: 0 }}>
+            <h2 id="analytics-kpi-heading" className="section-title" style={{ marginBottom: 0, fontSize: 'clamp(16px, 5vw, 20px)' }}>
               KPI Overview
             </h2>
 
@@ -486,8 +490,8 @@ const Analytics: React.FC = () => {
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                gap: '16px',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
+                gap: '12px',
               }}
             >
               {statsMetrics.map((metric, index) => {
@@ -505,10 +509,11 @@ const Analytics: React.FC = () => {
                     transition={{ duration: 0.28, delay: index * 0.08 }}
                     className="card card-hover"
                     style={{
-                      padding: '18px 20px',
+                      padding: '14px 16px',
                       borderLeft: `4px solid ${visual.color}`,
                       display: 'grid',
-                      gap: '16px',
+                      gap: '12px',
+                      minWidth: 0,
                     }}
                   >
                     <div
@@ -516,29 +521,30 @@ const Analytics: React.FC = () => {
                         display: 'flex',
                         justifyContent: 'space-between',
                         alignItems: 'flex-start',
-                        gap: '12px',
+                        gap: '8px',
                       }}
                     >
-                      <div>
-                        <p style={{ margin: '0 0 6px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <p style={{ margin: '0 0 4px', fontSize: '12px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {metric.label}
                         </p>
                         <p
                           style={{
                             margin: 0,
-                            fontSize: '26px',
+                            fontSize: 'clamp(18px, 5vw, 26px)',
                             lineHeight: 1.1,
                             fontWeight: 700,
                             color: 'var(--text-primary)',
                             wordBreak: 'break-word',
+                            overflow: 'hidden',
                           }}
                         >
                           {formatMetricValue(metric)}
                         </p>
                       </div>
 
-                      <div className="icon-box" style={{ background: visual.background }}>
-                        <Icon size={20} color={visual.color} />
+                      <div className="icon-box" style={{ background: visual.background, flexShrink: 0 }}>
+                        <Icon size={16} color={visual.color} />
                       </div>
                     </div>
 
@@ -546,16 +552,19 @@ const Analytics: React.FC = () => {
                       style={{
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '8px',
+                        gap: '6px',
                         color: hasTrend ? trendColor : 'var(--text-muted)',
-                        fontSize: '12px',
+                        fontSize: '11px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
                       }}
                     >
-                      <TrendingUp size={14} />
+                      <TrendingUp size={12} style={{ flexShrink: 0 }} />
                       <span>
                         {hasTrend
-                          ? `${metric.trend! >= 0 ? '+' : ''}${formatNumber(metric.trend!)}% vs previous point`
-                          : 'Live analytics snapshot'}
+                          ? `${metric.trend! >= 0 ? '+' : ''}${formatNumber(metric.trend!)}%`
+                          : 'Live snapshot'}
                       </span>
                     </div>
                   </motion.div>
@@ -575,40 +584,40 @@ const Analytics: React.FC = () => {
               onRetry={fetchRevenue}
             />
           ) : (
-            <div className="card" style={{ padding: '20px' }}>
+            <div className="card" style={{ padding: 'clamp(14px, 4vw, 20px)' }}>
               <div
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'flex-start',
-                  gap: '16px',
-                  marginBottom: '18px',
+                  gap: '12px',
+                  marginBottom: '16px',
                   flexWrap: 'wrap',
                 }}
               >
-                <div style={{ minWidth: 0 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
                   <h2
                     id="analytics-chart-heading"
                     className="section-title"
-                    style={{ marginBottom: '6px' }}
+                    style={{ marginBottom: '4px', fontSize: 'clamp(16px, 5vw, 20px)' }}
                   >
                     Revenue Over Time
                   </h2>
-                  <p style={{ margin: 0, fontSize: '13px', color: 'var(--text-secondary)' }}>
+                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
                     Real revenue points returned by the analytics endpoint.
                   </p>
                 </div>
 
-                <button type="button" className="btn-ghost" onClick={fetchRevenue}>
+                <button type="button" className="btn-ghost" onClick={fetchRevenue} style={{ flexShrink: 0 }}>
                   <RefreshCw size={16} />
-                  Refresh Chart
+                  Refresh
                 </button>
               </div>
 
               {revenueSection.points.length === 0 ? (
                 <div
                   style={{
-                    minHeight: 280,
+                    minHeight: 'clamp(200px, 50vw, 360px)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
@@ -620,11 +629,12 @@ const Analytics: React.FC = () => {
                   No revenue data points are available yet.
                 </div>
               ) : (
-                <div style={{ overflowX: 'auto' }}>
+                <div style={{ overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
                   <div
                     style={{
-                      minWidth: `${Math.max(640, revenueSection.points.length * 72)}px`,
-                      height: 360,
+                      width: '100%',
+                      minWidth: 'min(100vw - 32px, 100%)',
+                      height: 'clamp(200px, 50vw, 360px)',
                     }}
                   >
                     <Line data={chartData} options={chartOptions} />

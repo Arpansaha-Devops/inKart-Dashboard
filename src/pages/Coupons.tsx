@@ -14,8 +14,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
-import { Coupon, CreateCouponPayload } from '../types';
+import { Category, Coupon, CreateCouponPayload } from '../types';
 import { createCoupon, updateCoupon, deleteCoupon } from '../services/couponService';
+import { getCategories } from '../services/categoryService';
 import { formatDate } from '../lib/utils';
 import apiClient from '../lib/apiClient';
 
@@ -86,8 +87,24 @@ const extractTotalCoupons = (payload: any, fallback = 0): number => {
   return visit(payload) ?? fallback;
 };
 
+const normalizeApplicableCategories = (values: string[], categories: Category[]): string[] => {
+  const categoryNameToId = new Map(
+    categories.map((category) => [category.name.trim().toLowerCase(), category._id])
+  );
+
+  return Array.from(
+    new Set(
+      values
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0)
+        .map((value) => categoryNameToId.get(value.toLowerCase()) ?? value)
+    )
+  );
+};
+
 const Coupons: React.FC = () => {
   const [coupons, setCoupons] = useState<Coupon[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [page, setPage] = useState(1);
   const [isLoadingAPI, setIsLoadingAPI] = useState(false);
@@ -127,6 +144,7 @@ const Coupons: React.FC = () => {
   const now = new Date();
   const activeCouponsCount = coupons.filter((coupon) => coupon.isActive && new Date(coupon.validUntil) > now).length;
   const expiredCouponsCount = coupons.filter((coupon) => !coupon.isActive || new Date(coupon.validUntil) <= now).length;
+  const activeCategories = categories.filter((category) => category.isActive);
 
   const modalOverlayRef = useRef<HTMLDivElement>(null);
   const deleteModalOverlayRef = useRef<HTMLDivElement>(null);
@@ -283,6 +301,20 @@ const Coupons: React.FC = () => {
   }, [isDeleteModalOpen]);
 
   useEffect(() => {
+    const fetchCategories = async () => {
+      try {
+        const categoryList = await getCategories();
+        setCategories(categoryList);
+      } catch (error) {
+        console.error('Error fetching categories for coupons:', error);
+        setCategories([]);
+      }
+    };
+
+    fetchCategories();
+  }, []);
+
+  useEffect(() => {
     const fetchCoupons = async () => {
       setIsLoadingAPI(true);
       try {
@@ -347,7 +379,7 @@ const Coupons: React.FC = () => {
         validFrom: coupon.validFrom.slice(0, 16),
         validUntil: coupon.validUntil.slice(0, 16),
         isActive: coupon.isActive,
-        applicableCategories: coupon.applicableCategories,
+        applicableCategories: normalizeApplicableCategories(coupon.applicableCategories, categories),
       });
     } else {
       setEditingCoupon(null);
@@ -382,6 +414,7 @@ const Coupons: React.FC = () => {
       const payload = {
         ...formData,
         code: formData.code.toUpperCase(),
+        applicableCategories: normalizeApplicableCategories(formData.applicableCategories, categories),
       };
 
       if (editingCoupon) {
@@ -458,11 +491,6 @@ const Coupons: React.FC = () => {
         ...prev,
         isActive: (e.target as HTMLInputElement).checked,
       }));
-    } else if (name === 'applicableCategories') {
-      setFormData((prev) => ({
-        ...prev,
-        applicableCategories: value.split(',').map((category) => category.trim()).filter((category) => category),
-      }));
     } else {
       setFormData((prev) => ({
         ...prev,
@@ -483,6 +511,15 @@ const Coupons: React.FC = () => {
 
   const getMinOrderLabel = (coupon: Coupon): string => {
     return coupon.minOrderAmount ? formatCurrency(coupon.minOrderAmount) : '\u2014';
+  };
+
+  const toggleApplicableCategory = (categoryId: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      applicableCategories: prev.applicableCategories.includes(categoryId)
+        ? prev.applicableCategories.filter((id) => id !== categoryId)
+        : [...prev.applicableCategories, categoryId],
+    }));
   };
 
   return (
@@ -905,14 +942,55 @@ const Coupons: React.FC = () => {
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="form-label">Applicable categories</label>
-                    <input
-                      type="text"
-                      name="applicableCategories"
-                      value={formData.applicableCategories.join(', ')}
-                      onChange={handleInputChange}
-                      placeholder="Books, Electronics, Clothing"
-                      className="input-field"
-                    />
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: '10px',
+                        minHeight: '52px',
+                        padding: '12px',
+                        borderRadius: 'var(--radius-md)',
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg-elevated)',
+                      }}
+                    >
+                      {activeCategories.length > 0 ? (
+                        activeCategories.map((category) => {
+                          const isSelected = formData.applicableCategories.includes(category._id);
+
+                          return (
+                            <button
+                              key={category._id}
+                              type="button"
+                              onClick={() => toggleApplicableCategory(category._id)}
+                              className={isSelected ? 'badge-active' : 'badge-inactive'}
+                              style={{
+                                border: 'none',
+                                cursor: 'pointer',
+                                padding: '8px 12px',
+                              }}
+                            >
+                              {category.name}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        <span style={{ fontSize: '14px', color: 'var(--text-muted)' }}>
+                          No active categories available right now.
+                        </span>
+                      )}
+                    </div>
+                    {formData.applicableCategories.length > 0 ? (
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '12px', margin: '8px 0 0' }}>
+                        Selected:{' '}
+                        {formData.applicableCategories
+                          .map(
+                            (categoryId) =>
+                              categories.find((category) => category._id === categoryId)?.name ?? categoryId
+                          )
+                          .join(', ')}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -975,7 +1053,11 @@ const Coupons: React.FC = () => {
                     fontSize: '13px',
                   }}
                 >
-                  Separate category names with commas. Leave this empty to apply the coupon to all categories.
+                  Suggested active categories:{' '}
+                  {activeCategories.length > 0
+                    ? activeCategories.map((category) => category.name).join(', ')
+                    : 'none'}
+                  . Leave this empty to apply the coupon to all categories.
                 </div>
               </form>
 
