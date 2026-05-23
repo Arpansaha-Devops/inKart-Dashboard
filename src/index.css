@@ -527,6 +527,12 @@ table.data-table tbody td {
   gap: 16px;
 }
 
+.orders-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .chart-grid {
   display: grid;
   grid-template-columns: 3fr 2fr;
@@ -570,6 +576,16 @@ table.data-table tbody td {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 20px;
+}
+
+.orders-card-list {
+  display: none;
+}
+
+.orders-detail-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(0, 1.05fr);
+  gap: 24px;
 }
 
 .action-icon-button {
@@ -731,7 +747,8 @@ table.data-table tbody td {
 }
 
 @media (max-width: 1024px) {
-  .stat-grid {
+  .stat-grid,
+  .orders-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -922,6 +939,23 @@ table.data-table tbody td {
     grid-template-columns: 1fr;
   }
 
+  .orders-filter-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .orders-table-card {
+    display: none;
+  }
+
+  .orders-card-list {
+    display: grid;
+    gap: 14px;
+  }
+
+  .orders-detail-grid {
+    grid-template-columns: 1fr;
+  }
+
   table.data-table thead th:nth-child(n + 5) {
     display: none;
   }
@@ -932,7 +966,8 @@ table.data-table tbody td {
 }
 
 @media (max-width: 640px) {
-  .stat-grid {
+  .stat-grid,
+  .orders-stat-grid {
     grid-template-columns: 1fr;
   }
 }

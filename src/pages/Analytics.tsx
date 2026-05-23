@@ -195,10 +195,6 @@ const StatsSkeleton: React.FC = () => (
       display: 'grid',
       gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
       gap: '12px',
-      '@media (min-width: 640px)': {
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '16px',
-      },
     }}
   >
     {Array.from({ length: 4 }).map((_, index) => (

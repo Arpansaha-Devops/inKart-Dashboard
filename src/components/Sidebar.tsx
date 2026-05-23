@@ -5,6 +5,7 @@ import {
   BarChart2,
   LayoutDashboard,
   LogOut,
+  ShoppingBag,
   Package,
   Tag,
   Ticket,
@@ -22,6 +23,7 @@ interface SidebarProps {
 
 const navItems = [
   { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+  { name: 'Orders', path: '/orders', icon: ShoppingBag },
   { name: 'Analytics', path: '/analytics', icon: BarChart2 },
   { name: 'Customers', path: '/customers', icon: Users },
   { name: 'Products', path: '/products', icon: Package },

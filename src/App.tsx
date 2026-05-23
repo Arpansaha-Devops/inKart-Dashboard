@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Customers from './pages/Customers';
 import Analytics from './pages/Analytics';
+import Orders from './pages/Orders';
 import Products from './pages/Products';
 import Categories from './pages/Categories';
 import Coupons from './pages/Coupons';
@@ -21,6 +22,7 @@ export default function App() {
           <Route element={<PrivateRoute />}>
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/orders" element={<Orders />} />
               <Route path="/analytics" element={<Analytics />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/products" element={<Products />} />
