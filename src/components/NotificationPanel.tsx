@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bell,
   Clock3,
@@ -8,6 +9,7 @@ import {
   ShieldCheck,
   Sparkles,
   Users,
+  X,
 } from 'lucide-react';
 
 type NotificationItem = {
@@ -34,9 +36,6 @@ const notificationItems: NotificationItem[] = [];
 const activityItems: ActivityItem[] = [];
 const managerContacts: ManagerContact[] = [];
 
-const PANEL_WIDTH = 360;
-const DOCK_BREAKPOINT = 1280;
-const CLOSED_BUTTON_RIGHT = 120;
 const HEADER_OFFSET_TOP = 12;
 
 const getViewportWidth = () => {
@@ -125,24 +124,33 @@ const NotificationPanel: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const panelWidth = Math.min(PANEL_WIDTH, Math.max(280, viewportWidth - 16));
-  const isDockedDesktop = viewportWidth >= DOCK_BREAKPOINT;
-  const spacerWidth = isDockedDesktop && isOpen ? panelWidth : 0;
-  const toggleButtonRight = isOpen ? 18 : CLOSED_BUTTON_RIGHT;
+  useEffect(() => {
+    if (!isOpen) return;
 
-  return (
+    setViewportWidth(window.innerWidth);
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isOpen]);
+
+  const panelWidth = viewportWidth < 768 ? '100vw' : viewportWidth < 1024 ? 320 : 380;
+
+  const panelMarkup = (
     <>
-      <div
-        aria-hidden="true"
-        style={{
-          width: spacerWidth,
-          minWidth: spacerWidth,
-          flexShrink: 0,
-          transition: 'width 280ms ease, min-width 280ms ease',
-        }}
-      />
-
-      {!isDockedDesktop && isOpen ? (
+      {isOpen ? (
         <button
           type="button"
           onClick={() => setIsOpen(false)}
@@ -151,22 +159,25 @@ const NotificationPanel: React.FC = () => {
             position: 'fixed',
             inset: 0,
             border: 'none',
-            background: 'rgba(0, 0, 0, 0.36)',
+            background: 'rgba(0, 0, 0, 0.4)',
             cursor: 'pointer',
-            zIndex: 22,
+            zIndex: 40,
           }}
         />
       ) : null}
 
       <button
         type="button"
-        onClick={() => setIsOpen((current) => !current)}
+        onClick={() => {
+          setViewportWidth(window.innerWidth);
+          setIsOpen((current) => !current);
+        }}
         aria-label={isOpen ? 'Hide notifications panel' : 'Show notifications panel'}
         aria-expanded={isOpen}
         style={{
           position: 'fixed',
           top: HEADER_OFFSET_TOP,
-          right: toggleButtonRight,
+          right: isOpen ? 64 : 120,
           width: 40,
           height: 40,
           borderRadius: '999px',
@@ -177,9 +188,9 @@ const NotificationPanel: React.FC = () => {
           alignItems: 'center',
           justifyContent: 'center',
           cursor: 'pointer',
-          zIndex: 40,
+          zIndex: 60,
           transition:
-            'right 280ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease, transform 120ms ease',
+            'right 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease, transform 120ms ease',
           boxShadow: isOpen ? '0 10px 24px rgba(249, 115, 22, 0.14)' : 'var(--shadow-card)',
         }}
       >
@@ -194,11 +205,13 @@ const NotificationPanel: React.FC = () => {
           right: 0,
           bottom: 0,
           width: panelWidth,
+          maxWidth: '100vw',
+          height: '100vh',
           background: 'var(--bg-surface)',
           borderLeft: '1px solid var(--border)',
           transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
-          transition: 'transform 280ms ease',
-          zIndex: 24,
+          transition: 'transform 250ms ease-in-out',
+          zIndex: 50,
           boxShadow: 'var(--shadow-modal)',
           display: 'flex',
           flexDirection: 'column',
@@ -206,11 +219,38 @@ const NotificationPanel: React.FC = () => {
         }}
       >
         <div
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 2,
+            minHeight: 64,
+            padding: '14px 18px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderBottom: '1px solid var(--border)',
+            background: 'var(--bg-surface)',
+          }}
+        >
+          <p style={{ margin: 0, fontSize: 16, fontWeight: 600, color: 'var(--text-primary)' }}>
+            Panel
+          </p>
+          <button
+            type="button"
+            className="action-icon-button"
+            onClick={() => setIsOpen(false)}
+            aria-label="Close notification panel"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        <div
           className="hide-scrollbar"
           style={{
             flex: 1,
             overflowY: 'auto',
-            padding: '84px 18px 18px',
+            padding: '18px',
             display: 'grid',
             gap: '22px',
           }}
@@ -603,6 +643,12 @@ const NotificationPanel: React.FC = () => {
       </aside>
     </>
   );
+
+  if (typeof document === 'undefined') {
+    return panelMarkup;
+  }
+
+  return createPortal(panelMarkup, document.body);
 };
 
 export default NotificationPanel;

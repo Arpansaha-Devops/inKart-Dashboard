@@ -36,7 +36,7 @@ const Layout: React.FC = () => {
         }}
       >
         <Header onMenuToggle={toggleSidebar} isSidebarOpen={isSidebarOpen} />
-        <main className="hide-scrollbar" style={{ flex: 1, overflow: 'auto' }}>
+        <main className="hide-scrollbar" style={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
           <Outlet />
         </main>
       </div>

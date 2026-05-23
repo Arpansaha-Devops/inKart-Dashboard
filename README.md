@@ -24,9 +24,9 @@ The app talks to the same API used by the e-commerce project.
 
 - Default API base URL: `https://inkart-virid.vercel.app/api/v1`
 - Runtime override: `VITE_API_BASE_URL`
-- Frontend route basename: `/inkarts-admin`
-- Vite base path: `/inkarts-admin/`
-- Local dev URL: `http://localhost:8000/inkarts-admin/login`
+- Frontend route basename: `/admin`
+- Vite base path: `/admin/`
+- Local dev URL: `http://localhost:8000/admin/login`
 
 All API requests go through [src/lib/apiClient.ts](src/lib/apiClient.ts), except the refresh-token retry which uses raw `axios.post` internally.
 
@@ -36,7 +36,7 @@ Important API client behavior:
 - Adds `Authorization: Bearer <token>` to authenticated requests.
 - Skips auth headers for `/auth/login`, `/auth/register`, and `/auth/refresh-token`.
 - On `401`, tries `POST /auth/refresh-token` once if a refresh token exists.
-- If refresh fails, clears auth storage and redirects to `/inkarts-admin/login`.
+- If refresh fails, clears auth storage and redirects to `/admin/login`.
 
 ## Tech Stack
 
@@ -93,7 +93,7 @@ Actual frontend runtime usage:
 [vite.config.ts](vite.config.ts):
 
 - Uses `@vitejs/plugin-react` and `@tailwindcss/vite`.
-- Sets `base: '/inkarts-admin/'`.
+- Sets `base: '/admin/'`.
 - Sets dev server port to `8000`.
 - Defines alias `@` as the repository root, not `src`.
 - Defines a `/api` proxy to `https://inkart-virid.vercel.app/api/v1`.
@@ -110,7 +110,7 @@ Important note: the current `.env` points `VITE_API_BASE_URL` directly to the li
 [src/App.tsx](src/App.tsx):
 
 - Wraps everything with `AuthProvider`.
-- Uses `BrowserRouter` with `basename="/inkarts-admin"`.
+- Uses `BrowserRouter` with `basename="/admin"`.
 - Mounts `Toaster`.
 - Defines public and protected routes.
 
@@ -308,7 +308,7 @@ Implementation notes:
 - Requires name, price, description, category, base price, and at least one image.
 - Allows up to 5 images.
 - Category input accepts an active category name or a 24-character category id.
-- Some auth failure branches redirect to `/login` instead of `/inkarts-admin/login`.
+- Some auth failure branches redirect to `/login` instead of `/admin/login`.
 
 ### Categories
 
@@ -480,13 +480,13 @@ npm run dev
 4. Open:
 
 ```text
-http://localhost:8000/inkarts-admin/login
+http://localhost:8000/admin/login
 ```
 
 ## QA Notes and Known Quirks
 
 - This admin and the e-commerce storefront share the same backend data. Product/category/coupon mutations in admin should be tested against storefront behavior.
-- `CreateProductModal.tsx` redirects to `/login` in some auth failure paths, while the app basename expects `/inkarts-admin/login`.
+- `CreateProductModal.tsx` redirects to `/login` in some auth failure paths, while the app basename expects `/admin/login`.
 - `Products.tsx` has an inline modal with create/edit logic, but visible creation uses `CreateProductModal`.
 - Product and category deletes are also remembered in localStorage and hidden locally after successful delete.
 - Several UI strings contain encoding artifacts such as `â‚¹`, `â€¢`, `Â©`, and `Youâ€™ll`.

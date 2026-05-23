@@ -743,11 +743,17 @@ const Orders: React.FC = () => {
 
   useEffect(() => {
     if (!selectedOrder) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setSelectedOrder(null);
     };
     document.addEventListener('keydown', handleEscape);
-    return () => document.removeEventListener('keydown', handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleEscape);
+    };
   }, [selectedOrder]);
 
   const stats = useMemo(() => {
@@ -850,8 +856,8 @@ const Orders: React.FC = () => {
   };
 
   return (
-    <div className="page-wrapper">
-      <div style={{ display: 'grid', gap: 24 }}>
+    <div className="page-wrapper orders-page">
+      <div className="orders-page-content" style={{ display: 'grid', gap: 24 }}>
         <div className="toolbar-row" style={{ marginBottom: 0, alignItems: 'flex-start' }}>
           <div style={{ display: 'grid', gap: 6 }}>
             <h1 className="page-title">Orders</h1>
@@ -860,7 +866,7 @@ const Orders: React.FC = () => {
             </p>
           </div>
 
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div className="orders-toolbar-actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button
               type="button"
               className="btn-ghost"
@@ -1076,7 +1082,11 @@ const Orders: React.FC = () => {
                         <tr key={`${order.source}-${order._id}`} className="group">
                           <td>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                              <span style={{ fontFamily: "'SFMono-Regular', Consolas, monospace" }}>
+                              <span
+                                title={order.orderNumber}
+                                className="orders-id-text"
+                                style={{ fontFamily: "'SFMono-Regular', Consolas, monospace" }}
+                              >
                                 {shortOrderId(order)}
                               </span>
                               <button
@@ -1333,12 +1343,12 @@ const OrderDetailModal: React.FC<{
   const terminalLabel = terminalStatusLabel(order.orderStatus);
 
   return (
-    <div className="modal-backdrop" onMouseDown={onClose} role="presentation">
+    <div className="modal-backdrop orders-modal-backdrop" onMouseDown={onClose} role="presentation">
       <motion.div
         initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
-        className="modal-box modal-box-lg"
+        className="modal-box modal-box-lg orders-detail-modal"
         style={{ maxWidth: 980 }}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"

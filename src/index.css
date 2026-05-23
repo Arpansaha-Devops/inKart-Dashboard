@@ -474,6 +474,14 @@ table.data-table tbody td {
 .page-wrapper {
   padding: 28px 32px;
   min-height: 100vh;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
+.page-wrapper > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .page-title {
@@ -521,6 +529,10 @@ table.data-table tbody td {
   flex-wrap: wrap;
 }
 
+.toolbar-row > * {
+  min-width: 0;
+}
+
 .stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -529,8 +541,21 @@ table.data-table tbody td {
 
 .orders-stat-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+}
+
+.stat-grid > .card,
+.orders-stat-grid > .card,
+.quick-actions-grid > * {
+  min-width: 0;
+}
+
+.orders-stat-grid > .card p:last-child {
+  max-width: 100%;
+  overflow: hidden !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chart-grid {
@@ -538,6 +563,10 @@ table.data-table tbody td {
   grid-template-columns: 3fr 2fr;
   gap: 16px;
   margin-top: 20px;
+}
+
+.chart-grid > .card {
+  overflow: hidden;
 }
 
 .split-grid {
@@ -582,10 +611,78 @@ table.data-table tbody td {
   display: none;
 }
 
+.orders-page,
+.orders-page-content,
+.orders-table-card {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.orders-page-content {
+  overflow-x: hidden;
+}
+
+.orders-toolbar-actions {
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.orders-filter-grid {
+  width: 100%;
+  min-width: 0;
+}
+
+.orders-filter-grid > * {
+  min-width: 0;
+}
+
+.orders-table-container {
+  overflow-x: auto;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.orders-table-container::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.orders-table {
+  min-width: 900px;
+}
+
+.orders-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.orders-id-text {
+  display: inline-block;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
 .orders-detail-grid {
   display: grid;
   grid-template-columns: minmax(260px, 0.95fr) minmax(0, 1.05fr);
   gap: 24px;
+}
+
+.orders-detail-modal > div:first-child {
+  position: sticky;
+  top: -1.75rem;
+  z-index: 2;
+  background: var(--bg-card);
+  padding-top: 2px;
 }
 
 .action-icon-button {
@@ -746,10 +843,40 @@ table.data-table tbody td {
   }
 }
 
-@media (max-width: 1024px) {
+@media (min-width: 1800px) {
+  .orders-stat-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  .orders-filter-grid {
+    grid-template-columns: minmax(240px, 2fr) repeat(4, minmax(140px, 1fr)) auto !important;
+  }
+}
+
+@media (max-width: 1799px) {
+  .orders-filter-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  }
+}
+
+@media (max-width: 1279px) and (min-width: 1024px) {
+  .orders-stat-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 1023px) {
   .stat-grid,
   .orders-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .quick-actions-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .orders-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
   }
 }
 
@@ -760,7 +887,17 @@ table.data-table tbody td {
   }
 }
 
-@media (max-width: 768px) {
+@media (min-width: 768px) {
+  .orders-table-card {
+    display: block;
+  }
+
+  .orders-card-list {
+    display: none;
+  }
+}
+
+@media (max-width: 767px) {
   .page-wrapper {
     padding: 16px;
   }
@@ -790,8 +927,34 @@ table.data-table tbody td {
     max-height: 95vh;
   }
 
+  .orders-modal-backdrop {
+    align-items: stretch;
+    justify-content: stretch;
+    padding: 0;
+  }
+
+  .orders-detail-modal {
+    width: 100%;
+    max-width: none !important;
+    height: 100vh;
+    max-height: 100vh;
+    margin: 0;
+    border-radius: 0;
+    overflow-y: auto;
+  }
+
   .toolbar-row {
     align-items: stretch;
+  }
+
+  .orders-toolbar-actions {
+    justify-content: stretch;
+    width: 100%;
+  }
+
+  .orders-toolbar-actions > button {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .products-page,
@@ -950,6 +1113,10 @@ table.data-table tbody td {
   .orders-card-list {
     display: grid;
     gap: 14px;
+  }
+
+  .orders-card-list .btn-ghost {
+    width: 100%;
   }
 
   .orders-detail-grid {
