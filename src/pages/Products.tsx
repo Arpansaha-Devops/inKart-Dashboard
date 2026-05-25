@@ -16,10 +16,7 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
 import { deleteProduct } from '../services/productService';
-import {
-  createDuplicateFriendlyProductName,
-  getVisibleProductName,
-} from '../lib/productNames';
+import { getVisibleProductName } from '../lib/productNames';
 
 const isProductLike = (item: any): item is Product => {
   return Boolean(
@@ -281,6 +278,7 @@ const Products: React.FC = () => {
     category: '',
     productType: 'on_demand',
     stock: 0,
+    isCustomizable: true,
     basePrice: 0,
     image: null as File | null,
   });
@@ -439,8 +437,9 @@ const Products: React.FC = () => {
         name: getVisibleProductName(product.name),
         description: product.description || '',
         category: typeof product.category === 'object' && product.category !== null ? ((product.category as any)?._id || '') : (product.category || ''),
-        productType: 'on_demand',
+        productType: product.productType || 'on_demand',
         stock: product.stock || 0,
+        isCustomizable: product.isCustomizable ?? true,
         basePrice: product.basePrice || 0,
         image: null,
       });
@@ -452,6 +451,7 @@ const Products: React.FC = () => {
         category: '',
         productType: 'on_demand',
         stock: 0,
+        isCustomizable: true,
         basePrice: 0,
         image: null,
       });
@@ -471,15 +471,13 @@ const Products: React.FC = () => {
         }
       }
     });
-    data.set('productType', 'on_demand');
-    data.set('isCustomizable', 'true');
+    data.set('name', formData.name.trim());
 
     try {
       if (editingProduct) {
         await apiClient.patch(`/admin/products/${editingProduct._id}`, data);
         toast.success('Product updated successfully');
       } else {
-        data.set('name', createDuplicateFriendlyProductName(formData.name));
         setUniqueProductSlug(data, formData.name);
         await apiClient.post('/admin/products', data);
         toast.success('Product created successfully');
@@ -825,7 +823,19 @@ const Products: React.FC = () => {
 
                   <div className="form-group">
                     <label className="form-label">Product type</label>
-                    <input className="input-field" value="On Demand" disabled readOnly />
+                    <select
+                      className="input-field"
+                      value={formData.productType}
+                      onChange={(event) =>
+                        setFormData({
+                          ...formData,
+                          productType: event.target.value as 'stocked' | 'on_demand',
+                        })
+                      }
+                    >
+                      <option value="on_demand">On demand</option>
+                      <option value="stocked">Stock</option>
+                    </select>
                   </div>
 
                   <div className="form-group">
@@ -833,12 +843,28 @@ const Products: React.FC = () => {
                     <input
                       type="number"
                       required
+                      min="0"
+                      step="1"
                       className="input-field"
                       value={formData.stock}
                       onChange={(event) =>
                         setFormData({ ...formData, stock: parseInt(event.target.value, 10) || 0 })
                       }
                     />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">Customizable</label>
+                    <select
+                      className="input-field"
+                      value={String(formData.isCustomizable)}
+                      onChange={(event) =>
+                        setFormData({ ...formData, isCustomizable: event.target.value === 'true' })
+                      }
+                    >
+                      <option value="true">True</option>
+                      <option value="false">False</option>
+                    </select>
                   </div>
 
                   <div className="form-group">

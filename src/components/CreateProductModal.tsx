@@ -4,7 +4,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { createProduct } from '../services/productService';
 import apiClient from '../lib/apiClient';
-import { createDuplicateFriendlyProductName } from '../lib/productNames';
 
 interface CreateProductModalProps {
   isOpen: boolean;
@@ -19,6 +18,7 @@ interface FormErrors {
   category?: string;
   images?: string;
   basePrice?: string;
+  stock?: string;
 }
 
 interface CategoryLookupItem {
@@ -69,6 +69,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
   const [basePrice, setBasePrice] = useState<number>(0);
+  const [productType, setProductType] = useState<'stocked' | 'on_demand'>('on_demand');
+  const [stock, setStock] = useState<number>(0);
+  const [isCustomizable, setIsCustomizable] = useState(true);
   const [images, setImages] = useState<File[]>([]);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
   const [errors, setErrors] = useState<FormErrors>({});
@@ -254,6 +257,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (!basePrice || basePrice <= 0) {
       newErrors.basePrice = 'Base price must be greater than 0';
     }
+    if (stock < 0) {
+      newErrors.stock = 'Stock cannot be negative';
+    }
     if (images.length === 0) {
       newErrors.images = 'At least one product image is required';
     }
@@ -307,6 +313,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     setDescription('');
     setCategory('');
     setBasePrice(0);
+    setProductType('on_demand');
+    setStock(0);
+    setIsCustomizable(true);
     setImages([]);
     imagePreview.forEach((preview) => URL.revokeObjectURL(preview));
     setImagePreview([]);
@@ -347,13 +356,14 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     }
 
     const formData = new FormData();
-    formData.append('name', createDuplicateFriendlyProductName(name));
+    formData.append('name', name.trim());
     setUniqueProductSlug(formData, name);
     formData.append('price', String(price));
     formData.append('description', description);
     formData.append('category', resolvedCategoryId);
-    formData.append('productType', 'on_demand');
-    formData.append('isCustomizable', 'true');
+    formData.append('productType', productType);
+    formData.append('stock', String(stock));
+    formData.append('isCustomizable', String(isCustomizable));
     images.forEach((image, index) => {
       formData.append('images', image);
     });
@@ -597,7 +607,50 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="form-label">Product type</label>
-                    <input className="input-field" value="On Demand" disabled readOnly />
+                    <select
+                      className="input-field"
+                      disabled={isSubmitting}
+                      value={productType}
+                      onChange={(event) => setProductType(event.target.value as 'stocked' | 'on_demand')}
+                    >
+                      <option value="on_demand">On demand</option>
+                      <option value="stocked">Stock</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Initial stock</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      disabled={isSubmitting}
+                      className="input-field"
+                      style={errors.stock ? { borderColor: 'var(--danger)' } : undefined}
+                      value={stock}
+                      onChange={(event) => {
+                        setStock(parseInt(event.target.value, 10) || 0);
+                        if (errors.stock) setErrors((prev) => ({ ...prev, stock: undefined }));
+                      }}
+                    />
+                    {errors.stock ? (
+                      <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                        {errors.stock}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label">Customizable</label>
+                    <select
+                      className="input-field"
+                      disabled={isSubmitting}
+                      value={String(isCustomizable)}
+                      onChange={(event) => setIsCustomizable(event.target.value === 'true')}
+                    >
+                      <option value="true">True</option>
+                      <option value="false">False</option>
+                    </select>
                   </div>
                 </div>
 

@@ -14,6 +14,7 @@ export interface Product {
   category: string;
   productType: 'stocked' | 'on_demand';
   stock: number;
+  isCustomizable?: boolean;
   basePrice: number;
   image: string;
   createdAt: string;

@@ -6,9 +6,17 @@ const USER_STORAGE_KEY = 'user';
 const REFRESH_TOKEN_STORAGE_KEY = 'refreshToken';
 const DEFAULT_API_BASE_URL = 'https://inkart-virid.vercel.app/api/v1';
 
-const baseURL = (
+const configuredBaseURL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
 ).replace(/\/+$/, '');
+
+const shouldUseLocalProxy =
+  import.meta.env.DEV &&
+  typeof window !== 'undefined' &&
+  ['localhost', '127.0.0.1'].includes(window.location.hostname) &&
+  configuredBaseURL === DEFAULT_API_BASE_URL;
+
+const baseURL = shouldUseLocalProxy ? '/api' : configuredBaseURL;
 
 const AUTH_BYPASS_ROUTES = [
   '/auth/login',

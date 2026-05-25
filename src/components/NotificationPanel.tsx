@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Bell,
@@ -114,6 +114,19 @@ const EmptySection: React.FC<{
 const NotificationPanel: React.FC = () => {
   const [isOpen, setIsOpen] = useState(true);
   const [viewportWidth, setViewportWidth] = useState(getViewportWidth);
+  const panelRef = useRef<HTMLElement | null>(null);
+  const toggleButtonRef = useRef<HTMLButtonElement | null>(null);
+
+  const closePanel = () => {
+    if (panelRef.current?.contains(document.activeElement)) {
+      (document.activeElement as HTMLElement | null)?.blur();
+    }
+
+    setIsOpen(false);
+    requestAnimationFrame(() => {
+      toggleButtonRef.current?.focus();
+    });
+  };
 
   useEffect(() => {
     const handleResize = () => {
@@ -134,7 +147,7 @@ const NotificationPanel: React.FC = () => {
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsOpen(false);
+        closePanel();
       }
     };
 
@@ -153,7 +166,7 @@ const NotificationPanel: React.FC = () => {
       {isOpen ? (
         <button
           type="button"
-          onClick={() => setIsOpen(false)}
+          onClick={closePanel}
           aria-label="Close notification panel"
           style={{
             position: 'fixed',
@@ -167,6 +180,7 @@ const NotificationPanel: React.FC = () => {
       ) : null}
 
       <button
+        ref={toggleButtonRef}
         type="button"
         onClick={() => {
           setViewportWidth(window.innerWidth);
@@ -198,6 +212,7 @@ const NotificationPanel: React.FC = () => {
       </button>
 
       <aside
+        ref={panelRef}
         aria-hidden={!isOpen}
         style={{
           position: 'fixed',
@@ -238,7 +253,7 @@ const NotificationPanel: React.FC = () => {
           <button
             type="button"
             className="action-icon-button"
-            onClick={() => setIsOpen(false)}
+            onClick={closePanel}
             aria-label="Close notification panel"
           >
             <X size={20} />

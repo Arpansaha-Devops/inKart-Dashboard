@@ -2,8 +2,6 @@ import type { StockUpdatePayload } from '../types';
 import apiClient from '../lib/apiClient';
 
 export const createProduct = async (formData: FormData) => {
-  formData.set('productType', 'on_demand');
-  formData.set('isCustomizable', 'true');
   return apiClient.post('/admin/products', formData);
 };
 
@@ -14,8 +12,6 @@ export const getProducts = async (page = 1, limit = 10) => {
 };
 
 export const updateProduct = async (productId: string, formData: FormData) => {
-  formData.set('productType', 'on_demand');
-  formData.set('isCustomizable', 'true');
   return apiClient.patch(`/admin/products/${productId}`, formData);
 };
 
