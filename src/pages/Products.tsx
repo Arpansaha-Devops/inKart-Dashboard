@@ -16,6 +16,10 @@ import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
 import { deleteProduct } from '../services/productService';
+import {
+  createDuplicateFriendlyProductName,
+  getVisibleProductName,
+} from '../lib/productNames';
 
 const isProductLike = (item: any): item is Product => {
   return Boolean(
@@ -110,7 +114,18 @@ const slugifyProductName = (value: string) =>
 
 const createUniqueProductSlug = (value: string) => {
   const baseSlug = slugifyProductName(value) || 'product';
-  return `${baseSlug}-${Date.now().toString(36)}`;
+  const randomPart =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+
+  return `${baseSlug}-${Date.now().toString(36)}-${randomPart}`;
+};
+
+const setUniqueProductSlug = (formData: FormData, productName: string) => {
+  const slug = createUniqueProductSlug(productName);
+  formData.set('slug', slug);
+  formData.set('productSlug', slug);
 };
 
 const PRODUCT_PLACEHOLDER_IMAGE =
@@ -264,7 +279,7 @@ const Products: React.FC = () => {
     name: '',
     description: '',
     category: '',
-    productType: 'stocked',
+    productType: 'on_demand',
     stock: 0,
     basePrice: 0,
     image: null as File | null,
@@ -421,10 +436,10 @@ const Products: React.FC = () => {
     if (product) {
       setEditingProduct(product);
       setFormData({
-        name: product.name || '',
+        name: getVisibleProductName(product.name),
         description: product.description || '',
         category: typeof product.category === 'object' && product.category !== null ? ((product.category as any)?._id || '') : (product.category || ''),
-        productType: product.productType || 'stocked',
+        productType: 'on_demand',
         stock: product.stock || 0,
         basePrice: product.basePrice || 0,
         image: null,
@@ -435,7 +450,7 @@ const Products: React.FC = () => {
         name: '',
         description: '',
         category: '',
-        productType: 'stocked',
+        productType: 'on_demand',
         stock: 0,
         basePrice: 0,
         image: null,
@@ -456,13 +471,16 @@ const Products: React.FC = () => {
         }
       }
     });
+    data.set('productType', 'on_demand');
+    data.set('isCustomizable', 'true');
 
     try {
       if (editingProduct) {
         await apiClient.patch(`/admin/products/${editingProduct._id}`, data);
         toast.success('Product updated successfully');
       } else {
-        data.append('slug', createUniqueProductSlug(formData.name));
+        data.set('name', createDuplicateFriendlyProductName(formData.name));
+        setUniqueProductSlug(data, formData.name);
         await apiClient.post('/admin/products', data);
         toast.success('Product created successfully');
       }
@@ -586,7 +604,7 @@ const Products: React.FC = () => {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <img
                             src={getProductImageUrl(product) || PRODUCT_PLACEHOLDER_IMAGE}
-                            alt={product.name}
+                            alt={getVisibleProductName(product.name)}
                             style={{
                               width: 40,
                               height: 40,
@@ -603,7 +621,7 @@ const Products: React.FC = () => {
                           />
                           <div style={{ minWidth: 0 }}>
                             <p style={{ fontWeight: 500, margin: 0, fontSize: 14 }}>
-                              {product.name}
+                              {getVisibleProductName(product.name)}
                             </p>
                             <p
                               style={{
@@ -807,16 +825,7 @@ const Products: React.FC = () => {
 
                   <div className="form-group">
                     <label className="form-label">Product type</label>
-                    <select
-                      className="input-field"
-                      value={formData.productType}
-                      onChange={(event) =>
-                        setFormData({ ...formData, productType: event.target.value as any })
-                      }
-                    >
-                      <option value="stocked">Stocked</option>
-                      <option value="on_demand">On Demand</option>
-                    </select>
+                    <input className="input-field" value="On Demand" disabled readOnly />
                   </div>
 
                   <div className="form-group">
@@ -962,7 +971,7 @@ const Products: React.FC = () => {
                   </div>
                   <div>
                     <p style={{ margin: 0, fontWeight: 600, color: 'var(--text-primary)' }}>
-                      {stockProduct?.name}
+                      {getVisibleProductName(stockProduct?.name)}
                     </p>
                     <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '13px' }}>
                       Current stock: {stockProduct?.stock}
@@ -1072,7 +1081,7 @@ const Products: React.FC = () => {
                   Delete product?
                 </h2>
                 <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0 }}>
-                  Are you sure you want to delete {deletingProduct?.name}? This action cannot be undone.
+                  Are you sure you want to delete {getVisibleProductName(deletingProduct?.name)}? This action cannot be undone.
                 </p>
               </div>
 

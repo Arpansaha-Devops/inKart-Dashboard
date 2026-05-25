@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { createProduct } from '../services/productService';
 import apiClient from '../lib/apiClient';
+import { createDuplicateFriendlyProductName } from '../lib/productNames';
 
 interface CreateProductModalProps {
   isOpen: boolean;
@@ -16,8 +17,6 @@ interface FormErrors {
   price?: string;
   description?: string;
   category?: string;
-  productType?: string;
-  stock?: string;
   images?: string;
   basePrice?: string;
 }
@@ -37,7 +36,31 @@ const slugifyProductName = (value: string) =>
 
 const createUniqueProductSlug = (value: string) => {
   const baseSlug = slugifyProductName(value) || 'product';
-  return `${baseSlug}-${Date.now().toString(36)}`;
+  const randomPart =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID().slice(0, 8)
+      : Math.random().toString(36).slice(2, 10);
+
+  return `${baseSlug}-${Date.now().toString(36)}-${randomPart}`;
+};
+
+const setUniqueProductSlug = (formData: FormData, productName: string) => {
+  const slug = createUniqueProductSlug(productName);
+  formData.set('slug', slug);
+  formData.set('productSlug', slug);
+};
+
+const getCreateProductErrorMessage = (error: any): string => {
+  const message = error?.response?.data?.message || '';
+
+  if (
+    error?.response?.status === 409 ||
+    /duplicate key|E11000|name_1|slug_1/i.test(message)
+  ) {
+    return 'Could not create this product because the server rejected it as a duplicate.';
+  }
+
+  return message || 'Failed to create product';
 };
 
 const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose, onSuccess }) => {
@@ -45,8 +68,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   const [price, setPrice] = useState<number>(0);
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
-  const [productType, setProductType] = useState<'stocked' | 'on_demand'>('stocked');
-  const [stock, setStock] = useState<number>(0);
   const [basePrice, setBasePrice] = useState<number>(0);
   const [images, setImages] = useState<File[]>([]);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
@@ -230,9 +251,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (!category.trim()) {
       newErrors.category = 'Category is required';
     }
-    if (productType === 'stocked' && (stock === undefined || stock < 0)) {
-      newErrors.stock = 'Stock must be 0 or greater';
-    }
     if (!basePrice || basePrice <= 0) {
       newErrors.basePrice = 'Base price must be greater than 0';
     }
@@ -288,8 +306,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     setPrice(0);
     setDescription('');
     setCategory('');
-    setProductType('stocked');
-    setStock(0);
     setBasePrice(0);
     setImages([]);
     imagePreview.forEach((preview) => URL.revokeObjectURL(preview));
@@ -331,15 +347,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     }
 
     const formData = new FormData();
-    formData.append('name', name);
-    formData.append('slug', createUniqueProductSlug(name));
+    formData.append('name', createDuplicateFriendlyProductName(name));
+    setUniqueProductSlug(formData, name);
     formData.append('price', String(price));
     formData.append('description', description);
     formData.append('category', resolvedCategoryId);
-    formData.append('productType', productType);
-    if (productType === 'stocked') {
-      formData.append('stock', String(stock));
-    }
+    formData.append('productType', 'on_demand');
+    formData.append('isCustomizable', 'true');
     images.forEach((image, index) => {
       formData.append('images', image);
     });
@@ -352,13 +366,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       onClose();
       onSuccess();
     } catch (error: any) {
-      const message = error.response?.data?.message || 'Failed to create product';
       if (error.response?.status === 401) {
         localStorage.clear();
         window.location.href = '/login';
         return;
       }
-      toast.error(message);
+      toast.error(getCreateProductErrorMessage(error));
     } finally {
       setIsSubmitting(false);
     }
@@ -584,45 +597,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
                     <label className="form-label">Product type</label>
-                    <select
-                      disabled={isSubmitting}
-                      className="input-field"
-                      value={productType}
-                      onChange={(e) => {
-                        setProductType(e.target.value as 'stocked' | 'on_demand');
-                        setErrors((prev) => ({ ...prev, stock: undefined }
-                          
-                        ));
-                      }}
-                    >
-                      <option value="stocked">Stocked</option>
-                      <option value="on_demand">On Demand</option>
-                    </select>
+                    <input className="input-field" value="On Demand" disabled readOnly />
                   </div>
-
-                  {productType === 'stocked' ? (
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Stock quantity</label>
-                      <input
-                        type="number"
-                        min="0"
-                        disabled={isSubmitting}
-                        placeholder="0"
-                        className="input-field"
-                        style={errors.stock ? { borderColor: 'var(--danger)' } : undefined}
-                        value={stock}
-                        onChange={(e) => {
-                          setStock(parseInt(e.target.value, 10) || 0);
-                          if (errors.stock) setErrors((prev) => ({ ...prev, stock: undefined }));
-                        }}
-                      />
-                      {errors.stock ? (
-                        <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
-                          {errors.stock}
-                        </p>
-                      ) : null}
-                    </div>
-                  ) : null}
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>

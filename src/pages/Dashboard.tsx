@@ -328,7 +328,6 @@ const Dashboard: React.FC = () => {
         ].filter((result) => result.status === 'rejected').length;
 
         const totalUsers = findCount(usersPayload) ?? 0;
-        const totalProducts = findCount(productsPayload) ?? 0;
         const totalCoupons = findCount(couponsPayload) ?? 0;
         const dashboardUsers = extractUsers(usersPayload);
 
@@ -338,14 +337,6 @@ const Dashboard: React.FC = () => {
           (categoriesPayload as any)?.data,
         ]);
         const activeCategories = categories.filter((category: any) => category?.isActive === true).length;
-
-        setStats({
-          totalUsers,
-          totalProducts,
-          totalCoupons,
-          activeCategories,
-        });
-        setRecentUsers(dashboardUsers.slice(0, 5));
 
         const chartProducts = pickBestArray(chartProductsPayload, isProductLike, [
           (chartProductsPayload as any)?.products,
@@ -358,6 +349,17 @@ const Dashboard: React.FC = () => {
         const visibleChartProducts = chartProducts.filter(
           (product: any) => !deletedProductIds.has(product._id)
         );
+        const productPageProducts = pickBestArray(productsPayload, isProductLike, [
+          (productsPayload as any)?.products,
+          (productsPayload as any)?.data?.products,
+          (productsPayload as any)?.data?.items,
+          (productsPayload as any)?.data?.docs,
+          (productsPayload as any)?.data,
+        ]);
+        const visibleProductPageProducts = productPageProducts.filter(
+          (product: any) => !deletedProductIds.has(product._id)
+        );
+        const totalProducts = visibleChartProducts.length || visibleProductPageProducts.length;
         const chartCoupons = pickBestArray(chartCouponsPayload, isCouponLike, [
           (chartCouponsPayload as any)?.coupons,
           (chartCouponsPayload as any)?.data?.coupons,
@@ -365,6 +367,14 @@ const Dashboard: React.FC = () => {
           (chartCouponsPayload as any)?.data?.docs,
           (chartCouponsPayload as any)?.data,
         ]);
+
+        setStats({
+          totalUsers,
+          totalProducts,
+          totalCoupons,
+          activeCategories,
+        });
+        setRecentUsers(dashboardUsers.slice(0, 5));
 
         if (categories.length > 0) {
           const labels = categories.map((category: any) => category?.name || 'Unnamed');
