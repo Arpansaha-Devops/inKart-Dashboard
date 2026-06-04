@@ -1,8 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArchiveRestore,
   Box,
+  Calendar,
+  CheckCircle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -12,6 +14,7 @@ import {
   FileText,
   ImageIcon,
   Loader2,
+  Mail,
   PackageCheck,
   Palette,
   RefreshCw,
@@ -23,6 +26,7 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
+import { approveOrder, resendConfirmation, setDeliveryEstimate } from '../services/orderService';
 
 type OrderStatus =
   | 'placed'
@@ -98,6 +102,8 @@ interface Order {
     discountValue: number;
   };
   notes?: string;
+  estimatedDeliveryDate?: string;
+  deliveryNote?: string;
   timeline: string[];
   createdAt: string;
   updatedAt: string;
@@ -403,6 +409,9 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
         }
       : undefined,
     notes: getString(value, ['notes', 'customerNotes', 'note']) || undefined,
+    estimatedDeliveryDate:
+      getString(value, ['estimatedDeliveryDate', 'deliveryEstimateDate', 'expectedDeliveryDate']) || undefined,
+    deliveryNote: getString(value, ['deliveryNote', 'estimatedDeliveryNote']) || undefined,
     timeline,
     createdAt: getString(value, ['createdAt', 'placedAt', 'date']),
     updatedAt: getString(value, ['updatedAt']),
@@ -523,6 +532,48 @@ const formatDateTime = (value: string) => {
     .replace(/\bam\b/i, 'AM')
     .replace(/\bpm\b/i, 'PM');
 };
+
+const formatDeliveryDate = (value?: string) => {
+  if (!value) return '';
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return '';
+  return new Intl.DateTimeFormat('en-IN', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  }).format(date);
+};
+
+const todayDateInputValue = () => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const isPastDeliveryDate = (value: string) => {
+  if (!value) return false;
+  return value < todayDateInputValue();
+};
+
+const getErrorMessage = (error: unknown, fallback: string) => {
+  if (isRecord(error)) {
+    if (typeof error.message === 'string' && error.message.trim()) return error.message;
+    if (
+      isRecord(error.response) &&
+      isRecord(error.response.data) &&
+      typeof error.response.data.message === 'string' &&
+      error.response.data.message.trim()
+    ) {
+      return error.response.data.message;
+    }
+  }
+  return fallback;
+};
+
+const isNetworkError = (error: unknown) =>
+  isRecord(error) && !error.response && typeof error.message === 'string';
 
 const productLabel = (order: Order) => {
   const first = order.items[0]?.product.name || 'Product';
@@ -655,15 +706,6 @@ const getLayerPosition = (layer: Layer) => {
   const y = layer.y ?? layer.top;
   if (typeof x === 'number' && typeof y === 'number') return `${Math.round(x)}, ${Math.round(y)}`;
   return 'N/A';
-};
-
-const getStatusAction = (status: OrderStatus): string | null => {
-  if (status === 'placed') return 'Confirm Order';
-  if (status === 'confirmed') return 'Mark Processing';
-  if (status === 'processing') return 'Mark Shipped';
-  if (status === 'shipped') return 'Mark Delivered';
-  if (status === 'return_requested') return 'Approve Return';
-  return null;
 };
 
 const terminalStatusLabel = (status: OrderStatus): string | null => {
@@ -817,6 +859,23 @@ const Orders: React.FC = () => {
     setToDate('');
     setPage(1);
   };
+
+  const handleOrderUpdated = useCallback(
+    (updatedOrder: Order) => {
+      setOrders((currentOrders) =>
+        currentOrders.map((order) =>
+          order._id === updatedOrder._id ? { ...order, ...updatedOrder } : order
+        )
+      );
+      setSelectedOrder((currentOrder) =>
+        currentOrder && currentOrder._id === updatedOrder._id
+          ? { ...currentOrder, ...updatedOrder }
+          : currentOrder
+      );
+      void loadOrders(true);
+    },
+    [loadOrders]
+  );
 
   const exportCsv = () => {
     const headers = [
@@ -1129,7 +1188,18 @@ const Orders: React.FC = () => {
                             <PaymentStatusBadge status={order.paymentStatus} />
                           </td>
                           <td>
-                            <OrderStatusBadge status={order.orderStatus} />
+                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                              <OrderStatusBadge status={order.orderStatus} />
+                              {order.estimatedDeliveryDate ? (
+                                <span title={`Delivery estimate: ${formatDeliveryDate(order.estimatedDeliveryDate)}`}>
+                                  <Calendar
+                                    size={16}
+                                    aria-label="Delivery estimate set"
+                                    style={{ color: 'var(--text-muted)' }}
+                                  />
+                                </span>
+                              ) : null}
+                            </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <button type="button" className="btn-ghost" onClick={() => setSelectedOrder(order)}>
@@ -1246,6 +1316,7 @@ const Orders: React.FC = () => {
         {selectedOrder ? (
           <OrderDetailModal
             order={selectedOrder}
+            onOrderUpdated={handleOrderUpdated}
             onClose={() => setSelectedOrder(null)}
             onCopy={() => void copyText(selectedOrder.orderNumber)}
           />
@@ -1336,11 +1407,111 @@ const Pagination: React.FC<{
 
 const OrderDetailModal: React.FC<{
   order: Order;
+  onOrderUpdated: (order: Order) => void;
   onClose: () => void;
   onCopy: () => void;
-}> = ({ order, onClose, onCopy }) => {
-  const actionLabel = getStatusAction(order.orderStatus);
+}> = ({ order, onOrderUpdated, onClose, onCopy }) => {
   const terminalLabel = terminalStatusLabel(order.orderStatus);
+  const mountedRef = useRef(true);
+  const [deliveryDate, setDeliveryDate] = useState(order.estimatedDeliveryDate?.slice(0, 10) || '');
+  const [deliveryNote, setDeliveryNote] = useState(order.deliveryNote || '');
+  const [deliveryError, setDeliveryError] = useState('');
+  const [isApproving, setIsApproving] = useState(false);
+  const [isSavingEstimate, setIsSavingEstimate] = useState(false);
+  const [isResending, setIsResending] = useState(false);
+  const [isResendConfirmOpen, setIsResendConfirmOpen] = useState(false);
+  const isAnyRequestInFlight = isApproving || isSavingEstimate || isResending;
+  const hasEstimate = Boolean(order.estimatedDeliveryDate);
+  const canApprove = order.orderStatus === 'placed';
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    setDeliveryDate(order.estimatedDeliveryDate?.slice(0, 10) || '');
+    setDeliveryNote(order.deliveryNote || '');
+    setDeliveryError('');
+  }, [order.deliveryNote, order.estimatedDeliveryDate]);
+
+  const handleApprove = async () => {
+    if (order.orderStatus === 'confirmed') {
+      toast.error('This order is already confirmed');
+      return;
+    }
+
+    setIsApproving(true);
+    try {
+      await approveOrder(order._id);
+      if (!mountedRef.current) return;
+      const updatedOrder = { ...order, orderStatus: 'confirmed' as OrderStatus };
+      onOrderUpdated(updatedOrder);
+      toast.success('Order approved successfully');
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      toast.error(getErrorMessage(error, 'Failed to approve order'));
+    } finally {
+      if (mountedRef.current) setIsApproving(false);
+    }
+  };
+
+  const handleSaveEstimate = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setDeliveryError('');
+
+    if (!deliveryDate) {
+      setDeliveryError('Estimated delivery date is required');
+      return;
+    }
+
+    if (isPastDeliveryDate(deliveryDate)) {
+      setDeliveryError('Delivery date must be in the future');
+      return;
+    }
+
+    setIsSavingEstimate(true);
+    try {
+      const trimmedNote = deliveryNote.trim();
+      await setDeliveryEstimate(order._id, {
+        estimatedDeliveryDate: deliveryDate,
+        ...(trimmedNote ? { deliveryNote: trimmedNote } : {}),
+      });
+      if (!mountedRef.current) return;
+      onOrderUpdated({
+        ...order,
+        estimatedDeliveryDate: deliveryDate,
+        deliveryNote: trimmedNote || undefined,
+      });
+      toast.success('Delivery estimate updated');
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      toast.error(getErrorMessage(error, 'Failed to update delivery estimate'));
+    } finally {
+      if (mountedRef.current) setIsSavingEstimate(false);
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    setIsResending(true);
+    try {
+      await resendConfirmation(order._id);
+      if (!mountedRef.current) return;
+      setIsResendConfirmOpen(false);
+      toast.success('Confirmation email resent to customer');
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      toast.error(
+        isNetworkError(error)
+          ? 'Failed to resend. Check your connection and try again.'
+          : getErrorMessage(error, 'Failed to resend confirmation')
+      );
+    } finally {
+      if (mountedRef.current) setIsResending(false);
+    }
+  };
 
   return (
     <div className="modal-backdrop orders-modal-backdrop" onMouseDown={onClose} role="presentation">
@@ -1485,6 +1656,7 @@ const OrderDetailModal: React.FC<{
             <InfoRow label="Phone" value={order.customer.phone || order.address.phone || 'N/A'} />
             <AddressBlock order={order} />
             <InfoRow label="Product" value={productLabel(order)} />
+            <DeliveryEstimateRow order={order} />
             <InfoRow
               label="Coupon"
               value={order.coupon ? `${order.coupon.code} - ${formatCurrency(order.coupon.discountValue)}` : 'N/A'}
@@ -1503,39 +1675,132 @@ const OrderDetailModal: React.FC<{
           </div>
         </div>
 
+        <div className="orders-actions-section">
+          <div className="orders-actions-heading">
+            <h3 className="section-title" style={{ margin: 0 }}>Order Actions</h3>
+            {terminalLabel ? (
+              <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>
+                {terminalLabel}
+              </span>
+            ) : null}
+          </div>
+
+          <div className="orders-actions-row">
+            {canApprove ? (
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => void handleApprove()}
+                disabled={isAnyRequestInFlight}
+              >
+                {isApproving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
+                Approve Order
+              </button>
+            ) : null}
+
+            <div style={{ position: 'relative', display: 'inline-flex' }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setIsResendConfirmOpen((current) => !current)}
+                disabled={isAnyRequestInFlight}
+              >
+                {isResending ? <Loader2 className="animate-spin" size={16} /> : <Mail size={16} />}
+                Resend Confirmation
+              </button>
+
+              {isResendConfirmOpen ? (
+                <div className="orders-resend-popover" role="dialog" aria-label="Confirm resend confirmation">
+                  <p style={{ margin: '0 0 12px', color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.5 }}>
+                    Resend order confirmation email to customer?
+                  </p>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => setIsResendConfirmOpen(false)}
+                      disabled={isAnyRequestInFlight}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={() => void handleResendConfirmation()}
+                      disabled={isAnyRequestInFlight}
+                    >
+                      {isResending ? <Loader2 className="animate-spin" size={16} /> : <Mail size={16} />}
+                      Yes, Resend
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <form className="orders-delivery-form" onSubmit={(event) => void handleSaveEstimate(event)}>
+            <div style={{ display: 'grid', gap: 6 }}>
+              <label className="form-label" htmlFor="estimated-delivery-date">
+                Estimated Delivery Date
+              </label>
+              <input
+                id="estimated-delivery-date"
+                type="date"
+                className="input-field"
+                value={deliveryDate}
+                onChange={(event) => {
+                  setDeliveryDate(event.target.value);
+                  if (deliveryError) setDeliveryError('');
+                }}
+                disabled={isAnyRequestInFlight}
+              />
+              {deliveryError ? (
+                <p style={{ margin: 0, color: 'var(--danger)', fontSize: 12 }}>
+                  {deliveryError}
+                </p>
+              ) : null}
+            </div>
+
+            <div style={{ display: 'grid', gap: 6 }}>
+              <label className="form-label" htmlFor="delivery-note">
+                Delivery Note (optional)
+              </label>
+              <textarea
+                id="delivery-note"
+                className="input-field"
+                maxLength={200}
+                rows={3}
+                value={deliveryNote}
+                onChange={(event) => setDeliveryNote(event.target.value)}
+                disabled={isAnyRequestInFlight}
+                style={{ resize: 'vertical', minHeight: 88 }}
+              />
+              <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12, textAlign: 'right' }}>
+                {deliveryNote.length}/200
+              </p>
+            </div>
+
+            <div className="orders-delivery-submit">
+              <button type="submit" className="btn-primary" disabled={isAnyRequestInFlight}>
+                {isSavingEstimate ? <Loader2 className="animate-spin" size={16} /> : <Calendar size={16} />}
+                {hasEstimate ? 'Update Estimate' : 'Set Delivery Estimate'}
+              </button>
+            </div>
+          </form>
+        </div>
+
         <div
           style={{
             display: 'flex',
             justifyContent: 'flex-end',
             gap: 10,
             flexWrap: 'wrap',
-            marginTop: 24,
-            paddingTop: 16,
-            borderTop: '1px solid var(--border)',
+            marginTop: 18,
           }}
         >
-          <button type="button" className="btn-ghost" onClick={onClose}>
+          <button type="button" className="btn-ghost" onClick={onClose} disabled={isAnyRequestInFlight}>
             Close
           </button>
-          {terminalLabel ? (
-            <span style={{ alignSelf: 'center', color: 'var(--text-secondary)', fontSize: 14 }}>
-              {terminalLabel}
-            </span>
-          ) : null}
-          {actionLabel ? (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => toast.info('Status update coming soon')}
-            >
-              {actionLabel.includes('Shipped') || actionLabel.includes('Delivered') ? (
-                <Truck size={16} />
-              ) : (
-                <RefreshCw size={16} />
-              )}
-              {actionLabel}
-            </button>
-          ) : null}
         </div>
       </motion.div>
     </div>
@@ -1556,6 +1821,36 @@ const AddressBlock: React.FC<{ order: Order }> = ({ order }) => (
     </div>
   </div>
 );
+
+const DeliveryEstimateRow: React.FC<{ order: Order }> = ({ order }) => {
+  const formattedDate = formatDeliveryDate(order.estimatedDeliveryDate);
+
+  return (
+    <div className="detail-row">
+      <div>
+        <p
+          className="form-label"
+          style={{ marginBottom: 4, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <Truck size={14} />
+          Estimated Delivery
+        </p>
+        {formattedDate ? (
+          <>
+            <p style={{ margin: 0, color: 'var(--text-primary)' }}>{formattedDate}</p>
+            {order.deliveryNote ? (
+              <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: 12, lineHeight: 1.5 }}>
+                {order.deliveryNote}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <p style={{ margin: 0, color: 'var(--text-muted)' }}>Not set yet</p>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const InfoRow: React.FC<{ label: string; value: string; mono?: boolean }> = ({ label, value, mono }) => (
   <div className="detail-row">

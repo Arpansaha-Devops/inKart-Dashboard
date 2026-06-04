@@ -4,11 +4,32 @@ import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../lib/apiClient';
 import { AuthResponse } from '../types';
-import { Mail, Lock, Loader2 } from 'lucide-react';
+import { Mail, Lock, Loader2, ShieldCheck } from 'lucide-react';
+
+const getAuthPayload = (payload: AuthResponse) => {
+  const user = payload.data?.user || payload.user;
+  const token = payload.token || payload.data?.token;
+  const refreshToken = payload.refreshToken || payload.data?.refreshToken;
+
+  return { user, token, refreshToken };
+};
+
+const loginInputStyle = {
+  height: 52,
+  paddingLeft: 44,
+  lineHeight: 1.25,
+};
+
+const iconSlotClassName =
+  'pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center';
+
+const fieldIconClassName = 'h-5 w-5 flex-shrink-0';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [otp, setOtp] = useState('');
+  const [isOtpStep, setIsOtpStep] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -18,13 +39,25 @@ const Login: React.FC = () => {
     setIsLoading(true);
 
     try {
-      const response = await apiClient.post<AuthResponse>('/auth/login', { email, password });
+      const response = await apiClient.post<AuthResponse>(
+        isOtpStep ? '/auth/verify-login-otp' : '/auth/login',
+        isOtpStep ? { email, otp } : { email, password }
+      );
 
-      const { data, token, refreshToken } = response.data;
-      const finalUser = data?.user;
+      const { user: finalUser, token, refreshToken } = getAuthPayload(response.data);
+
+      if (!isOtpStep && response.data.success && !finalUser && !token) {
+        setIsOtpStep(true);
+        toast.success(response.data.message || 'OTP sent to email');
+        return;
+      }
 
       if (!finalUser) {
         throw new Error('User data not found in response');
+      }
+
+      if (!token || !refreshToken) {
+        throw new Error('Auth token not found in response');
       }
 
       if (finalUser.role !== 'admin') {
@@ -74,58 +107,113 @@ const Login: React.FC = () => {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
-          <div>
-            <label
-              className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              Email Address
-            </label>
-            <div className="relative">
-              <Mail
-                className="absolute left-3 top-1/2 -translate-y-1/2 flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5"
-                style={{ color: 'var(--text-muted)' }}
-              />
-              <input
-                type="email"
-                required
-                className="input-field pl-10 text-base sm:text-sm min-h-[44px] sm:min-h-auto"
-                placeholder="admin@inkart.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-          </div>
+          {!isOtpStep ? (
+            <>
+              <div>
+                <label
+                  className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Email Address
+                </label>
+                <div className="relative">
+                  <span className={iconSlotClassName}>
+                    <Mail
+                      className={fieldIconClassName}
+                      style={{ color: 'var(--text-muted)' }}
+                    />
+                  </span>
+                  <input
+                    type="email"
+                    required
+                    className="input-field text-base sm:text-sm"
+                    style={loginInputStyle}
+                    placeholder="admin@inkart.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+              </div>
 
-          <div>
-            <label
-              className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
-              style={{ color: 'var(--text-secondary)' }}
-            >
-              Password
-            </label>
-            <div className="relative">
-              <Lock
-                className="absolute left-3 top-1/2 -translate-y-1/2 flex-shrink-0 w-4 h-4 sm:w-5 sm:h-5"
-                style={{ color: 'var(--text-muted)' }}
-              />
-              <input
-                type="password"
-                required
-                className="input-field pl-10 text-base sm:text-sm min-h-[44px] sm:min-h-auto"
-                placeholder="••••••••"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div>
+                <label
+                  className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  Password
+                </label>
+                <div className="relative">
+                  <span className={iconSlotClassName}>
+                    <Lock
+                      className={fieldIconClassName}
+                      style={{ color: 'var(--text-muted)' }}
+                    />
+                  </span>
+                  <input
+                    type="password"
+                    required
+                    className="input-field text-base sm:text-sm"
+                    style={loginInputStyle}
+                    placeholder="********"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+              </div>
+            </>
+          ) : (
+            <div>
+              <label
+                className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                OTP Code
+              </label>
+              <div className="relative">
+                <span className={iconSlotClassName}>
+                  <ShieldCheck
+                    className={fieldIconClassName}
+                    style={{ color: 'var(--text-muted)' }}
+                  />
+                </span>
+                <input
+                  type="text"
+                  required
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  className="input-field text-base sm:text-sm"
+                  style={loginInputStyle}
+                  placeholder="Enter OTP"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                className="mt-3 text-xs sm:text-sm"
+                style={{ color: 'var(--accent)' }}
+                onClick={() => {
+                  setIsOtpStep(false);
+                  setOtp('');
+                }}
+              >
+                Change email or password
+              </button>
             </div>
-          </div>
+          )}
 
           <button
             type="submit"
             disabled={isLoading}
             className="w-full btn-primary flex items-center justify-center gap-2 min-h-[44px] sm:min-h-[44px] sm:py-2 text-sm sm:text-base font-medium"
           >
-            {isLoading ? <Loader2 className="animate-spin" size={20} /> : 'Sign In'}
+            {isLoading ? (
+              <Loader2 className="animate-spin" size={20} />
+            ) : isOtpStep ? (
+              'Verify OTP'
+            ) : (
+              'Sign In'
+            )}
           </button>
         </form>
 
@@ -134,7 +222,7 @@ const Login: React.FC = () => {
           style={{ borderTop: '1px solid var(--border)' }}
         >
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            © 2026 InkArt. All rights reserved.
+            &copy; 2026 InkArt. All rights reserved.
           </p>
         </div>
       </div>

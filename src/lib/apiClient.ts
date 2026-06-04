@@ -21,6 +21,8 @@ const baseURL = shouldUseLocalProxy ? '/api' : configuredBaseURL;
 const AUTH_BYPASS_ROUTES = [
   '/auth/login',
   '/auth/register',
+  '/auth/verify-login-otp',
+  '/auth/verify-otp',
   '/auth/refresh-token',
 ];
 
@@ -56,7 +58,7 @@ const shouldBypassAuth = (url?: string) => {
 };
 
 const redirectToLogin = () => {
-  const targetPath = '/admin/login';
+  const targetPath = '/inkarts-admin/login';
   if (window.location.pathname !== targetPath) {
     window.location.href = targetPath;
   }

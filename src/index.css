@@ -685,6 +685,56 @@ table.data-table tbody td {
   padding-top: 2px;
 }
 
+.orders-actions-section {
+  display: grid;
+  gap: 16px;
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.orders-actions-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.orders-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.orders-delivery-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.7fr) minmax(240px, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.orders-delivery-submit {
+  display: flex;
+  align-items: end;
+  height: 100%;
+  padding-top: 24px;
+}
+
+.orders-resend-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 5;
+  width: min(320px, calc(100vw - 48px));
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  box-shadow: var(--modal-shadow);
+}
+
 .action-icon-button {
   display: inline-flex;
   align-items: center;
@@ -1121,6 +1171,28 @@ table.data-table tbody td {
 
   .orders-detail-grid {
     grid-template-columns: 1fr;
+  }
+
+  .orders-actions-row,
+  .orders-actions-row > *,
+  .orders-actions-row button,
+  .orders-delivery-submit button {
+    width: 100%;
+  }
+
+  .orders-delivery-form {
+    grid-template-columns: 1fr;
+  }
+
+  .orders-delivery-submit {
+    padding-top: 0;
+  }
+
+  .orders-resend-popover {
+    left: 0;
+    right: auto;
+    bottom: calc(100% + 8px);
+    width: 100%;
   }
 
   table.data-table thead th:nth-child(n + 5) {

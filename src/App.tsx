@@ -15,7 +15,7 @@ import Coupons from './pages/Coupons';
 export default function App() {
   return (
     <AuthProvider>
-      <Router basename="/admin">
+      <Router basename="/inkarts-admin">
         <Routes>
           <Route path="/login" element={<Login />} />
 

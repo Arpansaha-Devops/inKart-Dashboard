@@ -10,6 +10,7 @@ Current features:
 
 - Admin-only login and protected routes
 - Dashboard summary cards and charts
+- Orders listing, filtering, CSV export, and detail view
 - Order analytics page with KPI cards and revenue chart
 - Customer listing, search, detail view, and delete
 - Product listing, create, edit, stock update, and delete
@@ -24,19 +25,20 @@ The app talks to the same API used by the e-commerce project.
 
 - Default API base URL: `https://inkart-virid.vercel.app/api/v1`
 - Runtime override: `VITE_API_BASE_URL`
-- Frontend route basename: `/admin`
-- Vite base path: `/admin/`
-- Local dev URL: `http://localhost:8000/admin/login`
+- Frontend route basename: `/inkarts-admin`
+- Vite base path: `/inkarts-admin/`
+- Local dev URL: `http://localhost:8000/inkarts-admin/login`
 
 All API requests go through [src/lib/apiClient.ts](src/lib/apiClient.ts), except the refresh-token retry which uses raw `axios.post` internally.
 
 Important API client behavior:
 
 - Trims trailing slashes from the configured base URL.
+- Uses the local Vite `/api` proxy in development on `localhost` or `127.0.0.1` when `VITE_API_BASE_URL` is still the default live API URL.
 - Adds `Authorization: Bearer <token>` to authenticated requests.
-- Skips auth headers for `/auth/login`, `/auth/register`, and `/auth/refresh-token`.
+- Skips auth headers for `/auth/login`, `/auth/register`, `/auth/verify-login-otp`, `/auth/verify-otp`, and `/auth/refresh-token`.
 - On `401`, tries `POST /auth/refresh-token` once if a refresh token exists.
-- If refresh fails, clears auth storage and redirects to `/admin/login`.
+- If refresh fails, clears auth storage and redirects to `/inkarts-admin/login`.
 
 ## Tech Stack
 
@@ -93,12 +95,12 @@ Actual frontend runtime usage:
 [vite.config.ts](vite.config.ts):
 
 - Uses `@vitejs/plugin-react` and `@tailwindcss/vite`.
-- Sets `base: '/admin/'`.
+- Sets `base: '/inkarts-admin/'`.
 - Sets dev server port to `8000`.
 - Defines alias `@` as the repository root, not `src`.
 - Defines a `/api` proxy to `https://inkart-virid.vercel.app/api/v1`.
 
-Important note: the current `.env` points `VITE_API_BASE_URL` directly to the live API, so the `/api` proxy is not used unless the env value is changed to `/api` for local development.
+Important note: in local development, [src/lib/apiClient.ts](src/lib/apiClient.ts) automatically switches to `/api` when the configured API base URL is the default live API URL and the page is served from `localhost` or `127.0.0.1`.
 
 [src/main.tsx](src/main.tsx):
 
@@ -110,7 +112,7 @@ Important note: the current `.env` points `VITE_API_BASE_URL` directly to the li
 [src/App.tsx](src/App.tsx):
 
 - Wraps everything with `AuthProvider`.
-- Uses `BrowserRouter` with `basename="/admin"`.
+- Uses `BrowserRouter` with `basename="/inkarts-admin"`.
 - Mounts `Toaster`.
 - Defines public and protected routes.
 
@@ -120,6 +122,7 @@ Important note: the current `.env` points `VITE_API_BASE_URL` directly to the li
 |---|---|---|
 | `/login` | Public | `Login` |
 | `/dashboard` | Admin only | `Dashboard` |
+| `/orders` | Admin only | `Orders` |
 | `/analytics` | Admin only | `Analytics` |
 | `/customers` | Admin only | `Customers` |
 | `/products` | Admin only | `Products` |
@@ -131,6 +134,7 @@ Important note: the current `.env` points `VITE_API_BASE_URL` directly to the li
 Sidebar navigation matches the protected routes:
 
 - Dashboard
+- Orders
 - Analytics
 - Customers
 - Products
@@ -175,6 +179,7 @@ All backend endpoints referenced by current code:
 | `POST` | `/auth/refresh-token` | API client interceptor |
 | `GET` | `/users/all` | Dashboard, Customers |
 | `DELETE` | `/admin/users/:id` | Customers |
+| `GET` | `/admin/orders` | Orders |
 | `GET` | `/admin/products` | Dashboard, Products, CreateProductModal, productService |
 | `POST` | `/admin/products` | Products, CreateProductModal, productService |
 | `PATCH` | `/admin/products/:id` | Products, productService |
@@ -235,6 +240,26 @@ Implementation notes:
 - Recognizes revenue-like keys such as `revenue`, `totalRevenue`, `sales`, `grossRevenue`, and `netRevenue`.
 - Derives average order value from revenue/orders if the API does not provide it.
 - Chart and metric colors update when the theme changes.
+
+### Orders
+
+File: [src/pages/Orders.tsx](src/pages/Orders.tsx)
+
+Lists checkout orders with summary metrics, search, status filters, payment filters, date range filtering, pagination, CSV export, and a read-only order detail modal.
+
+API calls:
+
+- `GET /admin/orders?page={page}&limit=10&status={optional}&paymentStatus={optional}&search={optional}`
+
+Implementation notes:
+
+- Normalizes flexible order payload shapes into a local `Order` model.
+- Supports standard and customized order display, including customized preview image, canvas dimensions, and front/back layer details when present.
+- Recognizes order statuses: placed, confirmed, processing, shipped, delivered, cancelled, return requested, and returned.
+- Recognizes payment statuses: pending, paid, failed, and refunded.
+- Applies date range filtering client-side after the paged API response is loaded.
+- Exports the currently loaded page of orders as CSV.
+- Detail modal can copy the order number; status action buttons currently show a "Status update coming soon" toast rather than calling an update API.
 
 ### Customers
 
@@ -308,7 +333,7 @@ Implementation notes:
 - Requires name, price, description, category, base price, and at least one image.
 - Allows up to 5 images.
 - Category input accepts an active category name or a 24-character category id.
-- Some auth failure branches redirect to `/login` instead of `/admin/login`.
+- Some auth failure branches redirect to `/login` instead of `/inkarts-admin/login`.
 
 ### Categories
 
@@ -363,6 +388,7 @@ Implementation notes:
 [src/components/Header.tsx](src/components/Header.tsx):
 
 - Derives title from the current route.
+- Shows the `/orders` route title as `Customized Orders`.
 - Shows theme toggle and admin avatar initial.
 - Persists theme in `localStorage['inkart-dashboard-theme']`.
 - Dispatches `themechange` for chart updates.
@@ -378,6 +404,10 @@ Implementation notes:
 - Right-side panel with notifications, activities, and manager contacts sections.
 - Uses empty local arrays right now and calls no API.
 - Docked on desktop at `>= 1280px`, overlay-style on smaller screens.
+
+[src/context/NotificationContext.tsx](src/context/NotificationContext.tsx):
+
+- Defines notification panel open-state context, but it is not currently mounted by `App` or `Layout`.
 
 Category modal components:
 
@@ -480,17 +510,18 @@ npm run dev
 4. Open:
 
 ```text
-http://localhost:8000/admin/login
+http://localhost:8000/inkarts-admin/login
 ```
 
 ## QA Notes and Known Quirks
 
 - This admin and the e-commerce storefront share the same backend data. Product/category/coupon mutations in admin should be tested against storefront behavior.
-- `CreateProductModal.tsx` redirects to `/login` in some auth failure paths, while the app basename expects `/admin/login`.
+- `CreateProductModal.tsx` redirects to `/login` in some auth failure paths, while the app basename expects `/inkarts-admin/login`.
+- `Orders.tsx` displays next-status actions, but those buttons currently only show a toast and do not persist status changes.
 - `Products.tsx` has an inline modal with create/edit logic, but visible creation uses `CreateProductModal`.
 - Product and category deletes are also remembered in localStorage and hidden locally after successful delete.
 - Several UI strings contain encoding artifacts such as `â‚¹`, `â€¢`, `Â©`, and `Youâ€™ll`.
-- The Vite `/api` proxy exists but is unused while `VITE_API_BASE_URL` points directly at the live API.
+- The Vite `/api` proxy is used automatically on localhost when the configured API URL is the default live API URL.
 - The notification panel is UI-only and not connected to backend data.
 - `public/favicon_io/site.webmanifest` uses root-relative icon paths even though the files live under `public/favicon_io/`.
 
