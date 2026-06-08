@@ -60,6 +60,7 @@ interface OrderItem {
     _id: string;
     name: string;
     basePrice: number;
+    image?: string;
   };
   quantity: number;
   price: number;
@@ -224,6 +225,35 @@ const getArray = (source: Record<string, unknown>, keys: string[]): unknown[] =>
   return [];
 };
 
+const getImageUrl = (source: Record<string, unknown>): string => {
+  const directUrl = getString(source, [
+    'image',
+    'imageUrl',
+    'productImage',
+    'productImageUrl',
+    'thumbnail',
+    'thumbnailUrl',
+    'featuredImage',
+    'featuredImageUrl',
+    'mainImage',
+    'mainImageUrl',
+    'coverImage',
+    'coverImageUrl',
+  ]);
+  if (directUrl) return directUrl;
+
+  const imageItems = getArray(source, ['images', 'productImages', 'gallery']);
+  for (const item of imageItems) {
+    if (typeof item === 'string' && item.trim()) return item.trim();
+    if (isRecord(item)) {
+      const nestedUrl = getString(item, ['url', 'src', 'imageUrl', 'secure_url', 'path']);
+      if (nestedUrl) return nestedUrl;
+    }
+  }
+
+  return '';
+};
+
 const normalizeOrderStatus = (value: unknown): OrderStatus => {
   const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (status === 'pending') return 'placed';
@@ -281,6 +311,7 @@ const normalizeItem = (value: unknown): OrderItem | null => {
     getString(product, ['name', 'title']) ||
     getString(value, ['productName', 'name'], 'Product');
   const price = getNumber(value, ['price', 'unitPrice', 'basePrice'], getNumber(product, ['basePrice', 'price']));
+  const image = getImageUrl(product) || getImageUrl(value);
 
   return {
     _id: itemId,
@@ -288,6 +319,7 @@ const normalizeItem = (value: unknown): OrderItem | null => {
       _id: productId,
       name,
       basePrice: getNumber(product, ['basePrice', 'price'], price),
+      image: image || undefined,
     },
     quantity: getNumber(value, ['quantity', 'qty'], 1),
     price,
@@ -308,6 +340,7 @@ const normalizeItems = (items: unknown[], fallbackProduct: Record<string, unknow
         _id: getString(fallbackProduct, ['_id', 'id']),
         name: fallbackName,
         basePrice: getNumber(fallbackProduct, ['basePrice', 'price']),
+        image: getImageUrl(fallbackProduct) || undefined,
       },
       quantity: 1,
       price: getNumber(fallbackProduct, ['basePrice', 'price']),
@@ -1423,6 +1456,7 @@ const OrderDetailModal: React.FC<{
   const isAnyRequestInFlight = isApproving || isSavingEstimate || isResending;
   const hasEstimate = Boolean(order.estimatedDeliveryDate);
   const canApprove = order.orderStatus === 'placed';
+  const standardPreviewImage = order.items.find((item) => item.product.image)?.product.image;
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1571,7 +1605,16 @@ const OrderDetailModal: React.FC<{
               </>
             ) : (
               <>
-                <div className="card" style={{ background: 'var(--bg-surface)', boxShadow: 'none' }}>
+                <div
+                  className="card"
+                  style={{
+                    background: 'var(--bg-surface)',
+                    boxShadow: 'none',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    minHeight: standardPreviewImage ? '100%' : undefined,
+                  }}
+                >
                   <p className="section-title" style={{ marginBottom: 12 }}>Order Items</p>
                   <div style={{ display: 'grid', gap: 10 }}>
                     {order.items.length === 0 ? (
@@ -1582,12 +1625,16 @@ const OrderDetailModal: React.FC<{
                           key={item._id}
                           style={{
                             display: 'grid',
-                            gridTemplateColumns: '1fr auto',
-                            gap: 10,
+                            gridTemplateColumns: item.product.image ? '56px 1fr auto' : '1fr auto',
+                            gap: item.product.image ? 12 : 10,
+                            alignItems: 'center',
                             padding: '12px 0',
                             borderBottom: '1px solid var(--border)',
                           }}
                         >
+                          {item.product.image ? (
+                            <PreviewImage src={item.product.image} alt={`${item.product.name} image`} size={56} />
+                          ) : null}
                           <div>
                             <p style={{ margin: '0 0 4px', color: 'var(--text-primary)', fontWeight: 600 }}>
                               {item.product.name}
@@ -1601,6 +1648,35 @@ const OrderDetailModal: React.FC<{
                       ))
                     )}
                   </div>
+                  {standardPreviewImage ? (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flex: 1,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minHeight: 300,
+                        marginTop: 18,
+                        padding: 18,
+                        border: '1px solid var(--border)',
+                        borderRadius: 'var(--radius-md)',
+                        background: 'var(--bg-card)',
+                      }}
+                    >
+                      <img
+                        src={standardPreviewImage}
+                        alt={`${productLabel(order)} large preview`}
+                        referrerPolicy="no-referrer"
+                        style={{
+                          width: '100%',
+                          maxWidth: 380,
+                          maxHeight: 420,
+                          objectFit: 'contain',
+                          borderRadius: 'var(--radius-sm)',
+                        }}
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 {order.timeline.length > 0 ? (
                   <div>
