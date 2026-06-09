@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArchiveRestore,
@@ -541,26 +541,35 @@ const fetchAllOrders = async (
   };
 };
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 0,
-  }).format(value || 0);
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  maximumFractionDigits: 0,
+});
+
+const dateTimeFormatter = new Intl.DateTimeFormat('en-IN', {
+  timeZone: 'Asia/Kolkata',
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true,
+});
+
+const deliveryDateFormatter = new Intl.DateTimeFormat('en-IN', {
+  day: 'numeric',
+  month: 'long',
+  year: 'numeric',
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(value || 0);
 
 const formatDateTime = (value: string) => {
   if (!value) return 'N/A';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return 'N/A';
-  return new Intl.DateTimeFormat('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
+  return dateTimeFormatter
     .format(date)
     .replace(/\bam\b/i, 'AM')
     .replace(/\bpm\b/i, 'PM');
@@ -570,11 +579,7 @@ const formatDeliveryDate = (value?: string) => {
   if (!value) return '';
   const date = new Date(`${value.slice(0, 10)}T00:00:00`);
   if (Number.isNaN(date.getTime())) return '';
-  return new Intl.DateTimeFormat('en-IN', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric',
-  }).format(date);
+  return deliveryDateFormatter.format(date);
 };
 
 const todayDateInputValue = () => {
@@ -748,34 +753,159 @@ const terminalStatusLabel = (status: OrderStatus): string | null => {
   return null;
 };
 
+type OrdersState = {
+  orders: Order[];
+  totalCount: number;
+  totalPages: number;
+  isLoading: boolean;
+  isRefreshing: boolean;
+  error: string | null;
+  searchInput: string;
+  debouncedSearch: string;
+  orderStatus: OrderStatusFilter;
+  paymentStatus: PaymentStatusFilter;
+  fromDate: string;
+  toDate: string;
+  page: number;
+  selectedOrder: Order | null;
+};
+
+type OrdersAction =
+  | { type: 'SET_DEBOUNCED_SEARCH'; payload: string }
+  | { type: 'START_LOADING'; payload: { showRefresh: boolean } }
+  | { type: 'SET_DATA'; payload: { orders: Order[]; totalCount: number; totalPages: number } }
+  | { type: 'SET_ERROR'; payload: string }
+  | { type: 'SET_PAGE'; payload: number | ((previous: number) => number) }
+  | { type: 'SET_SEARCH_INPUT'; payload: string }
+  | { type: 'SET_ORDER_STATUS'; payload: OrderStatusFilter }
+  | { type: 'SET_PAYMENT_STATUS'; payload: PaymentStatusFilter }
+  | { type: 'SET_FROM_DATE'; payload: string }
+  | { type: 'SET_TO_DATE'; payload: string }
+  | { type: 'CLEAR_FILTERS' }
+  | { type: 'SET_SELECTED_ORDER'; payload: Order | null | ((previous: Order | null) => Order | null) }
+  | { type: 'UPDATE_ORDER'; payload: Order };
+
+const ordersInitialState: OrdersState = {
+  orders: [],
+  totalCount: 0,
+  totalPages: 1,
+  isLoading: true,
+  isRefreshing: false,
+  error: null,
+  searchInput: '',
+  debouncedSearch: '',
+  orderStatus: 'all',
+  paymentStatus: 'all',
+  fromDate: '',
+  toDate: '',
+  page: 1,
+  selectedOrder: null,
+};
+
+function ordersReducer(state: OrdersState, action: OrdersAction): OrdersState {
+  switch (action.type) {
+    case 'SET_DEBOUNCED_SEARCH':
+      return { ...state, debouncedSearch: action.payload };
+    case 'START_LOADING':
+      return {
+        ...state,
+        isRefreshing: action.payload.showRefresh ? true : state.isRefreshing,
+        isLoading: true,
+        error: null,
+      };
+    case 'SET_DATA':
+      return {
+        ...state,
+        orders: action.payload.orders,
+        totalCount: action.payload.totalCount,
+        totalPages: action.payload.totalPages,
+        isLoading: false,
+        isRefreshing: false,
+      };
+    case 'SET_ERROR':
+      return { ...state, error: action.payload, isLoading: false, isRefreshing: false };
+    case 'SET_PAGE':
+      return {
+        ...state,
+        page:
+          typeof action.payload === 'function'
+            ? action.payload(state.page)
+            : action.payload,
+      };
+    case 'SET_SEARCH_INPUT':
+      return { ...state, searchInput: action.payload, page: 1 };
+    case 'SET_ORDER_STATUS':
+      return { ...state, orderStatus: action.payload, page: 1 };
+    case 'SET_PAYMENT_STATUS':
+      return { ...state, paymentStatus: action.payload, page: 1 };
+    case 'SET_FROM_DATE':
+      return { ...state, fromDate: action.payload, page: 1 };
+    case 'SET_TO_DATE':
+      return { ...state, toDate: action.payload, page: 1 };
+    case 'CLEAR_FILTERS':
+      return {
+        ...state,
+        searchInput: '',
+        debouncedSearch: '',
+        orderStatus: 'all',
+        paymentStatus: 'all',
+        fromDate: '',
+        toDate: '',
+        page: 1,
+      };
+    case 'SET_SELECTED_ORDER':
+      return {
+        ...state,
+        selectedOrder:
+          typeof action.payload === 'function'
+            ? action.payload(state.selectedOrder)
+            : action.payload,
+      };
+    case 'UPDATE_ORDER':
+      return {
+        ...state,
+        orders: state.orders.map((order) =>
+          order._id === action.payload._id ? { ...order, ...action.payload } : order
+        ),
+        selectedOrder:
+          state.selectedOrder && state.selectedOrder._id === action.payload._id
+            ? { ...state.selectedOrder, ...action.payload }
+            : state.selectedOrder,
+      };
+    default:
+      return state;
+  }
+}
+
 const Orders: React.FC = () => {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [totalPages, setTotalPages] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [searchInput, setSearchInput] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [orderStatus, setOrderStatus] = useState<OrderStatusFilter>('all');
-  const [paymentStatus, setPaymentStatus] = useState<PaymentStatusFilter>('all');
-  const [fromDate, setFromDate] = useState('');
-  const [toDate, setToDate] = useState('');
-  const [page, setPage] = useState(1);
-  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [state, dispatch] = useReducer(ordersReducer, ordersInitialState);
+  const {
+    orders,
+    totalCount,
+    totalPages,
+    isLoading,
+    isRefreshing,
+    error,
+    searchInput,
+    debouncedSearch,
+    orderStatus,
+    paymentStatus,
+    fromDate,
+    toDate,
+    page,
+    selectedOrder,
+  } = state;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      setDebouncedSearch(searchInput.trim());
+      dispatch({ type: 'SET_DEBOUNCED_SEARCH', payload: searchInput.trim() });
     }, 400);
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
   const loadOrders = useCallback(
     async (showRefresh = false) => {
-      if (showRefresh) setIsRefreshing(true);
-      setIsLoading(true);
-      setError(null);
+      dispatch({ type: 'START_LOADING', payload: { showRefresh } });
 
       try {
         const response = await fetchAllOrders({
@@ -786,9 +916,14 @@ const Orders: React.FC = () => {
           search: debouncedSearch || undefined,
         });
         const dateFiltered = response.orders.filter((order) => matchesDateRange(order, fromDate, toDate));
-        setOrders(dateFiltered);
-        setTotalCount(response.total);
-        setTotalPages(response.totalPages);
+        dispatch({
+          type: 'SET_DATA',
+          payload: {
+            orders: dateFiltered,
+            totalCount: response.total,
+            totalPages: response.totalPages,
+          },
+        });
       } catch (requestError: unknown) {
         console.error('Failed to load orders', requestError);
         const message =
@@ -798,11 +933,8 @@ const Orders: React.FC = () => {
           typeof requestError.response.data.message === 'string'
             ? requestError.response.data.message
             : 'Failed to load orders.';
-        setError(message);
+        dispatch({ type: 'SET_ERROR', payload: message });
         toast.error(message);
-      } finally {
-        setIsLoading(false);
-        setIsRefreshing(false);
       }
     },
     [debouncedSearch, fromDate, orderStatus, page, paymentStatus, toDate]
@@ -813,7 +945,7 @@ const Orders: React.FC = () => {
   }, [loadOrders]);
 
   useEffect(() => {
-    setPage(1);
+    dispatch({ type: 'SET_PAGE', payload: 1 });
   }, [debouncedSearch, fromDate, orderStatus, paymentStatus, toDate]);
 
   useEffect(() => {
@@ -822,7 +954,9 @@ const Orders: React.FC = () => {
     document.body.style.overflow = 'hidden';
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedOrder(null);
+      if (event.key === 'Escape') {
+        dispatch({ type: 'SET_SELECTED_ORDER', payload: null });
+      }
     };
     document.addEventListener('keydown', handleEscape);
     return () => {
@@ -884,27 +1018,12 @@ const Orders: React.FC = () => {
   const rangeEnd = Math.min(page * ORDERS_PER_PAGE, totalCount);
 
   const clearFilters = () => {
-    setSearchInput('');
-    setDebouncedSearch('');
-    setOrderStatus('all');
-    setPaymentStatus('all');
-    setFromDate('');
-    setToDate('');
-    setPage(1);
+    dispatch({ type: 'CLEAR_FILTERS' });
   };
 
   const handleOrderUpdated = useCallback(
     (updatedOrder: Order) => {
-      setOrders((currentOrders) =>
-        currentOrders.map((order) =>
-          order._id === updatedOrder._id ? { ...order, ...updatedOrder } : order
-        )
-      );
-      setSelectedOrder((currentOrder) =>
-        currentOrder && currentOrder._id === updatedOrder._id
-          ? { ...currentOrder, ...updatedOrder }
-          : currentOrder
-      );
+      dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
       void loadOrders(true);
     },
     [loadOrders]
@@ -1039,8 +1158,7 @@ const Orders: React.FC = () => {
                   placeholder="Search by order number e.g. ORD-202604-0000, customer name or email"
                   value={searchInput}
                   onChange={(event) => {
-                    setSearchInput(event.target.value);
-                    setPage(1);
+                    dispatch({ type: 'SET_SEARCH_INPUT', payload: event.target.value });
                   }}
                 />
               </div>
@@ -1053,8 +1171,10 @@ const Orders: React.FC = () => {
                 className="input-field"
                 value={orderStatus}
                 onChange={(event) => {
-                  setOrderStatus(event.target.value as OrderStatusFilter);
-                  setPage(1);
+                  dispatch({
+                    type: 'SET_ORDER_STATUS',
+                    payload: event.target.value as OrderStatusFilter,
+                  });
                 }}
               >
                 {ORDER_STATUS_OPTIONS.map((status) => (
@@ -1072,8 +1192,10 @@ const Orders: React.FC = () => {
                 className="input-field"
                 value={paymentStatus}
                 onChange={(event) => {
-                  setPaymentStatus(event.target.value as PaymentStatusFilter);
-                  setPage(1);
+                  dispatch({
+                    type: 'SET_PAYMENT_STATUS',
+                    payload: event.target.value as PaymentStatusFilter,
+                  });
                 }}
               >
                 {PAYMENT_STATUS_OPTIONS.map((status) => (
@@ -1092,8 +1214,7 @@ const Orders: React.FC = () => {
                 className="input-field"
                 value={fromDate}
                 onChange={(event) => {
-                  setFromDate(event.target.value);
-                  setPage(1);
+                  dispatch({ type: 'SET_FROM_DATE', payload: event.target.value });
                 }}
               />
             </div>
@@ -1106,8 +1227,7 @@ const Orders: React.FC = () => {
                 className="input-field"
                 value={toDate}
                 onChange={(event) => {
-                  setToDate(event.target.value);
-                  setPage(1);
+                  dispatch({ type: 'SET_TO_DATE', payload: event.target.value });
                 }}
               />
             </div>
@@ -1240,7 +1360,11 @@ const Orders: React.FC = () => {
                             </div>
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <button type="button" className="btn-ghost" onClick={() => setSelectedOrder(order)}>
+                            <button
+                              type="button"
+                              className="btn-ghost"
+                              onClick={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: order })}
+                            >
                               <Eye size={15} />
                               View Details
                             </button>
@@ -1323,7 +1447,11 @@ const Orders: React.FC = () => {
                         <span>{formatDateTime(order.createdAt)}</span>
                         <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(order.totalAmount)}</strong>
                       </div>
-                      <button type="button" className="btn-ghost" onClick={() => setSelectedOrder(order)}>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: order })}
+                      >
                         <Eye size={15} />
                         View Details
                       </button>
@@ -1343,7 +1471,7 @@ const Orders: React.FC = () => {
                 rangeStart={rangeStart}
                 rangeEnd={rangeEnd}
                 totalCount={totalCount}
-                onPageChange={setPage}
+                onPageChange={(nextPage) => dispatch({ type: 'SET_PAGE', payload: nextPage })}
               />
             ) : null}
           </>
@@ -1356,7 +1484,7 @@ const Orders: React.FC = () => {
             key={selectedOrder._id}
             order={selectedOrder}
             onOrderUpdated={handleOrderUpdated}
-            onClose={() => setSelectedOrder(null)}
+            onClose={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: null })}
             onCopy={() => void copyText(selectedOrder.orderNumber)}
           />
         ) : null}

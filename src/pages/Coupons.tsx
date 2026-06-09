@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useReducer, useRef } from 'react';
 import {
   Plus,
   Edit2,
@@ -20,14 +20,14 @@ import { getCategories } from '../services/categoryService';
 import { formatDate } from '../lib/utils';
 import apiClient from '../lib/apiClient';
 
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  maximumFractionDigits: 2,
+});
+
 const formatCurrency = (value?: number) =>
-  typeof value === 'number'
-    ? new Intl.NumberFormat('en-IN', {
-        style: 'currency',
-        currency: 'INR',
-        maximumFractionDigits: 2,
-      }).format(value)
-    : '\u2014';
+  typeof value === 'number' ? currencyFormatter.format(value) : '\u2014';
 
 const COUPON_COUNT_KEYS = [
   'total',
@@ -102,35 +102,145 @@ const normalizeApplicableCategories = (values: string[], categories: Category[])
   );
 };
 
+const createDefaultCouponFormData = (): CreateCouponPayload => ({
+  code: '',
+  description: '',
+  discountType: 'percentage',
+  discountValue: 0,
+  maxDiscountAmount: undefined,
+  minOrderAmount: undefined,
+  usageLimit: undefined,
+  perUserLimit: undefined,
+  validFrom: new Date().toISOString().slice(0, 16),
+  validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
+  isActive: true,
+  applicableCategories: [],
+});
+
+type CouponsState = {
+  coupons: Coupon[];
+  categories: Category[];
+  totalCount: number;
+  page: number;
+  isLoadingAPI: boolean;
+  isModalOpen: boolean;
+  isDeleteModalOpen: boolean;
+  deletingCoupon: Coupon | null;
+  editingCoupon: Coupon | null;
+  formData: CreateCouponPayload;
+  formErrors: Record<string, string>;
+  isSubmitting: boolean;
+};
+
+type CouponsAction =
+  | { type: 'SET_CATEGORIES'; payload: Category[] }
+  | { type: 'SET_LIST'; payload: { coupons: Coupon[]; totalCount: number } }
+  | { type: 'SET_COUPONS'; payload: Coupon[] | ((previous: Coupon[]) => Coupon[]) }
+  | { type: 'SET_TOTAL_COUNT'; payload: number | ((previous: number) => number) }
+  | { type: 'SET_PAGE'; payload: number | ((previous: number) => number) }
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'OPEN_FORM_MODAL'; payload: { coupon: Coupon | null; formData: CreateCouponPayload } }
+  | { type: 'CLOSE_FORM_MODAL' }
+  | { type: 'OPEN_DELETE_MODAL'; payload: Coupon }
+  | { type: 'CLOSE_DELETE_MODAL' }
+  | { type: 'SET_FORM_DATA'; payload: CreateCouponPayload | ((previous: CreateCouponPayload) => CreateCouponPayload) }
+  | { type: 'SET_FORM_ERRORS'; payload: Record<string, string> }
+  | { type: 'SET_SUBMITTING'; payload: boolean };
+
+const couponsInitialState: CouponsState = {
+  coupons: [],
+  categories: [],
+  totalCount: 0,
+  page: 1,
+  isLoadingAPI: false,
+  isModalOpen: false,
+  isDeleteModalOpen: false,
+  deletingCoupon: null,
+  editingCoupon: null,
+  formData: createDefaultCouponFormData(),
+  formErrors: {},
+  isSubmitting: false,
+};
+
+function couponsReducer(state: CouponsState, action: CouponsAction): CouponsState {
+  switch (action.type) {
+    case 'SET_CATEGORIES':
+      return { ...state, categories: action.payload };
+    case 'SET_LIST':
+      return { ...state, coupons: action.payload.coupons, totalCount: action.payload.totalCount };
+    case 'SET_COUPONS':
+      return {
+        ...state,
+        coupons:
+          typeof action.payload === 'function'
+            ? action.payload(state.coupons)
+            : action.payload,
+      };
+    case 'SET_TOTAL_COUNT':
+      return {
+        ...state,
+        totalCount:
+          typeof action.payload === 'function'
+            ? action.payload(state.totalCount)
+            : action.payload,
+      };
+    case 'SET_PAGE':
+      return {
+        ...state,
+        page:
+          typeof action.payload === 'function'
+            ? action.payload(state.page)
+            : action.payload,
+      };
+    case 'SET_LOADING':
+      return { ...state, isLoadingAPI: action.payload };
+    case 'OPEN_FORM_MODAL':
+      return {
+        ...state,
+        editingCoupon: action.payload.coupon,
+        formData: action.payload.formData,
+        formErrors: {},
+        isModalOpen: true,
+      };
+    case 'CLOSE_FORM_MODAL':
+      return { ...state, isModalOpen: false };
+    case 'OPEN_DELETE_MODAL':
+      return { ...state, deletingCoupon: action.payload, isDeleteModalOpen: true };
+    case 'CLOSE_DELETE_MODAL':
+      return { ...state, deletingCoupon: null, isDeleteModalOpen: false };
+    case 'SET_FORM_DATA':
+      return {
+        ...state,
+        formData:
+          typeof action.payload === 'function'
+            ? action.payload(state.formData)
+            : action.payload,
+      };
+    case 'SET_FORM_ERRORS':
+      return { ...state, formErrors: action.payload };
+    case 'SET_SUBMITTING':
+      return { ...state, isSubmitting: action.payload };
+    default:
+      return state;
+  }
+}
+
 const Coupons: React.FC = () => {
-  const [coupons, setCoupons] = useState<Coupon[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(1);
-  const [isLoadingAPI, setIsLoadingAPI] = useState(false);
-
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [deletingCoupon, setDeletingCoupon] = useState<Coupon | null>(null);
-
-  const [editingCoupon, setEditingCoupon] = useState<Coupon | null>(null);
-  const [formData, setFormData] = useState<CreateCouponPayload>({
-    code: '',
-    description: '',
-    discountType: 'percentage',
-    discountValue: 0,
-    maxDiscountAmount: undefined,
-    minOrderAmount: undefined,
-    usageLimit: undefined,
-    perUserLimit: undefined,
-    validFrom: new Date().toISOString().slice(0, 16),
-    validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
-    isActive: true,
-    applicableCategories: [],
-  });
-
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [state, dispatch] = useReducer(couponsReducer, couponsInitialState);
+  const {
+    coupons,
+    categories,
+    totalCount,
+    page,
+    isLoadingAPI,
+    isModalOpen,
+    isDeleteModalOpen,
+    deletingCoupon,
+    editingCoupon,
+    formData,
+    formErrors,
+    isSubmitting,
+  } = state;
 
   const limit = 10;
   const isServerPaginated = totalCount > coupons.length;
@@ -165,7 +275,7 @@ const Coupons: React.FC = () => {
 
     const handleEscapeKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsModalOpen(false);
+        dispatch({ type: 'CLOSE_FORM_MODAL' });
       }
     };
 
@@ -174,7 +284,7 @@ const Coupons: React.FC = () => {
         modalOverlayRef.current &&
         event.target === modalOverlayRef.current
       ) {
-        setIsModalOpen(false);
+        dispatch({ type: 'CLOSE_FORM_MODAL' });
       }
     };
 
@@ -234,8 +344,7 @@ const Coupons: React.FC = () => {
 
     const handleEscapeKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsDeleteModalOpen(false);
-        setDeletingCoupon(null);
+        dispatch({ type: 'CLOSE_DELETE_MODAL' });
       }
     };
 
@@ -244,8 +353,7 @@ const Coupons: React.FC = () => {
         deleteModalOverlayRef.current &&
         event.target === deleteModalOverlayRef.current
       ) {
-        setIsDeleteModalOpen(false);
-        setDeletingCoupon(null);
+        dispatch({ type: 'CLOSE_DELETE_MODAL' });
       }
     };
 
@@ -304,10 +412,10 @@ const Coupons: React.FC = () => {
     const fetchCategories = async () => {
       try {
         const categoryList = await getCategories();
-        setCategories(categoryList);
+        dispatch({ type: 'SET_CATEGORIES', payload: categoryList });
       } catch (error) {
         console.error('Error fetching categories for coupons:', error);
-        setCategories([]);
+        dispatch({ type: 'SET_CATEGORIES', payload: [] });
       }
     };
 
@@ -316,7 +424,7 @@ const Coupons: React.FC = () => {
 
   useEffect(() => {
     const fetchCoupons = async () => {
-      setIsLoadingAPI(true);
+      dispatch({ type: 'SET_LOADING', payload: true });
       try {
         const response = await apiClient.get<any>('/admin/coupons', {
           params: { page, limit },
@@ -325,12 +433,11 @@ const Coupons: React.FC = () => {
         const couponsList = extractCoupons(response.data);
         const count = extractTotalCoupons(response.data, couponsList.length);
 
-        setCoupons(couponsList);
-        setTotalCount(count);
+        dispatch({ type: 'SET_LIST', payload: { coupons: couponsList, totalCount: count } });
       } catch (error: any) {
         console.error('Error fetching coupons:', error.response?.status, error.message);
       } finally {
-        setIsLoadingAPI(false);
+        dispatch({ type: 'SET_LOADING', payload: false });
       }
     };
 
@@ -360,14 +467,17 @@ const Coupons: React.FC = () => {
       errors.validUntil = 'Valid Until must be after Valid From';
     }
 
-    setFormErrors(errors);
+    dispatch({ type: 'SET_FORM_ERRORS', payload: errors });
     return Object.keys(errors).length === 0;
   };
 
   const handleOpenModal = (coupon?: Coupon) => {
     if (coupon) {
-      setEditingCoupon(coupon);
-      setFormData({
+      dispatch({
+        type: 'OPEN_FORM_MODAL',
+        payload: {
+          coupon,
+          formData: {
         code: coupon.code,
         description: coupon.description,
         discountType: coupon.discountType,
@@ -380,26 +490,15 @@ const Coupons: React.FC = () => {
         validUntil: coupon.validUntil.slice(0, 16),
         isActive: coupon.isActive,
         applicableCategories: normalizeApplicableCategories(coupon.applicableCategories, categories),
+          },
+        },
       });
     } else {
-      setEditingCoupon(null);
-      setFormData({
-        code: '',
-        description: '',
-        discountType: 'percentage',
-        discountValue: 0,
-        maxDiscountAmount: undefined,
-        minOrderAmount: undefined,
-        usageLimit: undefined,
-        perUserLimit: undefined,
-        validFrom: new Date().toISOString().slice(0, 16),
-        validUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 16),
-        isActive: true,
-        applicableCategories: [],
+      dispatch({
+        type: 'OPEN_FORM_MODAL',
+        payload: { coupon: null, formData: createDefaultCouponFormData() },
       });
     }
-    setFormErrors({});
-    setIsModalOpen(true);
   };
 
   const handleSubmitForm = async (e: React.FormEvent) => {
@@ -409,7 +508,7 @@ const Coupons: React.FC = () => {
       return;
     }
 
-    setIsSubmitting(true);
+    dispatch({ type: 'SET_SUBMITTING', payload: true });
     try {
       const payload = {
         ...formData,
@@ -420,59 +519,66 @@ const Coupons: React.FC = () => {
       if (editingCoupon) {
         const response = await updateCoupon(editingCoupon._id, payload);
         const updatedCoupon = response.data.coupon;
-        setCoupons((prev) =>
-          prev.map((coupon) => (coupon._id === editingCoupon._id ? updatedCoupon : coupon))
-        );
+        dispatch({
+          type: 'SET_COUPONS',
+          payload: (prev) =>
+            prev.map((coupon) => (coupon._id === editingCoupon._id ? updatedCoupon : coupon)),
+        });
         toast.success('Coupon updated successfully!');
       } else {
         const response = await createCoupon(payload);
         const newCoupon = response.data.coupon;
-        setCoupons((prev) => {
-          if (!isServerPaginated) {
-            return [newCoupon, ...prev];
-          }
+        dispatch({
+          type: 'SET_COUPONS',
+          payload: (prev) => {
+            if (!isServerPaginated) {
+              return [newCoupon, ...prev];
+            }
 
-          if (page === 1) {
-            return [newCoupon, ...prev].slice(0, limit);
-          }
+            if (page === 1) {
+              return [newCoupon, ...prev].slice(0, limit);
+            }
 
-          return prev;
+            return prev;
+          },
         });
-        setTotalCount((prev) => prev + 1);
+        dispatch({ type: 'SET_TOTAL_COUNT', payload: (prev) => prev + 1 });
         if (isServerPaginated && page !== 1) {
-          setPage(1);
+          dispatch({ type: 'SET_PAGE', payload: 1 });
         }
         toast.success('Coupon created successfully!');
       }
 
-      setIsModalOpen(false);
+      dispatch({ type: 'CLOSE_FORM_MODAL' });
     } catch (error: any) {
       console.error('Form submission error:', error);
       toast.error(error.response?.data?.message || 'Operation failed');
     } finally {
-      setIsSubmitting(false);
+      dispatch({ type: 'SET_SUBMITTING', payload: false });
     }
   };
 
   const handleDelete = async () => {
     if (!deletingCoupon) return;
 
-    setIsLoadingAPI(true);
+    dispatch({ type: 'SET_LOADING', payload: true });
     try {
       await deleteCoupon(deletingCoupon._id);
-      setCoupons((prev) => prev.filter((coupon) => coupon._id !== deletingCoupon._id));
-      setTotalCount((prev) => Math.max(0, prev - 1));
+      dispatch({
+        type: 'SET_COUPONS',
+        payload: (prev) => prev.filter((coupon) => coupon._id !== deletingCoupon._id),
+      });
+      dispatch({ type: 'SET_TOTAL_COUNT', payload: (prev) => Math.max(0, prev - 1) });
       if (!isServerPaginated && page > 1 && displayedCoupons.length === 1) {
-        setPage((prev) => prev - 1);
+        dispatch({ type: 'SET_PAGE', payload: (prev) => prev - 1 });
       }
       toast.success('Coupon deleted successfully!');
-      setIsDeleteModalOpen(false);
-      setDeletingCoupon(null);
+      dispatch({ type: 'CLOSE_DELETE_MODAL' });
     } catch (error: any) {
       console.error('Delete error:', error);
       toast.error(error.response?.data?.message || 'Delete failed');
     } finally {
-      setIsLoadingAPI(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
@@ -482,23 +588,32 @@ const Coupons: React.FC = () => {
     const { name, value, type } = e.target;
 
     if (name === 'code') {
-      setFormData((prev) => ({
-        ...prev,
-        code: value.toUpperCase(),
-      }));
+      dispatch({
+        type: 'SET_FORM_DATA',
+        payload: (prev) => ({
+          ...prev,
+          code: value.toUpperCase(),
+        }),
+      });
     } else if (type === 'checkbox') {
-      setFormData((prev) => ({
-        ...prev,
-        isActive: (e.target as HTMLInputElement).checked,
-      }));
+      dispatch({
+        type: 'SET_FORM_DATA',
+        payload: (prev) => ({
+          ...prev,
+          isActive: (e.target as HTMLInputElement).checked,
+        }),
+      });
     } else {
-      setFormData((prev) => ({
-        ...prev,
-        [name]:
-          type === 'number' && value !== ''
-            ? parseFloat(value)
-            : value,
-      }));
+      dispatch({
+        type: 'SET_FORM_DATA',
+        payload: (prev) => ({
+          ...prev,
+          [name]:
+            type === 'number' && value !== ''
+              ? parseFloat(value)
+              : value,
+        }),
+      });
     }
   };
 
@@ -514,12 +629,15 @@ const Coupons: React.FC = () => {
   };
 
   const toggleApplicableCategory = (categoryId: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      applicableCategories: prev.applicableCategories.includes(categoryId)
-        ? prev.applicableCategories.filter((id) => id !== categoryId)
-        : [...prev.applicableCategories, categoryId],
-    }));
+    dispatch({
+      type: 'SET_FORM_DATA',
+      payload: (prev) => ({
+        ...prev,
+        applicableCategories: prev.applicableCategories.includes(categoryId)
+          ? prev.applicableCategories.filter((id) => id !== categoryId)
+          : [...prev.applicableCategories, categoryId],
+      }),
+    });
   };
 
   return (
@@ -685,8 +803,7 @@ const Coupons: React.FC = () => {
                             <button
                               type="button"
                               onClick={() => {
-                                setDeletingCoupon(coupon);
-                                setIsDeleteModalOpen(true);
+                                dispatch({ type: 'OPEN_DELETE_MODAL', payload: coupon });
                               }}
                               className="action-icon-button danger opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
                               aria-label="Delete coupon"
@@ -724,7 +841,7 @@ const Coupons: React.FC = () => {
                   type="button"
                   className="btn-ghost"
                   disabled={page === 1}
-                  onClick={() => setPage((previous) => previous - 1)}
+                  onClick={() => dispatch({ type: 'SET_PAGE', payload: (previous) => previous - 1 })}
                 >
                   <ChevronLeft size={15} /> Prev
                 </button>
@@ -732,7 +849,7 @@ const Coupons: React.FC = () => {
                   type="button"
                   className="btn-ghost"
                   disabled={page === totalPages}
-                  onClick={() => setPage((previous) => previous + 1)}
+                  onClick={() => dispatch({ type: 'SET_PAGE', payload: (previous) => previous + 1 })}
                 >
                   Next <ChevronRight size={15} />
                 </button>
@@ -781,7 +898,7 @@ const Coupons: React.FC = () => {
                 </h2>
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => dispatch({ type: 'CLOSE_FORM_MODAL' })}
                   className="action-icon-button"
                   aria-label="Close coupon modal"
                 >
@@ -1045,7 +1162,12 @@ const Coupons: React.FC = () => {
                   <button
                     type="button"
                     className={`status-toggle ${formData.isActive ? 'is-active' : ''}`}
-                    onClick={() => setFormData((prev) => ({ ...prev, isActive: !prev.isActive }))}
+                    onClick={() =>
+                      dispatch({
+                        type: 'SET_FORM_DATA',
+                        payload: (prev) => ({ ...prev, isActive: !prev.isActive }),
+                      })
+                    }
                     aria-pressed={formData.isActive}
                     aria-label="Toggle coupon status"
                     style={{ cursor: 'pointer' }}
@@ -1085,7 +1207,7 @@ const Coupons: React.FC = () => {
               >
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={() => dispatch({ type: 'CLOSE_FORM_MODAL' })}
                   className="btn-ghost"
                 >
                   Cancel
@@ -1157,8 +1279,7 @@ const Coupons: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setIsDeleteModalOpen(false);
-                    setDeletingCoupon(null);
+                    dispatch({ type: 'CLOSE_DELETE_MODAL' });
                   }}
                   className="btn-ghost"
                   style={{ flex: 1 }}

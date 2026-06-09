@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import Cookies from 'js-cookie';
 import { User } from '../types';
 
@@ -12,26 +12,28 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
+const readStoredAuth = (): { user: User | null; token: string | null } => {
+  try {
     const storedUser = Cookies.get('user') || localStorage.getItem('user');
     const storedToken = Cookies.get('token') || localStorage.getItem('token');
-    if (storedUser && storedToken) {
-      try {
-        setUser(JSON.parse(storedUser));
-        setToken(storedToken);
-      } catch (e) {
-        console.error('Failed to parse user from cookies', e);
-      }
-    }
-    setIsLoading(false);
-  }, []);
 
-  const login = (userData: User, authToken: string, refreshToken: string) => {
+    return {
+      user: storedUser && storedToken ? JSON.parse(storedUser) : null,
+      token: storedToken || null,
+    };
+  } catch (e) {
+    console.error('Failed to parse user from cookies', e);
+    return { user: null, token: null };
+  }
+};
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const initialAuth = useMemo(readStoredAuth, []);
+  const [user, setUser] = useState<User | null>(() => initialAuth.user);
+  const [token, setToken] = useState<string | null>(() => initialAuth.token);
+  const isLoading = false;
+
+  const login = useCallback((userData: User, authToken: string, refreshToken: string) => {
     setUser(userData);
     setToken(authToken);
 
@@ -42,9 +44,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('user', JSON.stringify(userData));
     localStorage.setItem('token', authToken);
     localStorage.setItem('refreshToken', refreshToken);
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     setUser(null);
     setToken(null);
     Cookies.remove('user');
@@ -53,10 +55,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.removeItem('user');
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
-  };
+  }, []);
+
+  const value = useMemo(
+    () => ({ user, token, login, logout, isLoading }),
+    [user, token, login, logout]
+  );
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

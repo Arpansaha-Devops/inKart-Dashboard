@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer } from 'react';
 import { Plus, Edit2, Trash2, ChevronLeft, ChevronRight, Tag } from 'lucide-react';
 import { toast } from 'sonner';
 import type { Category } from '../types';
@@ -50,19 +50,75 @@ const rememberDeletedCategoryId = (categoryId: string) => {
   }
 };
 
-const Categories: React.FC = () => {
-  const [categories, setCategories] = useState<Category[]>([]);
-  const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
+type CategoriesState = {
+  categories: Category[];
+  page: number;
+  isLoading: boolean;
+  isCreateModalOpen: boolean;
+  editingCategory: Category | null;
+  deletingCategory: Category | null;
+};
 
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null);
+type CategoriesAction =
+  | { type: 'SET_CATEGORIES'; payload: Category[] }
+  | { type: 'SET_PAGE'; payload: number | ((previous: number) => number) }
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'OPEN_CREATE_MODAL' }
+  | { type: 'CLOSE_CREATE_MODAL' }
+  | { type: 'SET_EDITING_CATEGORY'; payload: Category | null }
+  | { type: 'SET_DELETING_CATEGORY'; payload: Category | null };
+
+const categoriesInitialState: CategoriesState = {
+  categories: [],
+  page: 1,
+  isLoading: true,
+  isCreateModalOpen: false,
+  editingCategory: null,
+  deletingCategory: null,
+};
+
+function categoriesReducer(state: CategoriesState, action: CategoriesAction): CategoriesState {
+  switch (action.type) {
+    case 'SET_CATEGORIES':
+      return { ...state, categories: action.payload };
+    case 'SET_PAGE':
+      return {
+        ...state,
+        page:
+          typeof action.payload === 'function'
+            ? action.payload(state.page)
+            : action.payload,
+      };
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+    case 'OPEN_CREATE_MODAL':
+      return { ...state, isCreateModalOpen: true };
+    case 'CLOSE_CREATE_MODAL':
+      return { ...state, isCreateModalOpen: false };
+    case 'SET_EDITING_CATEGORY':
+      return { ...state, editingCategory: action.payload };
+    case 'SET_DELETING_CATEGORY':
+      return { ...state, deletingCategory: action.payload };
+    default:
+      return state;
+  }
+}
+
+const Categories: React.FC = () => {
+  const [state, dispatch] = useReducer(categoriesReducer, categoriesInitialState);
+  const {
+    categories,
+    page,
+    isLoading,
+    isCreateModalOpen,
+    editingCategory,
+    deletingCategory,
+  } = state;
 
   const limit = 10;
 
-  const fetchCategoriesData = async () => {
-    setIsLoading(true);
+  const fetchCategoriesData = useCallback(async () => {
+    dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const list = await getCategories();
       const deletedCategoryIds = new Set(readDeletedCategoryIds());
@@ -74,24 +130,24 @@ const Categories: React.FC = () => {
         const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bTime - aTime;
       });
-      setCategories(normalized);
+      dispatch({ type: 'SET_CATEGORIES', payload: normalized });
     } catch (error: any) {
       toast.error(error?.response?.data?.message || 'Failed to load categories');
-      setCategories([]);
+      dispatch({ type: 'SET_CATEGORIES', payload: [] });
     } finally {
-      setIsLoading(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchCategoriesData();
-  }, []);
+  }, [fetchCategoriesData]);
 
   const totalPages = Math.max(1, Math.ceil(categories.length / limit));
 
   useEffect(() => {
     if (page > totalPages) {
-      setPage(totalPages);
+      dispatch({ type: 'SET_PAGE', payload: totalPages });
     }
   }, [page, totalPages]);
 
@@ -99,6 +155,18 @@ const Categories: React.FC = () => {
     const start = (page - 1) * limit;
     return categories.slice(start, start + limit);
   }, [categories, page]);
+
+  const handleCreateClose = useCallback(() => {
+    dispatch({ type: 'CLOSE_CREATE_MODAL' });
+  }, []);
+
+  const handleEditClose = useCallback(() => {
+    dispatch({ type: 'SET_EDITING_CATEGORY', payload: null });
+  }, []);
+
+  const handleDeleteClose = useCallback(() => {
+    dispatch({ type: 'SET_DELETING_CATEGORY', payload: null });
+  }, []);
 
   return (
     <div className="page-wrapper">
@@ -117,7 +185,7 @@ const Categories: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => setIsCreateModalOpen(true)}
+            onClick={() => dispatch({ type: 'OPEN_CREATE_MODAL' })}
             className="btn-primary"
           >
             <Plus size={18} />
@@ -201,7 +269,7 @@ const Categories: React.FC = () => {
                         >
                           <button
                             type="button"
-                            onClick={() => setEditingCategory(category)}
+                            onClick={() => dispatch({ type: 'SET_EDITING_CATEGORY', payload: category })}
                             className="action-icon-button"
                             aria-label="Edit category"
                           >
@@ -209,7 +277,7 @@ const Categories: React.FC = () => {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDeletingCategory(category)}
+                            onClick={() => dispatch({ type: 'SET_DELETING_CATEGORY', payload: category })}
                             className="action-icon-button danger"
                             aria-label="Delete category"
                           >
@@ -245,7 +313,7 @@ const Categories: React.FC = () => {
                   type="button"
                   className="btn-ghost"
                   disabled={page === 1}
-                  onClick={() => setPage((previous) => previous - 1)}
+                  onClick={() => dispatch({ type: 'SET_PAGE', payload: (previous) => previous - 1 })}
                 >
                   <ChevronLeft size={15} /> Prev
                 </button>
@@ -253,7 +321,7 @@ const Categories: React.FC = () => {
                   type="button"
                   className="btn-ghost"
                   disabled={page === totalPages}
-                  onClick={() => setPage((previous) => previous + 1)}
+                  onClick={() => dispatch({ type: 'SET_PAGE', payload: (previous) => previous + 1 })}
                 >
                   Next <ChevronRight size={15} />
                 </button>
@@ -265,21 +333,21 @@ const Categories: React.FC = () => {
 
       <CreateCategoryModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={handleCreateClose}
         onSuccess={fetchCategoriesData}
       />
 
       <EditCategoryModal
         isOpen={Boolean(editingCategory)}
         category={editingCategory}
-        onClose={() => setEditingCategory(null)}
+        onClose={handleEditClose}
         onSuccess={fetchCategoriesData}
       />
 
       <DeleteCategoryModal
         isOpen={Boolean(deletingCategory)}
         category={deletingCategory}
-        onClose={() => setDeletingCategory(null)}
+        onClose={handleDeleteClose}
         onDeleteSuccess={rememberDeletedCategoryId}
         onSuccess={fetchCategoriesData}
       />

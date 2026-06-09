@@ -19,6 +19,13 @@ const slugify = (value: string) =>
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9-]/g, '');
 
+const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+  const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  return Array.from(container.querySelectorAll(selector)).filter(
+    (el: any) => !el.hasAttribute('disabled')
+  ) as HTMLElement[];
+};
+
 const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
   isOpen,
   category,
@@ -32,54 +39,72 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
     isActive: true,
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSlugEdited, setIsSlugEdited] = useState(false);
-  const [syncedCategoryId, setSyncedCategoryId] = useState('');
 
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  const isOpenRef = useRef(isOpen);
+  const isSlugEditedRef = useRef(false);
+  const syncedCategoryIdRef = useRef('');
 
-  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
-    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    return Array.from(container.querySelectorAll(selector)).filter(
-      (el: any) => !el.hasAttribute('disabled')
-    ) as HTMLElement[];
-  };
-
-  const handleClose = useCallback(() => {
-    onClose();
+  useEffect(() => {
+    onCloseRef.current = onClose;
   }, [onClose]);
 
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  const handleClose = useCallback(() => {
+    onCloseRef.current();
+  }, []);
+
   const selectedCategoryId = isOpen && category?._id ? category._id : '';
-  if (selectedCategoryId && selectedCategoryId !== syncedCategoryId && category) {
-    setSyncedCategoryId(selectedCategoryId);
+  if (selectedCategoryId && selectedCategoryId !== syncedCategoryIdRef.current && category) {
+    syncedCategoryIdRef.current = selectedCategoryId;
     setFormData({
       name: category.name || '',
       description: category.description || '',
       slug: category.slug || '',
       isActive: category.isActive ?? true,
     });
-    setIsSlugEdited(false);
-  } else if (!selectedCategoryId && syncedCategoryId) {
-    setSyncedCategoryId('');
+    isSlugEditedRef.current = false;
+  } else if (!selectedCategoryId && syncedCategoryIdRef.current) {
+    syncedCategoryIdRef.current = '';
   }
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      return;
+    }
 
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
+    focusable[0]?.focus();
+
+    return () => {
+      previousFocusRef.current?.focus();
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
+      if (!isOpenRef.current) return;
       if (event.key === 'Escape') {
         handleClose();
       }
     };
 
     const handleOverlayMouseDown = (event: MouseEvent) => {
+      if (!isOpenRef.current) return;
       if (overlayRef.current && event.target === overlayRef.current) {
         handleClose();
       }
     };
 
     const handleTab = (event: KeyboardEvent) => {
+      if (!isOpenRef.current) return;
       if (event.key !== 'Tab' || !contentRef.current) return;
 
       const focusableElements = getFocusableElements(contentRef.current);
@@ -99,28 +124,22 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
       }
     };
 
-    previousFocusRef.current = document.activeElement as HTMLElement;
-    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
-    focusable[0]?.focus();
-
-    const overlay = overlayRef.current;
     document.addEventListener('keydown', handleEscape);
     document.addEventListener('keydown', handleTab);
-    overlay?.addEventListener('mousedown', handleOverlayMouseDown);
+    document.addEventListener('mousedown', handleOverlayMouseDown);
 
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('keydown', handleTab);
-      overlay?.removeEventListener('mousedown', handleOverlayMouseDown);
-      previousFocusRef.current?.focus();
+      document.removeEventListener('mousedown', handleOverlayMouseDown);
     };
-  }, [isOpen, handleClose]);
+  }, [handleClose]);
 
   const handleNameChange = (value: string) => {
     setFormData((prev) => ({
       ...prev,
       name: value,
-      slug: isSlugEdited ? prev.slug : slugify(value),
+      slug: isSlugEditedRef.current ? prev.slug : slugify(value),
     }));
   };
 
@@ -227,7 +246,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
                     type="text"
                     value={formData.slug || ''}
                     onChange={(e) => {
-                      setIsSlugEdited(true);
+                      isSlugEditedRef.current = true;
                       setFormData((prev) => ({ ...prev, slug: e.target.value }));
                     }}
                     className="input-field"

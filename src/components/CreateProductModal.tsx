@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { X, Upload, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -25,6 +25,67 @@ interface CategoryLookupItem {
   _id: string;
   name: string;
   isActive: boolean;
+}
+
+type CreateProductFormState = {
+  name: string;
+  price: number;
+  description: string;
+  category: string;
+  basePrice: number;
+  productType: 'stocked' | 'on_demand';
+  stock: number;
+  isCustomizable: boolean;
+  errors: FormErrors;
+  isSubmitting: boolean;
+  knownCategories: CategoryLookupItem[];
+};
+
+type CreateProductFormAction =
+  | { type: 'SET_FIELD'; payload: Partial<CreateProductFormState> }
+  | { type: 'SET_ERRORS'; payload: FormErrors | ((previous: FormErrors) => FormErrors) }
+  | { type: 'SET_SUBMITTING'; payload: boolean }
+  | { type: 'SET_KNOWN_CATEGORIES'; payload: CategoryLookupItem[] }
+  | { type: 'RESET_FORM' };
+
+const createProductFormInitialState: CreateProductFormState = {
+  name: '',
+  price: 0,
+  description: '',
+  category: '',
+  basePrice: 0,
+  productType: 'on_demand',
+  stock: 0,
+  isCustomizable: true,
+  errors: {},
+  isSubmitting: false,
+  knownCategories: [],
+};
+
+function createProductFormReducer(
+  state: CreateProductFormState,
+  action: CreateProductFormAction
+): CreateProductFormState {
+  switch (action.type) {
+    case 'SET_FIELD':
+      return { ...state, ...action.payload };
+    case 'SET_ERRORS':
+      return {
+        ...state,
+        errors:
+          typeof action.payload === 'function'
+            ? action.payload(state.errors)
+            : action.payload,
+      };
+    case 'SET_SUBMITTING':
+      return { ...state, isSubmitting: action.payload };
+    case 'SET_KNOWN_CATEGORIES':
+      return { ...state, knownCategories: action.payload };
+    case 'RESET_FORM':
+      return { ...createProductFormInitialState, knownCategories: state.knownCategories };
+    default:
+      return state;
+  }
 }
 
 const slugifyProductName = (value: string) =>
@@ -64,23 +125,31 @@ const getCreateProductErrorMessage = (error: any): string => {
 };
 
 const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const [name, setName] = useState('');
-  const [price, setPrice] = useState<number>(0);
-  const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('');
-  const [basePrice, setBasePrice] = useState<number>(0);
-  const [productType, setProductType] = useState<'stocked' | 'on_demand'>('on_demand');
-  const [stock, setStock] = useState<number>(0);
-  const [isCustomizable, setIsCustomizable] = useState(true);
+  const [state, dispatch] = useReducer(
+    createProductFormReducer,
+    createProductFormInitialState
+  );
+  const {
+    name,
+    price,
+    description,
+    category,
+    basePrice,
+    productType,
+    stock,
+    isCustomizable,
+    errors,
+    isSubmitting,
+    knownCategories,
+  } = state;
   const [images, setImages] = useState<File[]>([]);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
-  const [errors, setErrors] = useState<FormErrors>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [knownCategories, setKnownCategories] = useState<CategoryLookupItem[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const handleCloseRef = useRef<() => void>(() => {});
+  const isOpenRef = useRef(isOpen);
   const categoryListId = 'known-category-names';
 
   const isObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value.trim());
@@ -136,16 +205,15 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
   const fetchKnownCategories = useCallback(async () => {
     const categoryEndpoints = ['/admin/categories', '/categories', '/categories/all'];
-    const aggregated: CategoryLookupItem[] = [];
     try {
-      for (const endpoint of categoryEndpoints) {
-        try {
-          const response = await apiClient.get(endpoint);
-          aggregated.push(...extractCategoriesFromPayload(response.data));
-        } catch {
-          // Try next endpoint variant.
-        }
-      }
+      const endpointResults = await Promise.allSettled(
+        categoryEndpoints.map((endpoint) => apiClient.get(endpoint))
+      );
+      const aggregated = endpointResults.flatMap((result) =>
+        result.status === 'fulfilled'
+          ? extractCategoriesFromPayload(result.value.data)
+          : []
+      );
 
       if (aggregated.length === 0) {
         const response = await apiClient.get('/admin/products', {
@@ -161,9 +229,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
         }
       });
 
-      setKnownCategories(Array.from(unique.values()));
+      dispatch({ type: 'SET_KNOWN_CATEGORIES', payload: Array.from(unique.values()) });
     } catch {
-      setKnownCategories([]);
+      dispatch({ type: 'SET_KNOWN_CATEGORIES', payload: [] });
     }
   }, [extractCategoriesFromPayload]);
 
@@ -212,7 +280,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       newErrors.images = 'At least one product image is required';
     }
 
-    setErrors(newErrors);
+    dispatch({ type: 'SET_ERRORS', payload: newErrors });
     return Object.keys(newErrors).length === 0;
   };
 
@@ -239,7 +307,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (filesToAdd.length > 0) {
       setImages([...images, ...filesToAdd]);
       setImagePreview(newPreviews);
-      setErrors((prev) => ({ ...prev, images: undefined }));
+      dispatch({
+        type: 'SET_ERRORS',
+        payload: (prev) => ({ ...prev, images: undefined }),
+      });
     }
     
     if (fileInputRef.current) {
@@ -256,19 +327,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   };
 
   const resetForm = useCallback(() => {
-    setName('');
-    setPrice(0);
-    setDescription('');
-    setCategory('');
-    setBasePrice(0);
-    setProductType('on_demand');
-    setStock(0);
-    setIsCustomizable(true);
+    dispatch({ type: 'RESET_FORM' });
     setImages([]);
     imagePreview.forEach((preview) => URL.revokeObjectURL(preview));
     setImagePreview([]);
-    setErrors({});
-    setIsSubmitting(false);
   }, [imagePreview]);
 
   const handleClose = useCallback(() => {
@@ -278,21 +340,42 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   }, [isSubmitting, onClose, resetForm]);
 
   useEffect(() => {
+    handleCloseRef.current = handleClose;
+  }, [handleClose]);
+
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
     if (!isOpen) return;
 
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
+    focusable[0]?.focus();
+
+    return () => {
+      previousFocusRef.current?.focus();
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
+      if (!isOpenRef.current) return;
       if (event.key === 'Escape') {
-        handleClose();
+        handleCloseRef.current();
       }
     };
 
     const handleOverlayMouseDown = (event: MouseEvent) => {
+      if (!isOpenRef.current) return;
       if (overlayRef.current && event.target === overlayRef.current) {
-        handleClose();
+        handleCloseRef.current();
       }
     };
 
     const handleTab = (event: KeyboardEvent) => {
+      if (!isOpenRef.current) return;
       if (event.key !== 'Tab' || !contentRef.current) return;
 
       const focusableElements = getFocusableElements(contentRef.current);
@@ -312,22 +395,16 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       }
     };
 
-    previousFocusRef.current = document.activeElement as HTMLElement;
-    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
-    focusable[0]?.focus();
-
-    const overlay = overlayRef.current;
     document.addEventListener('keydown', handleEscape);
     document.addEventListener('keydown', handleTab);
-    overlay?.addEventListener('mousedown', handleOverlayMouseDown);
+    document.addEventListener('mousedown', handleOverlayMouseDown);
 
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('keydown', handleTab);
-      overlay?.removeEventListener('mousedown', handleOverlayMouseDown);
-      previousFocusRef.current?.focus();
+      document.removeEventListener('mousedown', handleOverlayMouseDown);
     };
-  }, [handleClose, isOpen]);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -336,22 +413,25 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
     const resolvedCategoryId = resolveCategoryId(category);
     if (!resolvedCategoryId) {
-      setErrors((prev) => ({
-        ...prev,
-        category:
-          'Category not recognized. Use an active category name or paste its 24-character active category ID.',
-      }));
+      dispatch({
+        type: 'SET_ERRORS',
+        payload: (prev) => ({
+          ...prev,
+          category:
+            'Category not recognized. Use an active category name or paste its 24-character active category ID.',
+        }),
+      });
       return;
     }
 
-    setIsSubmitting(true);
+    dispatch({ type: 'SET_SUBMITTING', payload: true });
 
     const token = localStorage.getItem('token');
     if (!token) {
       toast.error('Session expired. Please login again.');
       localStorage.clear();
       window.location.href = '/login';
-      setIsSubmitting(false);
+      dispatch({ type: 'SET_SUBMITTING', payload: false });
       return;
     }
 
@@ -383,7 +463,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       }
       toast.error(getCreateProductErrorMessage(error));
     } finally {
-      setIsSubmitting(false);
+      dispatch({ type: 'SET_SUBMITTING', payload: false });
     }
   };
 
@@ -458,8 +538,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                     placeholder="Enter product name..."
                     value={name}
                     onChange={(e) => {
-                      setName(e.target.value);
-                      if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
+                      dispatch({ type: 'SET_FIELD', payload: { name: e.target.value } });
+                      if (errors.name) {
+                        dispatch({
+                          type: 'SET_ERRORS',
+                          payload: (prev) => ({ ...prev, name: undefined }),
+                        });
+                      }
                     }}
                   />
                   {errors.name ? (
@@ -502,8 +587,16 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                         placeholder="0.00"
                         value={price || ''}
                         onChange={(e) => {
-                          setPrice(parseFloat(e.target.value) || 0);
-                          if (errors.price) setErrors((prev) => ({ ...prev, price: undefined }));
+                          dispatch({
+                            type: 'SET_FIELD',
+                            payload: { price: parseFloat(e.target.value) || 0 },
+                          });
+                          if (errors.price) {
+                            dispatch({
+                              type: 'SET_ERRORS',
+                              payload: (prev) => ({ ...prev, price: undefined }),
+                            });
+                          }
                         }}
                       />
                     </div>
@@ -540,8 +633,16 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                         placeholder="0.00"
                         value={basePrice || ''}
                         onChange={(e) => {
-                          setBasePrice(parseFloat(e.target.value) || 0);
-                          if (errors.basePrice) setErrors((prev) => ({ ...prev, basePrice: undefined }));
+                          dispatch({
+                            type: 'SET_FIELD',
+                            payload: { basePrice: parseFloat(e.target.value) || 0 },
+                          });
+                          if (errors.basePrice) {
+                            dispatch({
+                              type: 'SET_ERRORS',
+                              payload: (prev) => ({ ...prev, basePrice: undefined }),
+                            });
+                          }
                         }}
                       />
                     </div>
@@ -564,8 +665,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                     placeholder="Enter product description..."
                     value={description}
                     onChange={(e) => {
-                      setDescription(e.target.value);
-                      if (errors.description) setErrors((prev) => ({ ...prev, description: undefined }));
+                      dispatch({ type: 'SET_FIELD', payload: { description: e.target.value } });
+                      if (errors.description) {
+                        dispatch({
+                          type: 'SET_ERRORS',
+                          payload: (prev) => ({ ...prev, description: undefined }),
+                        });
+                      }
                     }}
                   />
                   {errors.description ? (
@@ -587,8 +693,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                     placeholder="Type existing category name (or paste category ID)"
                     value={category}
                     onChange={(e) => {
-                      setCategory(e.target.value);
-                      if (errors.category) setErrors((prev) => ({ ...prev, category: undefined }));
+                      dispatch({ type: 'SET_FIELD', payload: { category: e.target.value } });
+                      if (errors.category) {
+                        dispatch({
+                          type: 'SET_ERRORS',
+                          payload: (prev) => ({ ...prev, category: undefined }),
+                        });
+                      }
                     }}
                   />
                   <datalist id={categoryListId}>
@@ -617,7 +728,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       className="input-field"
                       disabled={isSubmitting}
                       value={productType}
-                      onChange={(event) => setProductType(event.target.value as 'stocked' | 'on_demand')}
+                      onChange={(event) =>
+                        dispatch({
+                          type: 'SET_FIELD',
+                          payload: { productType: event.target.value as 'stocked' | 'on_demand' },
+                        })
+                      }
                     >
                       <option value="on_demand">On demand</option>
                       <option value="stocked">Stock</option>
@@ -636,8 +752,16 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       style={errors.stock ? { borderColor: 'var(--danger)' } : undefined}
                       value={stock}
                       onChange={(event) => {
-                        setStock(parseInt(event.target.value, 10) || 0);
-                        if (errors.stock) setErrors((prev) => ({ ...prev, stock: undefined }));
+                        dispatch({
+                          type: 'SET_FIELD',
+                          payload: { stock: parseInt(event.target.value, 10) || 0 },
+                        });
+                        if (errors.stock) {
+                          dispatch({
+                            type: 'SET_ERRORS',
+                            payload: (prev) => ({ ...prev, stock: undefined }),
+                          });
+                        }
                       }}
                     />
                     {errors.stock ? (
@@ -654,7 +778,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       className="input-field"
                       disabled={isSubmitting}
                       value={String(isCustomizable)}
-                      onChange={(event) => setIsCustomizable(event.target.value === 'true')}
+                      onChange={(event) =>
+                        dispatch({
+                          type: 'SET_FIELD',
+                          payload: { isCustomizable: event.target.value === 'true' },
+                        })
+                      }
                     >
                       <option value="true">True</option>
                       <option value="false">False</option>

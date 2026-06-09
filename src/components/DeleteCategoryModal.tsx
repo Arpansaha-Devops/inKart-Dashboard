@@ -13,6 +13,13 @@ type DeleteCategoryModalProps = {
   onDeleteSuccess?: (categoryId: string) => void;
 };
 
+const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+  const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  return Array.from(container.querySelectorAll(selector)).filter(
+    (el: any) => !el.hasAttribute('disabled')
+  ) as HTMLElement[];
+};
+
 const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
   isOpen,
   category,
@@ -25,30 +32,58 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
-
-  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
-    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    return Array.from(container.querySelectorAll(selector)).filter(
-      (el: any) => !el.hasAttribute('disabled')
-    ) as HTMLElement[];
-  };
+  const onCloseRef = useRef(onClose);
+  const onSuccessRef = useRef(onSuccess);
+  const onDeleteSuccessRef = useRef(onDeleteSuccess);
+  const isOpenRef = useRef(isOpen);
 
   useEffect(() => {
-    if (!isOpen) return;
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
+  useEffect(() => {
+    isOpenRef.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
+    onSuccessRef.current = onSuccess;
+  }, [onSuccess]);
+
+  useEffect(() => {
+    onDeleteSuccessRef.current = onDeleteSuccess;
+  }, [onDeleteSuccess]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
+    focusable[0]?.focus();
+
+    return () => {
+      previousFocusRef.current?.focus();
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
+      if (!isOpenRef.current) return;
       if (event.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
       }
     };
 
     const handleOverlayMouseDown = (event: MouseEvent) => {
+      if (!isOpenRef.current) return;
       if (overlayRef.current && event.target === overlayRef.current) {
-        onClose();
+        onCloseRef.current();
       }
     };
 
     const handleTab = (event: KeyboardEvent) => {
+      if (!isOpenRef.current) return;
       if (event.key !== 'Tab' || !contentRef.current) return;
 
       const focusableElements = getFocusableElements(contentRef.current);
@@ -68,22 +103,16 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
       }
     };
 
-    previousFocusRef.current = document.activeElement as HTMLElement;
-    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
-    focusable[0]?.focus();
-
-    const overlay = overlayRef.current;
     document.addEventListener('keydown', handleEscape);
     document.addEventListener('keydown', handleTab);
-    overlay?.addEventListener('mousedown', handleOverlayMouseDown);
+    document.addEventListener('mousedown', handleOverlayMouseDown);
 
     return () => {
       document.removeEventListener('keydown', handleEscape);
       document.removeEventListener('keydown', handleTab);
-      overlay?.removeEventListener('mousedown', handleOverlayMouseDown);
-      previousFocusRef.current?.focus();
+      document.removeEventListener('mousedown', handleOverlayMouseDown);
     };
-  }, [isOpen, onClose]);
+  }, []);
 
   const handleDelete = async () => {
     if (!category?._id) return;
@@ -92,9 +121,9 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
     try {
       await deleteCategory(category._id);
       toast.success('Category deleted');
-      onDeleteSuccess?.(category._id);
-      onClose();
-      onSuccess();
+      onDeleteSuccessRef.current?.(category._id);
+      onCloseRef.current();
+      onSuccessRef.current();
     } catch (error: any) {
       toast.error(error?.response?.data?.message || 'Failed to delete category');
     } finally {
@@ -155,7 +184,7 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
             <div style={{ display: 'flex', gap: '10px' }}>
               <button
                 type="button"
-                onClick={onClose}
+                onClick={() => onCloseRef.current()}
                 className="btn-ghost"
                 style={{ flex: 1 }}
               >

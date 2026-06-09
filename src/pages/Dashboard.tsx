@@ -1,17 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useReducer, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  ArcElement,
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  Legend,
-  LinearScale,
-  PointElement,
-  Title,
-  Tooltip,
-} from 'chart.js';
-import { Bar, Doughnut } from 'react-chartjs-2';
 import {
   Package,
   Tag,
@@ -24,16 +12,7 @@ import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
 import { User } from '../types';
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  PointElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend
-);
+const DashboardCharts = lazy(() => import('../components/DashboardCharts'));
 
 type DashboardStats = {
   totalUsers: number;
@@ -42,10 +21,120 @@ type DashboardStats = {
   activeCategories: number;
 };
 
+type DashboardChartData = {
+  labels: string[];
+  datasets: {
+    data: number[];
+    backgroundColor: string[] | string;
+    borderWidth?: number;
+    borderRadius?: number;
+    borderSkipped?: false;
+  }[];
+};
+
+type DashboardDataState = {
+  stats: DashboardStats;
+  isLoading: boolean;
+  recentUsers: User[];
+  doughnutData: DashboardChartData;
+  barData: DashboardChartData;
+};
+
+type DashboardDataAction =
+  | { type: 'SET_SUMMARY'; payload: { stats: DashboardStats; recentUsers: User[] } }
+  | { type: 'SET_DOUGHNUT_DATA'; payload: DashboardChartData }
+  | { type: 'SET_BAR_DATA'; payload: DashboardChartData }
+  | { type: 'SET_LOADING'; payload: boolean };
+
 const COMMON_ARRAY_KEYS = ['data', 'users', 'products', 'coupons', 'categories', 'results', 'items', 'list', 'docs'];
 const COMMON_COUNT_KEYS = ['totalCount', 'total', 'count', 'totalResults', 'length'];
 const CHART_COLORS = ['#F97316', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
 const DELETED_PRODUCTS_STORAGE_KEY = 'inkart-dashboard-deleted-products';
+
+const quickActions = [
+  {
+    to: '/products',
+    icon: Package,
+    iconColor: 'var(--accent)',
+    title: 'Add Product',
+    description: 'Create a new listing',
+  },
+  {
+    to: '/customers',
+    icon: Users,
+    iconColor: 'var(--info)',
+    title: 'View Users',
+    description: 'Manage customers',
+  },
+  {
+    to: '/categories',
+    icon: Tag,
+    iconColor: 'var(--success)',
+    title: 'Add Category',
+    description: 'Create a new category',
+  },
+  {
+    to: '/coupons',
+    icon: Ticket,
+    iconColor: 'var(--warning)',
+    title: 'Add Coupon',
+    description: 'Create a discount',
+  },
+];
+
+const dashboardDataInitialState: DashboardDataState = {
+  stats: {
+    totalUsers: 0,
+    totalProducts: 0,
+    totalCoupons: 0,
+    activeCategories: 0,
+  },
+  isLoading: true,
+  recentUsers: [],
+  doughnutData: {
+    labels: [],
+    datasets: [
+      {
+        data: [],
+        backgroundColor: [],
+        borderWidth: 0,
+      },
+    ],
+  },
+  barData: {
+    labels: [],
+    datasets: [
+      {
+        data: [],
+        backgroundColor: '#F97316',
+        borderRadius: 8,
+        borderSkipped: false,
+      },
+    ],
+  },
+};
+
+function dashboardDataReducer(
+  state: DashboardDataState,
+  action: DashboardDataAction
+): DashboardDataState {
+  switch (action.type) {
+    case 'SET_SUMMARY':
+      return {
+        ...state,
+        stats: action.payload.stats,
+        recentUsers: action.payload.recentUsers,
+      };
+    case 'SET_DOUGHNUT_DATA':
+      return { ...state, doughnutData: action.payload };
+    case 'SET_BAR_DATA':
+      return { ...state, barData: action.payload };
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+    default:
+      return state;
+  }
+}
 
 type ChartThemeColors = {
   textSecondary: string;
@@ -143,11 +232,15 @@ const pickBestArray = (payload: any, validator: (item: any) => boolean, directCa
   }
 
   const arrays = collectArrays(payload);
-  const best = arrays
-    .map((arr) => arr.filter(validator))
-    .sort((a, b) => b.length - a.length)[0];
+  let best: any[] = [];
+  arrays.forEach((arr) => {
+    const filtered = arr.filter(validator);
+    if (filtered.length > best.length) {
+      best = filtered;
+    }
+  });
 
-  return best || [];
+  return best;
 };
 
 const collectArrays = (node: unknown, arrays: any[][] = []): any[][] => {
@@ -180,54 +273,27 @@ const extractUsers = (payload: any): User[] => {
   }
 
   const deepCandidates = collectArrays(payload);
-  const best = deepCandidates
-    .map((arr) => arr.filter(isUserLike))
-    .sort((a, b) => b.length - a.length)[0];
+  let best: User[] = [];
+  deepCandidates.forEach((arr) => {
+    const filtered = arr.filter(isUserLike);
+    if (filtered.length > best.length) {
+      best = filtered;
+    }
+  });
 
-  return best || [];
+  return best;
 };
 
 const Dashboard: React.FC = () => {
-  const [stats, setStats] = useState<DashboardStats>({
-    totalUsers: 0,
-    totalProducts: 0,
-    totalCoupons: 0,
-    activeCategories: 0,
-  });
-  const [isLoading, setIsLoading] = useState(true);
-  const [recentUsers, setRecentUsers] = useState<User[]>([]);
+  const [state, dispatch] = useReducer(dashboardDataReducer, dashboardDataInitialState);
+  const { stats, isLoading, recentUsers, doughnutData, barData } = state;
   const hasShownDashboardErrorRef = useRef(false);
   const [chartTheme, setChartTheme] = useState<ChartThemeColors>(getChartThemeColors);
-
-  const [doughnutData, setDoughnutData] = useState({
-    labels: [] as string[],
-    datasets: [
-      {
-        data: [] as number[],
-        backgroundColor: [] as string[],
-        borderWidth: 0,
-      },
-    ],
-  });
-
-  const [barData, setBarData] = useState({
-    labels: [] as string[],
-    datasets: [
-      {
-        data: [] as number[],
-        backgroundColor: '#F97316',
-        borderRadius: 8,
-        borderSkipped: false as const,
-      },
-    ],
-  });
 
   useEffect(() => {
     const syncTheme = () => {
       setChartTheme(getChartThemeColors());
     };
-
-    syncTheme();
 
     const observer = new MutationObserver(syncTheme);
     observer.observe(document.body, {
@@ -242,56 +308,6 @@ const Dashboard: React.FC = () => {
       window.removeEventListener('themechange', syncTheme as EventListener);
     };
   }, []);
-
-  useEffect(() => {
-    ChartJS.defaults.color = chartTheme.textSecondary;
-    ChartJS.defaults.borderColor = chartTheme.border;
-    ChartJS.defaults.font.family = "'Inter', system-ui, sans-serif";
-  }, [chartTheme]);
-
-  const doughnutOptions = useMemo(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      cutout: '62%',
-      plugins: {
-        legend: {
-          position: 'bottom' as const,
-          labels: {
-            color: chartTheme.textSecondary,
-            font: { size: 13 },
-            boxWidth: 12,
-            padding: 16,
-          },
-        },
-        title: { display: false },
-      },
-    }),
-    [chartTheme]
-  );
-
-  const barOptions = useMemo(
-    () => ({
-      responsive: true,
-      maintainAspectRatio: false,
-      plugins: {
-        legend: { display: false },
-        title: { display: false },
-      },
-      scales: {
-        x: {
-          grid: { color: chartTheme.border },
-          ticks: { color: chartTheme.textSecondary },
-        },
-        y: {
-          beginAtZero: true,
-          grid: { color: chartTheme.border },
-          ticks: { color: chartTheme.textSecondary },
-        },
-      },
-    }),
-    [chartTheme]
-  );
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -368,13 +384,18 @@ const Dashboard: React.FC = () => {
           (chartCouponsPayload as any)?.data,
         ]);
 
-        setStats({
-          totalUsers,
-          totalProducts,
-          totalCoupons,
-          activeCategories,
+        dispatch({
+          type: 'SET_SUMMARY',
+          payload: {
+            stats: {
+              totalUsers,
+              totalProducts,
+              totalCoupons,
+              activeCategories,
+            },
+            recentUsers: dashboardUsers.slice(0, 5),
+          },
         });
-        setRecentUsers(dashboardUsers.slice(0, 5));
 
         if (categories.length > 0) {
           const labels = categories.map((category: any) => category?.name || 'Unnamed');
@@ -415,7 +436,9 @@ const Dashboard: React.FC = () => {
             }, 0);
           });
 
-          setDoughnutData({
+          dispatch({
+            type: 'SET_DOUGHNUT_DATA',
+            payload: {
             labels,
             datasets: [
               {
@@ -424,6 +447,7 @@ const Dashboard: React.FC = () => {
                 borderWidth: 0,
               },
             ],
+            },
           });
         } else {
           const fallbackMap = new Map<string, number>();
@@ -443,7 +467,9 @@ const Dashboard: React.FC = () => {
           const labels = Array.from(fallbackMap.keys());
           const values = Array.from(fallbackMap.values());
 
-          setDoughnutData({
+          dispatch({
+            type: 'SET_DOUGHNUT_DATA',
+            payload: {
             labels,
             datasets: [
               {
@@ -452,6 +478,7 @@ const Dashboard: React.FC = () => {
                 borderWidth: 0,
               },
             ],
+            },
           });
         }
 
@@ -462,16 +489,19 @@ const Dashboard: React.FC = () => {
             discountValue: Number(coupon?.discountValue) || 0,
           }));
 
-        setBarData({
-          labels: couponRows.map((coupon) => coupon.code),
-          datasets: [
-            {
-              data: couponRows.map((coupon) => coupon.discountValue),
-              backgroundColor: '#F97316',
-              borderRadius: 8,
-              borderSkipped: false,
-            },
-          ],
+        dispatch({
+          type: 'SET_BAR_DATA',
+          payload: {
+            labels: couponRows.map((coupon) => coupon.code),
+            datasets: [
+              {
+                data: couponRows.map((coupon) => coupon.discountValue),
+                backgroundColor: '#F97316',
+                borderRadius: 8,
+                borderSkipped: false,
+              },
+            ],
+          },
         });
 
         if (
@@ -493,7 +523,7 @@ const Dashboard: React.FC = () => {
         console.error('Error fetching dashboard data', error);
         toast.error(error?.response?.data?.message || 'Failed to load dashboard');
       } finally {
-        setIsLoading(false);
+        dispatch({ type: 'SET_LOADING', payload: false });
       }
     };
 
@@ -533,37 +563,6 @@ const Dashboard: React.FC = () => {
       icon: Tag,
       iconColor: 'var(--success)',
       background: 'var(--success-muted)',
-    },
-  ];
-
-  const quickActions = [
-    {
-      to: '/products',
-      icon: Package,
-      iconColor: 'var(--accent)',
-      title: 'Add Product',
-      description: 'Create a new listing',
-    },
-    {
-      to: '/customers',
-      icon: Users,
-      iconColor: 'var(--info)',
-      title: 'View Users',
-      description: 'Manage customers',
-    },
-    {
-      to: '/categories',
-      icon: Tag,
-      iconColor: 'var(--success)',
-      title: 'Add Category',
-      description: 'Create a new category',
-    },
-    {
-      to: '/coupons',
-      icon: Ticket,
-      iconColor: 'var(--warning)',
-      title: 'Add Coupon',
-      description: 'Create a discount',
     },
   ];
 
@@ -630,7 +629,14 @@ const Dashboard: React.FC = () => {
                 No data available
               </p>
             ) : (
-              <Doughnut data={doughnutData} options={doughnutOptions} />
+              <Suspense fallback={<div className="skeleton" style={{ width: '100%', height: '100%' }} />}>
+                <DashboardCharts
+                  chart="products"
+                  chartTheme={chartTheme}
+                  doughnutData={doughnutData}
+                  barData={barData}
+                />
+              </Suspense>
             )}
           </div>
         </div>
@@ -652,7 +658,14 @@ const Dashboard: React.FC = () => {
                 No data available
               </p>
             ) : (
-              <Bar data={barData} options={barOptions} />
+              <Suspense fallback={<div className="skeleton" style={{ width: '100%', height: '100%' }} />}>
+                <DashboardCharts
+                  chart="coupons"
+                  chartTheme={chartTheme}
+                  doughnutData={doughnutData}
+                  barData={barData}
+                />
+              </Suspense>
             )}
           </div>
         </div>
@@ -746,7 +759,7 @@ const Dashboard: React.FC = () => {
                   style={{
                     background: 'var(--info-muted)',
                     color: 'var(--info)',
-                    fontSize: '11px',
+                    fontSize: '12px',
                     padding: '2px 8px',
                     borderRadius: '20px',
                     whiteSpace: 'nowrap',

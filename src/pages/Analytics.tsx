@@ -93,17 +93,24 @@ const getThemeColors = (): ThemeColors => {
   };
 };
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  maximumFractionDigits: 2,
+});
+
+const integerFormatter = new Intl.NumberFormat('en-IN', {
+  maximumFractionDigits: 0,
+});
+
+const decimalFormatter = new Intl.NumberFormat('en-IN', {
+  maximumFractionDigits: 2,
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(value || 0);
 
 const formatNumber = (value: number) =>
-  new Intl.NumberFormat('en-IN', {
-    maximumFractionDigits: Number.isInteger(value) ? 0 : 2,
-  }).format(value || 0);
+  (Number.isInteger(value) ? integerFormatter : decimalFormatter).format(value || 0);
 
 const normalizeMetricKey = (value: string) => value.replace(/[^a-z0-9]/gi, '').toLowerCase();
 

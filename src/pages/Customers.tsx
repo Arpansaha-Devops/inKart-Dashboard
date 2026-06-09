@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef } from 'react';
 import apiClient from '../lib/apiClient';
 import { User } from '../types';
 import {
@@ -55,11 +55,15 @@ const extractUsers = (payload: any): User[] => {
   }
 
   const deepCandidates = collectArrays(payload);
-  const best = deepCandidates
-    .map((arr) => arr.filter(isUserLike))
-    .sort((a, b) => b.length - a.length)[0];
+  let best: User[] = [];
+  deepCandidates.forEach((arr) => {
+    const filtered = arr.filter(isUserLike);
+    if (filtered.length > best.length) {
+      best = filtered;
+    }
+  });
 
-  return best || [];
+  return best;
 };
 
 const extractTotalUsers = (payload: any, fallback = 0): number => {
@@ -92,17 +96,83 @@ const extractTotalUsers = (payload: any, fallback = 0): number => {
   return visit(payload) ?? fallback;
 };
 
+type CustomersState = {
+  users: User[];
+  totalCount: number;
+  page: number;
+  search: string;
+  isLoading: boolean;
+  selectedUser: User | null;
+  deletingUser: User | null;
+  isDeleteModalOpen: boolean;
+  isDeletingUser: boolean;
+};
+
+type CustomersAction =
+  | { type: 'SET_DATA'; payload: { users: User[]; totalCount: number } }
+  | { type: 'SET_PAGE'; payload: number | ((previous: number) => number) }
+  | { type: 'SET_SEARCH'; payload: string }
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_SELECTED_USER'; payload: User | null }
+  | { type: 'OPEN_DELETE_MODAL'; payload: User }
+  | { type: 'CLOSE_DELETE_MODAL' }
+  | { type: 'SET_DELETING_USER'; payload: boolean };
+
+const customersInitialState: CustomersState = {
+  users: [],
+  totalCount: 0,
+  page: 1,
+  search: '',
+  isLoading: true,
+  selectedUser: null,
+  deletingUser: null,
+  isDeleteModalOpen: false,
+  isDeletingUser: false,
+};
+
+function customersReducer(state: CustomersState, action: CustomersAction): CustomersState {
+  switch (action.type) {
+    case 'SET_DATA':
+      return { ...state, users: action.payload.users, totalCount: action.payload.totalCount };
+    case 'SET_PAGE':
+      return {
+        ...state,
+        page:
+          typeof action.payload === 'function'
+            ? action.payload(state.page)
+            : action.payload,
+      };
+    case 'SET_SEARCH':
+      return { ...state, search: action.payload, page: 1 };
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+    case 'SET_SELECTED_USER':
+      return { ...state, selectedUser: action.payload };
+    case 'OPEN_DELETE_MODAL':
+      return { ...state, deletingUser: action.payload, isDeleteModalOpen: true };
+    case 'CLOSE_DELETE_MODAL':
+      return { ...state, deletingUser: null, isDeleteModalOpen: false };
+    case 'SET_DELETING_USER':
+      return { ...state, isDeletingUser: action.payload };
+    default:
+      return state;
+  }
+}
+
 const Customers: React.FC = () => {
   const { user: currentUser } = useAuth();
-  const [users, setUsers] = useState<User[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(1);
-  const [search, setSearch] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [deletingUser, setDeletingUser] = useState<User | null>(null);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isDeletingUser, setIsDeletingUser] = useState(false);
+  const [state, dispatch] = useReducer(customersReducer, customersInitialState);
+  const {
+    users,
+    totalCount,
+    page,
+    search,
+    isLoading,
+    selectedUser,
+    deletingUser,
+    isDeleteModalOpen,
+    isDeletingUser,
+  } = state;
   const limit = 10;
 
   const deleteModalOverlayRef = useRef<HTMLDivElement>(null);
@@ -110,7 +180,7 @@ const Customers: React.FC = () => {
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
   const fetchUsers = useCallback(async () => {
-    setIsLoading(true);
+    dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const params: any = { page, limit };
       if (search.trim()) {
@@ -122,13 +192,12 @@ const Customers: React.FC = () => {
       const usersList = extractUsers(response.data);
       const count = extractTotalUsers(response.data, usersList.length);
 
-      setUsers(usersList);
-      setTotalCount(count);
+      dispatch({ type: 'SET_DATA', payload: { users: usersList, totalCount: count } });
     } catch (error: any) {
       console.error('Error fetching users', error);
       toast.error(error?.response?.data?.message || 'Failed to load customers');
     } finally {
-      setIsLoading(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   }, [page, search]);
 
@@ -151,15 +220,13 @@ const Customers: React.FC = () => {
 
     const handleEscapeKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsDeleteModalOpen(false);
-        setDeletingUser(null);
+        dispatch({ type: 'CLOSE_DELETE_MODAL' });
       }
     };
 
     const handleClickOutside = (event: MouseEvent) => {
       if (deleteModalOverlayRef.current && event.target === deleteModalOverlayRef.current) {
-        setIsDeleteModalOpen(false);
-        setDeletingUser(null);
+        dispatch({ type: 'CLOSE_DELETE_MODAL' });
       }
     };
 
@@ -205,7 +272,7 @@ const Customers: React.FC = () => {
 
     const handleEscapeKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setSelectedUser(null);
+        dispatch({ type: 'SET_SELECTED_USER', payload: null });
       }
     };
 
@@ -214,8 +281,7 @@ const Customers: React.FC = () => {
   }, [selectedUser]);
 
   const handleOpenDeleteModal = (user: User) => {
-    setDeletingUser(user);
-    setIsDeleteModalOpen(true);
+    dispatch({ type: 'OPEN_DELETE_MODAL', payload: user });
   };
 
   const handleDeleteUser = async () => {
@@ -226,15 +292,14 @@ const Customers: React.FC = () => {
       return;
     }
 
-    setIsDeletingUser(true);
+    dispatch({ type: 'SET_DELETING_USER', payload: true });
     try {
       const token = Cookies.get('token') || localStorage.getItem('token');
       await apiClient.delete(`/admin/users/${deletingUser._id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       toast.success('User deleted');
-      setIsDeleteModalOpen(false);
-      setDeletingUser(null);
+      dispatch({ type: 'CLOSE_DELETE_MODAL' });
       await fetchUsers();
     } catch (error: any) {
       const message =
@@ -242,10 +307,9 @@ const Customers: React.FC = () => {
         error?.response?.data?.error ||
         'Failed to delete user';
       toast.error(message);
-      setIsDeleteModalOpen(false);
-      setDeletingUser(null);
+      dispatch({ type: 'CLOSE_DELETE_MODAL' });
     } finally {
-      setIsDeletingUser(false);
+      dispatch({ type: 'SET_DELETING_USER', payload: false });
     }
   };
 
@@ -282,8 +346,7 @@ const Customers: React.FC = () => {
               placeholder="Search by name or email..."
               value={search}
               onChange={(event) => {
-                setSearch(event.target.value);
-                setPage(1);
+                dispatch({ type: 'SET_SEARCH', payload: event.target.value });
               }}
             />
           </div>
@@ -364,7 +427,7 @@ const Customers: React.FC = () => {
                         >
                           <button
                             type="button"
-                            onClick={() => setSelectedUser(user)}
+                            onClick={() => dispatch({ type: 'SET_SELECTED_USER', payload: user })}
                             className="action-icon-button"
                             aria-label="View customer"
                           >
@@ -407,7 +470,7 @@ const Customers: React.FC = () => {
                 <button
                   type="button"
                   className="btn-ghost"
-                  onClick={() => setPage((previous) => previous - 1)}
+                  onClick={() => dispatch({ type: 'SET_PAGE', payload: (previous) => previous - 1 })}
                   disabled={page === 1}
                 >
                   <ChevronLeft size={15} /> Prev
@@ -415,7 +478,7 @@ const Customers: React.FC = () => {
                 <button
                   type="button"
                   className="btn-ghost"
-                  onClick={() => setPage((previous) => previous + 1)}
+                  onClick={() => dispatch({ type: 'SET_PAGE', payload: (previous) => previous + 1 })}
                   disabled={page >= totalPages}
                 >
                   Next <ChevronRight size={15} />
@@ -481,8 +544,7 @@ const Customers: React.FC = () => {
                   className="btn-ghost"
                   style={{ flex: 1 }}
                   onClick={() => {
-                    setIsDeleteModalOpen(false);
-                    setDeletingUser(null);
+                    dispatch({ type: 'CLOSE_DELETE_MODAL' });
                   }}
                 >
                   Cancel
@@ -506,11 +568,11 @@ const Customers: React.FC = () => {
         {selectedUser ? (
           <div
             className="modal-backdrop"
-            onClick={() => setSelectedUser(null)}
+            onClick={() => dispatch({ type: 'SET_SELECTED_USER', payload: null })}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                setSelectedUser(null);
+                dispatch({ type: 'SET_SELECTED_USER', payload: null });
               }
             }}
             role="button"
@@ -549,7 +611,7 @@ const Customers: React.FC = () => {
                 </h2>
                 <button
                   type="button"
-                  onClick={() => setSelectedUser(null)}
+                  onClick={() => dispatch({ type: 'SET_SELECTED_USER', payload: null })}
                   className="action-icon-button"
                   aria-label="Close customer details"
                 >

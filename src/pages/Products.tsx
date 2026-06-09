@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useReducer, useRef } from 'react';
 import apiClient from '../lib/apiClient';
 import { Product } from '../types';
 import {
@@ -58,11 +58,15 @@ const extractProducts = (payload: any): Product[] => {
   }
 
   const deepCandidates = collectArrays(payload);
-  const best = deepCandidates
-    .map((arr) => arr.filter(isProductLike))
-    .sort((a, b) => b.length - a.length)[0];
+  let best: Product[] = [];
+  deepCandidates.forEach((arr) => {
+    const filtered = arr.filter(isProductLike);
+    if (filtered.length > best.length) {
+      best = filtered;
+    }
+  });
 
-  return best || [];
+  return best;
 };
 
 const extractTotalProducts = (payload: any, fallback = 0): number => {
@@ -95,12 +99,13 @@ const extractTotalProducts = (payload: any, fallback = 0): number => {
   return visit(payload) ?? fallback;
 };
 
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    maximumFractionDigits: 2,
-  }).format(value || 0);
+const currencyFormatter = new Intl.NumberFormat('en-IN', {
+  style: 'currency',
+  currency: 'INR',
+  maximumFractionDigits: 2,
+});
+
+const formatCurrency = (value: number) => currencyFormatter.format(value || 0);
 
 const slugifyProductName = (value: string) =>
   value
@@ -170,20 +175,188 @@ const rememberDeletedProductId = (productId: string) => {
   }
 };
 
+type ProductFormData = {
+  name: string;
+  description: string;
+  category: string;
+  productType: string;
+  stock: number;
+  isCustomizable: boolean;
+  basePrice: number;
+  image: File | null;
+};
+
+type StockFormData = {
+  quantity: number;
+  operation: 'add' | 'subtract';
+};
+
+type ProductsState = {
+  products: Product[];
+  totalCount: number;
+  page: number;
+  isLoading: boolean;
+  categoryNameById: Record<string, string>;
+  isModalOpen: boolean;
+  isStockModalOpen: boolean;
+  isCreateModalOpen: boolean;
+  isDeleteModalOpen: boolean;
+  isDeletingProduct: boolean;
+  editingProduct: Product | null;
+  stockProduct: Product | null;
+  deletingProduct: Product | null;
+  formData: ProductFormData;
+  stockData: StockFormData;
+};
+
+type ProductsAction =
+  | { type: 'SET_LIST'; payload: { products: Product[]; totalCount: number } }
+  | { type: 'SET_PRODUCTS'; payload: Product[] | ((previous: Product[]) => Product[]) }
+  | { type: 'SET_TOTAL_COUNT'; payload: number | ((previous: number) => number) }
+  | { type: 'SET_PAGE'; payload: number | ((previous: number) => number) }
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'MERGE_CATEGORY_NAMES'; payload: Record<string, string> }
+  | { type: 'OPEN_PRODUCT_MODAL'; payload: { product: Product | null; formData: ProductFormData } }
+  | { type: 'CLOSE_PRODUCT_MODAL' }
+  | { type: 'OPEN_STOCK_MODAL'; payload: Product }
+  | { type: 'CLOSE_STOCK_MODAL' }
+  | { type: 'OPEN_CREATE_MODAL' }
+  | { type: 'CLOSE_CREATE_MODAL' }
+  | { type: 'OPEN_DELETE_MODAL'; payload: Product }
+  | { type: 'CLOSE_DELETE_MODAL' }
+  | { type: 'SET_DELETING_PRODUCT'; payload: boolean }
+  | { type: 'SET_FORM_DATA'; payload: ProductFormData | ((previous: ProductFormData) => ProductFormData) }
+  | { type: 'SET_STOCK_DATA'; payload: StockFormData | ((previous: StockFormData) => StockFormData) };
+
+const defaultProductFormData = (): ProductFormData => ({
+  name: '',
+  description: '',
+  category: '',
+  productType: 'on_demand',
+  stock: 0,
+  isCustomizable: true,
+  basePrice: 0,
+  image: null,
+});
+
+const productsInitialState: ProductsState = {
+  products: [],
+  totalCount: 0,
+  page: 1,
+  isLoading: true,
+  categoryNameById: {},
+  isModalOpen: false,
+  isStockModalOpen: false,
+  isCreateModalOpen: false,
+  isDeleteModalOpen: false,
+  isDeletingProduct: false,
+  editingProduct: null,
+  stockProduct: null,
+  deletingProduct: null,
+  formData: defaultProductFormData(),
+  stockData: { quantity: 0, operation: 'add' },
+};
+
+function productsReducer(state: ProductsState, action: ProductsAction): ProductsState {
+  switch (action.type) {
+    case 'SET_LIST':
+      return { ...state, products: action.payload.products, totalCount: action.payload.totalCount };
+    case 'SET_PRODUCTS':
+      return {
+        ...state,
+        products:
+          typeof action.payload === 'function'
+            ? action.payload(state.products)
+            : action.payload,
+      };
+    case 'SET_TOTAL_COUNT':
+      return {
+        ...state,
+        totalCount:
+          typeof action.payload === 'function'
+            ? action.payload(state.totalCount)
+            : action.payload,
+      };
+    case 'SET_PAGE':
+      return {
+        ...state,
+        page:
+          typeof action.payload === 'function'
+            ? action.payload(state.page)
+            : action.payload,
+      };
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+    case 'MERGE_CATEGORY_NAMES':
+      return { ...state, categoryNameById: { ...state.categoryNameById, ...action.payload } };
+    case 'OPEN_PRODUCT_MODAL':
+      return {
+        ...state,
+        editingProduct: action.payload.product,
+        formData: action.payload.formData,
+        isModalOpen: true,
+      };
+    case 'CLOSE_PRODUCT_MODAL':
+      return { ...state, isModalOpen: false };
+    case 'OPEN_STOCK_MODAL':
+      return {
+        ...state,
+        stockProduct: action.payload,
+        stockData: { quantity: 0, operation: 'add' },
+        isStockModalOpen: true,
+      };
+    case 'CLOSE_STOCK_MODAL':
+      return { ...state, isStockModalOpen: false };
+    case 'OPEN_CREATE_MODAL':
+      return { ...state, isCreateModalOpen: true };
+    case 'CLOSE_CREATE_MODAL':
+      return { ...state, isCreateModalOpen: false };
+    case 'OPEN_DELETE_MODAL':
+      return { ...state, deletingProduct: action.payload, isDeleteModalOpen: true };
+    case 'CLOSE_DELETE_MODAL':
+      return { ...state, deletingProduct: null, isDeleteModalOpen: false };
+    case 'SET_DELETING_PRODUCT':
+      return { ...state, isDeletingProduct: action.payload };
+    case 'SET_FORM_DATA':
+      return {
+        ...state,
+        formData:
+          typeof action.payload === 'function'
+            ? action.payload(state.formData)
+            : action.payload,
+      };
+    case 'SET_STOCK_DATA':
+      return {
+        ...state,
+        stockData:
+          typeof action.payload === 'function'
+            ? action.payload(state.stockData)
+            : action.payload,
+      };
+    default:
+      return state;
+  }
+}
+
 const Products: React.FC = () => {
-  const [products, setProducts] = useState<Product[]>([]);
-  const [totalCount, setTotalCount] = useState(0);
-  const [page, setPage] = useState(1);
-  const [isLoading, setIsLoading] = useState(true);
-  const [categoryNameById, setCategoryNameById] = useState<Record<string, string>>({});
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isStockModalOpen, setIsStockModalOpen] = useState(false);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [isDeletingProduct, setIsDeletingProduct] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [stockProduct, setStockProduct] = useState<Product | null>(null);
-  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
+  const [state, dispatch] = useReducer(productsReducer, productsInitialState);
+  const {
+    products,
+    totalCount,
+    page,
+    isLoading,
+    categoryNameById,
+    isModalOpen,
+    isStockModalOpen,
+    isCreateModalOpen,
+    isDeleteModalOpen,
+    isDeletingProduct,
+    editingProduct,
+    stockProduct,
+    deletingProduct,
+    formData,
+    stockData,
+  } = state;
   const limit = 10;
 
   const deleteModalOverlayRef = useRef<HTMLDivElement>(null);
@@ -265,31 +438,15 @@ const Products: React.FC = () => {
       const response = await apiClient.get('/admin/categories');
       const categories = extractCategoriesFromPayload(response.data);
       if (Object.keys(categories).length > 0) {
-        setCategoryNameById((prev) => ({ ...prev, ...categories }));
+        dispatch({ type: 'MERGE_CATEGORY_NAMES', payload: categories });
       }
     } catch (error) {
       // Silently fail - categories will be extracted from product data
     }
   }, []);
 
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    category: '',
-    productType: 'on_demand',
-    stock: 0,
-    isCustomizable: true,
-    basePrice: 0,
-    image: null as File | null,
-  });
-
-  const [stockData, setStockData] = useState({
-    quantity: 0,
-    operation: 'add' as 'add' | 'subtract',
-  });
-
   const fetchProducts = useCallback(async () => {
-    setIsLoading(true);
+    dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const response = await apiClient.get<any>('/admin/products', {
         params: { page, limit }
@@ -312,16 +469,18 @@ const Products: React.FC = () => {
         }
       });
 
-      setProducts(visibleProductsList);
-      setTotalCount(Math.max(0, count - hiddenProductsCount));
+      dispatch({
+        type: 'SET_LIST',
+        payload: { products: visibleProductsList, totalCount: Math.max(0, count - hiddenProductsCount) },
+      });
       if (Object.keys(mappedCategories).length > 0) {
-        setCategoryNameById((prev) => ({ ...prev, ...mappedCategories }));
+        dispatch({ type: 'MERGE_CATEGORY_NAMES', payload: mappedCategories });
       }
     } catch (error) {
       console.error('Error fetching products', error);
       toast.error('Failed to load products');
     } finally {
-      setIsLoading(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   }, [page]);
 
@@ -338,8 +497,7 @@ const Products: React.FC = () => {
 
     const handleEscapeKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsDeleteModalOpen(false);
-        setDeletingProduct(null);
+        dispatch({ type: 'CLOSE_DELETE_MODAL' });
       }
     };
 
@@ -348,8 +506,7 @@ const Products: React.FC = () => {
         deleteModalOverlayRef.current &&
         event.target === deleteModalOverlayRef.current
       ) {
-        setIsDeleteModalOpen(false);
-        setDeletingProduct(null);
+        dispatch({ type: 'CLOSE_DELETE_MODAL' });
       }
     };
 
@@ -409,7 +566,7 @@ const Products: React.FC = () => {
 
     const handleEscapeKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsModalOpen(false);
+        dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
       }
     };
 
@@ -422,7 +579,7 @@ const Products: React.FC = () => {
 
     const handleEscapeKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        setIsStockModalOpen(false);
+        dispatch({ type: 'CLOSE_STOCK_MODAL' });
       }
     };
 
@@ -432,8 +589,11 @@ const Products: React.FC = () => {
 
   const handleOpenModal = (product?: Product) => {
     if (product) {
-      setEditingProduct(product);
-      setFormData({
+      dispatch({
+        type: 'OPEN_PRODUCT_MODAL',
+        payload: {
+          product,
+          formData: {
         name: getVisibleProductName(product.name),
         description: product.description || '',
         category: typeof product.category === 'object' && product.category !== null ? ((product.category as any)?._id || '') : (product.category || ''),
@@ -442,21 +602,15 @@ const Products: React.FC = () => {
         isCustomizable: product.isCustomizable ?? true,
         basePrice: product.basePrice || 0,
         image: null,
+          },
+        },
       });
     } else {
-      setEditingProduct(null);
-      setFormData({
-        name: '',
-        description: '',
-        category: '',
-        productType: 'on_demand',
-        stock: 0,
-        isCustomizable: true,
-        basePrice: 0,
-        image: null,
+      dispatch({
+        type: 'OPEN_PRODUCT_MODAL',
+        payload: { product: null, formData: defaultProductFormData() },
       });
     }
-    setIsModalOpen(true);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -482,7 +636,7 @@ const Products: React.FC = () => {
         await apiClient.post('/admin/products', data);
         toast.success('Product created successfully');
       }
-      setIsModalOpen(false);
+      dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
       fetchProducts();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Action failed');
@@ -496,7 +650,7 @@ const Products: React.FC = () => {
     try {
       await apiClient.patch(`/admin/products/${stockProduct._id}/stock`, stockData);
       toast.success('Stock updated successfully');
-      setIsStockModalOpen(false);
+      dispatch({ type: 'CLOSE_STOCK_MODAL' });
       fetchProducts();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Stock update failed');
@@ -504,32 +658,35 @@ const Products: React.FC = () => {
   };
 
   const handleOpenDeleteModal = (product: Product) => {
-    setDeletingProduct(product);
-    setIsDeleteModalOpen(true);
+    dispatch({ type: 'OPEN_DELETE_MODAL', payload: product });
   };
 
   const handleDeleteProduct = async () => {
     if (!deletingProduct?._id) return;
 
     const productId = deletingProduct._id;
-    setIsDeletingProduct(true);
+    dispatch({ type: 'SET_DELETING_PRODUCT', payload: true });
     try {
       await deleteProduct(productId);
       rememberDeletedProductId(productId);
-      setProducts((currentProducts) =>
-        currentProducts.filter((product) => product._id !== productId)
-      );
-      setTotalCount((currentTotal) => Math.max(0, currentTotal - 1));
+      dispatch({
+        type: 'SET_PRODUCTS',
+        payload: (currentProducts) =>
+          currentProducts.filter((product) => product._id !== productId),
+      });
+      dispatch({
+        type: 'SET_TOTAL_COUNT',
+        payload: (currentTotal) => Math.max(0, currentTotal - 1),
+      });
       toast.success('Product deleted');
-      setIsDeleteModalOpen(false);
-      setDeletingProduct(null);
+      dispatch({ type: 'CLOSE_DELETE_MODAL' });
       if (products.length === 1 && page > 1) {
-        setPage((currentPage) => Math.max(1, currentPage - 1));
+        dispatch({ type: 'SET_PAGE', payload: (currentPage) => Math.max(1, currentPage - 1) });
       }
     } catch {
       toast.error('Failed to delete product');
     } finally {
-      setIsDeletingProduct(false);
+      dispatch({ type: 'SET_DELETING_PRODUCT', payload: false });
     }
   };
 
@@ -552,7 +709,7 @@ const Products: React.FC = () => {
             </h2>
           </div>
 
-          <button type="button" onClick={() => setIsCreateModalOpen(true)} className="btn-primary">
+          <button type="button" onClick={() => dispatch({ type: 'OPEN_CREATE_MODAL' })} className="btn-primary">
             <Plus size={18} />
             <span>Create Product</span>
           </button>
@@ -647,9 +804,7 @@ const Products: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => {
-                            setStockProduct(product);
-                            setStockData({ quantity: 0, operation: 'add' });
-                            setIsStockModalOpen(true);
+                            dispatch({ type: 'OPEN_STOCK_MODAL', payload: product });
                           }}
                           style={{
                             color: (product.stock ?? 0) === 0 ? 'var(--danger)' : 'var(--text-primary)',
@@ -719,7 +874,7 @@ const Products: React.FC = () => {
                   type="button"
                   className="btn-ghost"
                   disabled={page === 1}
-                  onClick={() => setPage((previous) => previous - 1)}
+                  onClick={() => dispatch({ type: 'SET_PAGE', payload: (previous) => previous - 1 })}
                 >
                   <ChevronLeft size={15} /> Prev
                 </button>
@@ -727,7 +882,7 @@ const Products: React.FC = () => {
                   type="button"
                   className="btn-ghost"
                   disabled={page === totalPages}
-                  onClick={() => setPage((previous) => previous + 1)}
+                  onClick={() => dispatch({ type: 'SET_PAGE', payload: (previous) => previous + 1 })}
                 >
                   Next <ChevronRight size={15} />
                 </button>
@@ -741,11 +896,11 @@ const Products: React.FC = () => {
         {isModalOpen ? (
           <div
             className="modal-backdrop"
-            onClick={() => setIsModalOpen(false)}
+            onClick={() => dispatch({ type: 'CLOSE_PRODUCT_MODAL' })}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                setIsModalOpen(false);
+                dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
               }
             }}
             role="button"
@@ -785,7 +940,7 @@ const Products: React.FC = () => {
                   </h2>
                   <button
                     type="button"
-                    onClick={() => setIsModalOpen(false)}
+                    onClick={() => dispatch({ type: 'CLOSE_PRODUCT_MODAL' })}
                     className="action-icon-button"
                     aria-label="Close product modal"
                   >
@@ -808,7 +963,12 @@ const Products: React.FC = () => {
                       required
                       className="input-field"
                       value={formData.name}
-                      onChange={(event) => setFormData({ ...formData, name: event.target.value })}
+                      onChange={(event) =>
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: { ...formData, name: event.target.value },
+                        })
+                      }
                     />
                   </div>
 
@@ -820,7 +980,12 @@ const Products: React.FC = () => {
                       rows={3}
                       className="input-field"
                       value={formData.description}
-                      onChange={(event) => setFormData({ ...formData, description: event.target.value })}
+                      onChange={(event) =>
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: { ...formData, description: event.target.value },
+                        })
+                      }
                     />
                   </div>
 
@@ -832,7 +997,12 @@ const Products: React.FC = () => {
                       required
                       className="input-field"
                       value={formData.category}
-                      onChange={(event) => setFormData({ ...formData, category: event.target.value })}
+                      onChange={(event) =>
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: { ...formData, category: event.target.value },
+                        })
+                      }
                     />
                   </div>
 
@@ -843,9 +1013,12 @@ const Products: React.FC = () => {
                       className="input-field"
                       value={formData.productType}
                       onChange={(event) =>
-                        setFormData({
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: {
                           ...formData,
                           productType: event.target.value as 'stocked' | 'on_demand',
+                          },
                         })
                       }
                     >
@@ -865,7 +1038,10 @@ const Products: React.FC = () => {
                       className="input-field"
                       value={formData.stock}
                       onChange={(event) =>
-                        setFormData({ ...formData, stock: parseInt(event.target.value, 10) || 0 })
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: { ...formData, stock: parseInt(event.target.value, 10) || 0 },
+                        })
                       }
                     />
                   </div>
@@ -877,7 +1053,10 @@ const Products: React.FC = () => {
                       className="input-field"
                       value={String(formData.isCustomizable)}
                       onChange={(event) =>
-                        setFormData({ ...formData, isCustomizable: event.target.value === 'true' })
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: { ...formData, isCustomizable: event.target.value === 'true' },
+                        })
                       }
                     >
                       <option value="true">True</option>
@@ -895,7 +1074,10 @@ const Products: React.FC = () => {
                       className="input-field"
                       value={formData.basePrice}
                       onChange={(event) =>
-                        setFormData({ ...formData, basePrice: parseFloat(event.target.value) || 0 })
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: { ...formData, basePrice: parseFloat(event.target.value) || 0 },
+                        })
                       }
                     />
                   </div>
@@ -923,7 +1105,10 @@ const Products: React.FC = () => {
                           cursor: 'pointer',
                         }}
                         onChange={(event) =>
-                          setFormData({ ...formData, image: event.target.files?.[0] || null })
+                          dispatch({
+                            type: 'SET_FORM_DATA',
+                            payload: { ...formData, image: event.target.files?.[0] || null },
+                          })
                         }
                       />
                       <Upload size={24} color="var(--text-muted)" style={{ marginBottom: 8 }} />
@@ -944,7 +1129,7 @@ const Products: React.FC = () => {
                     borderTop: '1px solid var(--border)',
                   }}
                 >
-                  <button type="button" className="btn-ghost" onClick={() => setIsModalOpen(false)}>
+                  <button type="button" className="btn-ghost" onClick={() => dispatch({ type: 'CLOSE_PRODUCT_MODAL' })}>
                     Cancel
                   </button>
                   <button type="submit" className="btn-primary">
@@ -961,11 +1146,11 @@ const Products: React.FC = () => {
         {isStockModalOpen ? (
           <div
             className="modal-backdrop"
-            onClick={() => setIsStockModalOpen(false)}
+            onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
-                setIsStockModalOpen(false);
+                dispatch({ type: 'CLOSE_STOCK_MODAL' });
               }
             }}
             role="button"
@@ -1005,7 +1190,7 @@ const Products: React.FC = () => {
                   </h2>
                   <button
                     type="button"
-                    onClick={() => setIsStockModalOpen(false)}
+                    onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}
                     className="action-icon-button"
                     aria-label="Close stock modal"
                   >
@@ -1043,14 +1228,24 @@ const Products: React.FC = () => {
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     <button
                       type="button"
-                      onClick={() => setStockData({ ...stockData, operation: 'add' })}
+                      onClick={() =>
+                        dispatch({
+                          type: 'SET_STOCK_DATA',
+                          payload: { ...stockData, operation: 'add' },
+                        })
+                      }
                       className={stockData.operation === 'add' ? 'btn-primary' : 'btn-ghost'}
                     >
                       Add
                     </button>
                     <button
                       type="button"
-                      onClick={() => setStockData({ ...stockData, operation: 'subtract' })}
+                      onClick={() =>
+                        dispatch({
+                          type: 'SET_STOCK_DATA',
+                          payload: { ...stockData, operation: 'subtract' },
+                        })
+                      }
                       className={stockData.operation === 'subtract' ? 'btn-danger' : 'btn-ghost'}
                     >
                       Subtract
@@ -1068,7 +1263,10 @@ const Products: React.FC = () => {
                     className="input-field"
                     value={stockData.quantity}
                     onChange={(event) =>
-                      setStockData({ ...stockData, quantity: parseInt(event.target.value, 10) || 0 })
+                      dispatch({
+                        type: 'SET_STOCK_DATA',
+                        payload: { ...stockData, quantity: parseInt(event.target.value, 10) || 0 },
+                      })
                     }
                   />
                 </div>
@@ -1083,7 +1281,7 @@ const Products: React.FC = () => {
                     borderTop: '1px solid var(--border)',
                   }}
                 >
-                  <button type="button" className="btn-ghost" onClick={() => setIsStockModalOpen(false)}>
+                  <button type="button" className="btn-ghost" onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}>
                     Cancel
                   </button>
                   <button type="submit" className="btn-primary">
@@ -1151,8 +1349,7 @@ const Products: React.FC = () => {
                   className="btn-ghost"
                   style={{ flex: 1 }}
                   onClick={() => {
-                    setIsDeleteModalOpen(false);
-                    setDeletingProduct(null);
+                    dispatch({ type: 'CLOSE_DELETE_MODAL' });
                   }}
                 >
                   Cancel
@@ -1174,7 +1371,7 @@ const Products: React.FC = () => {
 
       <CreateProductModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={() => dispatch({ type: 'CLOSE_CREATE_MODAL' })}
         onSuccess={() => fetchProducts()}
       />
     </div>

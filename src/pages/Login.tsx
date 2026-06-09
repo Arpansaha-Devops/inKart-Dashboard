@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useReducer } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
@@ -25,18 +25,58 @@ const iconSlotClassName =
 
 const fieldIconClassName = 'h-5 w-5 flex-shrink-0';
 
+type LoginFormState = {
+  email: string;
+  password: string;
+  otp: string;
+  isOtpStep: boolean;
+  isLoading: boolean;
+};
+
+type LoginFormAction =
+  | { type: 'SET_EMAIL'; payload: string }
+  | { type: 'SET_PASSWORD'; payload: string }
+  | { type: 'SET_OTP'; payload: string }
+  | { type: 'SET_OTP_STEP'; payload: boolean }
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'RESET_OTP_STEP' };
+
+const loginFormInitialState: LoginFormState = {
+  email: '',
+  password: '',
+  otp: '',
+  isOtpStep: false,
+  isLoading: false,
+};
+
+function loginFormReducer(state: LoginFormState, action: LoginFormAction): LoginFormState {
+  switch (action.type) {
+    case 'SET_EMAIL':
+      return { ...state, email: action.payload };
+    case 'SET_PASSWORD':
+      return { ...state, password: action.payload };
+    case 'SET_OTP':
+      return { ...state, otp: action.payload };
+    case 'SET_OTP_STEP':
+      return { ...state, isOtpStep: action.payload };
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.payload };
+    case 'RESET_OTP_STEP':
+      return { ...state, otp: '', isOtpStep: false };
+    default:
+      return state;
+  }
+}
+
 const Login: React.FC = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [otp, setOtp] = useState('');
-  const [isOtpStep, setIsOtpStep] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [state, dispatch] = useReducer(loginFormReducer, loginFormInitialState);
+  const { email, password, otp, isOtpStep, isLoading } = state;
   const { login } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    dispatch({ type: 'SET_LOADING', payload: true });
 
     try {
       const response = await apiClient.post<AuthResponse>(
@@ -47,7 +87,7 @@ const Login: React.FC = () => {
       const { user: finalUser, token, refreshToken } = getAuthPayload(response.data);
 
       if (!isOtpStep && response.data.success && !finalUser && !token) {
-        setIsOtpStep(true);
+        dispatch({ type: 'SET_OTP_STEP', payload: true });
         toast.success(response.data.message || 'OTP sent to email');
         return;
       }
@@ -75,7 +115,7 @@ const Login: React.FC = () => {
         'Login failed. Please check your credentials.';
       toast.error(message);
     } finally {
-      setIsLoading(false);
+      dispatch({ type: 'SET_LOADING', payload: false });
     }
   };
 
@@ -132,7 +172,7 @@ const Login: React.FC = () => {
                     style={loginInputStyle}
                     placeholder="admin@inkart.com"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={(e) => dispatch({ type: 'SET_EMAIL', payload: e.target.value })}
                   />
                 </div>
               </div>
@@ -160,7 +200,7 @@ const Login: React.FC = () => {
                     style={loginInputStyle}
                     placeholder="********"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => dispatch({ type: 'SET_PASSWORD', payload: e.target.value })}
                   />
                 </div>
               </div>
@@ -191,17 +231,14 @@ const Login: React.FC = () => {
                   style={loginInputStyle}
                   placeholder="Enter OTP"
                   value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
+                  onChange={(e) => dispatch({ type: 'SET_OTP', payload: e.target.value })}
                 />
               </div>
               <button
                 type="button"
                 className="mt-3 text-xs sm:text-sm"
                 style={{ color: 'var(--accent)' }}
-                onClick={() => {
-                  setIsOtpStep(false);
-                  setOtp('');
-                }}
+                onClick={() => dispatch({ type: 'RESET_OTP_STEP' })}
               >
                 Change email or password
               </button>
