@@ -196,16 +196,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
         {renderNavigation()}
       </aside>
 
-      <div
+      <button
+        type="button"
         className="lg:hidden"
         onClick={onClose}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            onClose();
-          }
-        }}
-        role="button"
         tabIndex={isOpen ? 0 : -1}
         aria-label="Close sidebar"
         style={{
@@ -216,6 +210,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
           pointerEvents: isOpen ? 'auto' : 'none',
           transition: 'opacity 0.3s ease',
           zIndex: 39,
+          padding: 0,
         }}
       />
 
@@ -242,7 +237,19 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
       </aside>
 
       {isLogoutModalOpen ? (
-        <div className="modal-backdrop" onClick={() => setIsLogoutModalOpen(false)}>
+        <div
+          className="modal-backdrop"
+          onClick={() => setIsLogoutModalOpen(false)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              setIsLogoutModalOpen(false);
+            }
+          }}
+          role="button"
+          tabIndex={0}
+          aria-label="Close logout confirmation"
+        >
           <div
             className="modal-box"
             onClick={(event) => event.stopPropagation()}

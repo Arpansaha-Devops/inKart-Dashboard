@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -33,6 +33,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSlugEdited, setIsSlugEdited] = useState(false);
+  const [syncedCategoryId, setSyncedCategoryId] = useState('');
 
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -45,9 +46,13 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
     ) as HTMLElement[];
   };
 
-  useEffect(() => {
-    if (!isOpen || !category) return;
+  const handleClose = useCallback(() => {
+    onClose();
+  }, [onClose]);
 
+  const selectedCategoryId = isOpen && category?._id ? category._id : '';
+  if (selectedCategoryId && selectedCategoryId !== syncedCategoryId && category) {
+    setSyncedCategoryId(selectedCategoryId);
     setFormData({
       name: category.name || '',
       description: category.description || '',
@@ -55,20 +60,22 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
       isActive: category.isActive ?? true,
     });
     setIsSlugEdited(false);
-  }, [isOpen, category]);
+  } else if (!selectedCategoryId && syncedCategoryId) {
+    setSyncedCategoryId('');
+  }
 
   useEffect(() => {
     if (!isOpen) return;
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     };
 
     const handleOverlayMouseDown = (event: MouseEvent) => {
       if (overlayRef.current && event.target === overlayRef.current) {
-        onClose();
+        handleClose();
       }
     };
 
@@ -107,7 +114,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
       overlay?.removeEventListener('mousedown', handleOverlayMouseDown);
       previousFocusRef.current?.focus();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, handleClose]);
 
   const handleNameChange = (value: string) => {
     setFormData((prev) => ({
@@ -135,7 +142,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
     try {
       await updateCategory(category._id, payload);
       toast.success('Category updated');
-      onClose();
+      handleClose();
       onSuccess();
     } catch (error: any) {
       toast.error(error?.response?.data?.message || 'Failed to update category');
@@ -181,7 +188,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
                 </h2>
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="action-icon-button"
                   aria-label="Close"
                 >
@@ -191,8 +198,9 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
 
               <div style={{ display: 'grid', gap: '16px' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Name</label>
+                  <label className="form-label" htmlFor="edit-category-name">Name</label>
                   <input
+                    id="edit-category-name"
                     type="text"
                     value={formData.name}
                     onChange={(e) => handleNameChange(e.target.value)}
@@ -202,8 +210,9 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Description</label>
+                  <label className="form-label" htmlFor="edit-category-description">Description</label>
                   <textarea
+                    id="edit-category-description"
                     value={formData.description || ''}
                     onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                     className="input-field"
@@ -212,8 +221,9 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Slug</label>
+                  <label className="form-label" htmlFor="edit-category-slug">Slug</label>
                   <input
+                    id="edit-category-slug"
                     type="text"
                     value={formData.slug || ''}
                     onChange={(e) => {
@@ -251,7 +261,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
                   borderTop: '1px solid var(--border)',
                 }}
               >
-                <button type="button" onClick={onClose} className="btn-ghost">
+                <button type="button" onClick={handleClose} className="btn-ghost">
                   Cancel
                 </button>
                 <button type="submit" disabled={isSubmitting} className="btn-primary">

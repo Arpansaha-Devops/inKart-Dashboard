@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -41,25 +41,28 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
     ) as HTMLElement[];
   };
 
-  useEffect(() => {
-    if (!isOpen) return;
-
+  const resetForm = useCallback(() => {
     setFormData(defaultForm);
     setIsSlugEdited(false);
-  }, [isOpen]);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    resetForm();
+    onClose();
+  }, [onClose, resetForm]);
 
   useEffect(() => {
     if (!isOpen) return;
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        handleClose();
       }
     };
 
     const handleOverlayMouseDown = (event: MouseEvent) => {
       if (overlayRef.current && event.target === overlayRef.current) {
-        onClose();
+        handleClose();
       }
     };
 
@@ -98,7 +101,7 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
       overlay?.removeEventListener('mousedown', handleOverlayMouseDown);
       previousFocusRef.current?.focus();
     };
-  }, [isOpen, onClose]);
+  }, [isOpen, handleClose]);
 
   const handleNameChange = (value: string) => {
     setFormData((prev) => ({
@@ -125,6 +128,7 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
     try {
       await createCategory(payload);
       toast.success('Category created');
+      resetForm();
       onClose();
       onSuccess();
     } catch (error: any) {
@@ -171,7 +175,7 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
                 </h2>
                 <button
                   type="button"
-                  onClick={onClose}
+                  onClick={handleClose}
                   className="action-icon-button"
                   aria-label="Close"
                 >
@@ -181,8 +185,9 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
 
               <div style={{ display: 'grid', gap: '16px' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Name</label>
+                  <label className="form-label" htmlFor="create-category-name">Name</label>
                   <input
+                    id="create-category-name"
                     type="text"
                     value={formData.name}
                     onChange={(e) => handleNameChange(e.target.value)}
@@ -193,8 +198,9 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Description</label>
+                  <label className="form-label" htmlFor="create-category-description">Description</label>
                   <textarea
+                    id="create-category-description"
                     value={formData.description || ''}
                     onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
                     className="input-field"
@@ -204,8 +210,9 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Slug</label>
+                  <label className="form-label" htmlFor="create-category-slug">Slug</label>
                   <input
+                    id="create-category-slug"
                     type="text"
                     value={formData.slug || ''}
                     onChange={(e) => {
@@ -242,7 +249,7 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
                   borderTop: '1px solid var(--border)',
                 }}
               >
-                <button type="button" onClick={onClose} className="btn-ghost">
+                <button type="button" onClick={handleClose} className="btn-ghost">
                   Cancel
                 </button>
                 <button type="submit" disabled={isSubmitting} className="btn-primary">

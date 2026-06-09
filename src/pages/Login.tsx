@@ -111,6 +111,7 @@ const Login: React.FC = () => {
             <>
               <div>
                 <label
+                  htmlFor="login-email"
                   className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
                   style={{ color: 'var(--text-secondary)' }}
                 >
@@ -124,6 +125,7 @@ const Login: React.FC = () => {
                     />
                   </span>
                   <input
+                    id="login-email"
                     type="email"
                     required
                     className="input-field text-base sm:text-sm"
@@ -137,6 +139,7 @@ const Login: React.FC = () => {
 
               <div>
                 <label
+                  htmlFor="login-password"
                   className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
                   style={{ color: 'var(--text-secondary)' }}
                 >
@@ -150,6 +153,7 @@ const Login: React.FC = () => {
                     />
                   </span>
                   <input
+                    id="login-password"
                     type="password"
                     required
                     className="input-field text-base sm:text-sm"
@@ -164,6 +168,7 @@ const Login: React.FC = () => {
           ) : (
             <div>
               <label
+                htmlFor="login-otp"
                 className="block text-xs sm:text-sm font-medium mb-1.5 sm:mb-2"
                 style={{ color: 'var(--text-secondary)' }}
               >
@@ -177,6 +182,7 @@ const Login: React.FC = () => {
                   />
                 </span>
                 <input
+                  id="login-otp"
                   type="text"
                   required
                   inputMode="numeric"

@@ -795,8 +795,9 @@ const Coupons: React.FC = () => {
                 style={{ display: 'grid', gap: '16px' }}
               >
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Coupon code</label>
+                  <label className="form-label" htmlFor="coupon-code">Coupon code</label>
                   <input
+                    id="coupon-code"
                     type="text"
                     name="code"
                     value={formData.code}
@@ -813,8 +814,9 @@ const Coupons: React.FC = () => {
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Description</label>
+                  <label className="form-label" htmlFor="coupon-description">Description</label>
                   <textarea
+                    id="coupon-description"
                     name="description"
                     value={formData.description}
                     onChange={handleInputChange}
@@ -837,8 +839,9 @@ const Coupons: React.FC = () => {
                   }}
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Discount type</label>
+                    <label className="form-label" htmlFor="coupon-discount-type">Discount type</label>
                     <select
+                      id="coupon-discount-type"
                       name="discountType"
                       value={formData.discountType}
                       onChange={handleInputChange}
@@ -850,8 +853,9 @@ const Coupons: React.FC = () => {
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Discount value</label>
+                    <label className="form-label" htmlFor="coupon-discount-value">Discount value</label>
                     <input
+                      id="coupon-discount-value"
                       type="number"
                       name="discountValue"
                       value={formData.discountValue}
@@ -871,8 +875,9 @@ const Coupons: React.FC = () => {
 
                 {formData.discountType === 'percentage' ? (
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Max discount amount</label>
+                    <label className="form-label" htmlFor="coupon-max-discount">Max discount amount</label>
                     <input
+                      id="coupon-max-discount"
                       type="number"
                       name="maxDiscountAmount"
                       value={formData.maxDiscountAmount || ''}
@@ -893,8 +898,9 @@ const Coupons: React.FC = () => {
                   }}
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Minimum order amount</label>
+                    <label className="form-label" htmlFor="coupon-min-order">Minimum order amount</label>
                     <input
+                      id="coupon-min-order"
                       type="number"
                       name="minOrderAmount"
                       value={formData.minOrderAmount || ''}
@@ -907,8 +913,9 @@ const Coupons: React.FC = () => {
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Usage limit</label>
+                    <label className="form-label" htmlFor="coupon-usage-limit">Usage limit</label>
                     <input
+                      id="coupon-usage-limit"
                       type="number"
                       name="usageLimit"
                       value={formData.usageLimit || ''}
@@ -928,8 +935,9 @@ const Coupons: React.FC = () => {
                   }}
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Per user limit</label>
+                    <label className="form-label" htmlFor="coupon-per-user-limit">Per user limit</label>
                     <input
+                      id="coupon-per-user-limit"
                       type="number"
                       name="perUserLimit"
                       value={formData.perUserLimit || ''}
@@ -941,8 +949,10 @@ const Coupons: React.FC = () => {
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Applicable categories</label>
+                    <span className="form-label" id="coupon-applicable-categories-label">Applicable categories</span>
                     <div
+                      role="group"
+                      aria-labelledby="coupon-applicable-categories-label"
                       style={{
                         display: 'flex',
                         flexWrap: 'wrap',
@@ -1002,8 +1012,9 @@ const Coupons: React.FC = () => {
                   }}
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Valid from</label>
+                    <label className="form-label" htmlFor="coupon-valid-from">Valid from</label>
                     <input
+                      id="coupon-valid-from"
                       type="datetime-local"
                       name="validFrom"
                       value={formData.validFrom}
@@ -1013,8 +1024,9 @@ const Coupons: React.FC = () => {
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Valid until</label>
+                    <label className="form-label" htmlFor="coupon-valid-until">Valid until</label>
                     <input
+                      id="coupon-valid-until"
                       type="datetime-local"
                       name="validUntil"
                       value={formData.validUntil}

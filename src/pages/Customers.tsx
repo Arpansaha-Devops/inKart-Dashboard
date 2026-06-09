@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import apiClient from '../lib/apiClient';
 import { User } from '../types';
 import {
@@ -109,7 +109,7 @@ const Customers: React.FC = () => {
   const deleteModalContentRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
-  const fetchUsers = async () => {
+  const fetchUsers = useCallback(async () => {
     setIsLoading(true);
     try {
       const params: any = { page, limit };
@@ -130,14 +130,14 @@ const Customers: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [page, search]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchUsers();
     }, 300);
     return () => clearTimeout(timer);
-  }, [page, search]);
+  }, [fetchUsers]);
 
   const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
     const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -274,8 +274,10 @@ const Customers: React.FC = () => {
               }}
             />
             <input
+              id="customer-search"
               type="text"
               className="input-field"
+              aria-label="Search customers by name or email"
               style={{ paddingLeft: '40px' }}
               placeholder="Search by name or email..."
               value={search}
@@ -502,7 +504,19 @@ const Customers: React.FC = () => {
 
       <AnimatePresence>
         {selectedUser ? (
-          <div className="modal-backdrop" onClick={() => setSelectedUser(null)}>
+          <div
+            className="modal-backdrop"
+            onClick={() => setSelectedUser(null)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setSelectedUser(null);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Close customer details"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

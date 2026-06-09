@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { X, Upload, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
@@ -92,7 +92,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     ) as HTMLElement[];
   };
 
-  const extractCategoriesFromPayload = (payload: any): CategoryLookupItem[] => {
+  const extractCategoriesFromPayload = useCallback((payload: any): CategoryLookupItem[] => {
     const items: CategoryLookupItem[] = [];
     const visit = (node: any) => {
       if (!node) return;
@@ -132,9 +132,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       }
     });
     return Array.from(uniqueById.values());
-  };
+  }, []);
 
-  const fetchKnownCategories = async () => {
+  const fetchKnownCategories = useCallback(async () => {
     const categoryEndpoints = ['/admin/categories', '/categories', '/categories/all'];
     const aggregated: CategoryLookupItem[] = [];
     try {
@@ -165,7 +165,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     } catch {
       setKnownCategories([]);
     }
-  };
+  }, [extractCategoriesFromPayload]);
 
   const resolveCategoryId = (input: string): string | null => {
     const normalized = input.trim();
@@ -185,59 +185,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     if (isOpen) {
       fetchKnownCategories();
     }
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        handleClose();
-      }
-    };
-
-    const handleOverlayMouseDown = (event: MouseEvent) => {
-      if (overlayRef.current && event.target === overlayRef.current) {
-        handleClose();
-      }
-    };
-
-    const handleTab = (event: KeyboardEvent) => {
-      if (event.key !== 'Tab' || !contentRef.current) return;
-
-      const focusableElements = getFocusableElements(contentRef.current);
-      if (focusableElements.length === 0) return;
-
-      const first = focusableElements[0];
-      const last = focusableElements[focusableElements.length - 1];
-
-      if (event.shiftKey) {
-        if (document.activeElement === first) {
-          event.preventDefault();
-          last.focus();
-        }
-      } else if (document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-
-    previousFocusRef.current = document.activeElement as HTMLElement;
-    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
-    focusable[0]?.focus();
-
-    const overlay = overlayRef.current;
-    document.addEventListener('keydown', handleEscape);
-    document.addEventListener('keydown', handleTab);
-    overlay?.addEventListener('mousedown', handleOverlayMouseDown);
-
-    return () => {
-      document.removeEventListener('keydown', handleEscape);
-      document.removeEventListener('keydown', handleTab);
-      overlay?.removeEventListener('mousedown', handleOverlayMouseDown);
-      previousFocusRef.current?.focus();
-    };
-  }, [isOpen]);
+  }, [fetchKnownCategories, isOpen]);
 
   const validate = (): boolean => {
     const newErrors: FormErrors = {};
@@ -307,7 +255,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     setImagePreview(newPreviews);
   };
 
-  const resetForm = () => {
+  const resetForm = useCallback(() => {
     setName('');
     setPrice(0);
     setDescription('');
@@ -321,13 +269,65 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     setImagePreview([]);
     setErrors({});
     setIsSubmitting(false);
-  };
+  }, [imagePreview]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     if (isSubmitting) return;
     resetForm();
     onClose();
-  };
+  }, [isSubmitting, onClose, resetForm]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    const handleOverlayMouseDown = (event: MouseEvent) => {
+      if (overlayRef.current && event.target === overlayRef.current) {
+        handleClose();
+      }
+    };
+
+    const handleTab = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab' || !contentRef.current) return;
+
+      const focusableElements = getFocusableElements(contentRef.current);
+      if (focusableElements.length === 0) return;
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey) {
+        if (document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else if (document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    previousFocusRef.current = document.activeElement as HTMLElement;
+    const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
+    focusable[0]?.focus();
+
+    const overlay = overlayRef.current;
+    document.addEventListener('keydown', handleEscape);
+    document.addEventListener('keydown', handleTab);
+    overlay?.addEventListener('mousedown', handleOverlayMouseDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.removeEventListener('keydown', handleTab);
+      overlay?.removeEventListener('mousedown', handleOverlayMouseDown);
+      previousFocusRef.current?.focus();
+    };
+  }, [handleClose, isOpen]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -448,8 +448,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
               <div style={{ display: 'grid', gap: '16px' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Product name</label>
+                  <label className="form-label" htmlFor="create-product-name">Product name</label>
                   <input
+                    id="create-product-name"
                     type="text"
                     disabled={isSubmitting}
                     className="input-field"
@@ -476,7 +477,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   }}
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Price</label>
+                    <label className="form-label" htmlFor="create-product-price">Price</label>
                     <div style={{ position: 'relative' }}>
                       <span
                         style={{
@@ -491,6 +492,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                         ₹
                       </span>
                       <input
+                        id="create-product-price"
                         type="number"
                         step="0.01"
                         min="0.01"
@@ -513,7 +515,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Base price</label>
+                    <label className="form-label" htmlFor="create-product-base-price">Base price</label>
                     <div style={{ position: 'relative' }}>
                       <span
                         style={{
@@ -528,6 +530,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                         ₹
                       </span>
                       <input
+                        id="create-product-base-price"
                         type="number"
                         step="0.01"
                         min="0.01"
@@ -551,8 +554,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Description</label>
+                  <label className="form-label" htmlFor="create-product-description">Description</label>
                   <textarea
+                    id="create-product-description"
                     rows={3}
                     disabled={isSubmitting}
                     className="input-field"
@@ -572,8 +576,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Category</label>
+                  <label className="form-label" htmlFor="create-product-category">Category</label>
                   <input
+                    id="create-product-category"
                     type="text"
                     list={categoryListId}
                     disabled={isSubmitting}
@@ -606,8 +611,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   }}
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Product type</label>
+                    <label className="form-label" htmlFor="create-product-type">Product type</label>
                     <select
+                      id="create-product-type"
                       className="input-field"
                       disabled={isSubmitting}
                       value={productType}
@@ -619,8 +625,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Initial stock</label>
+                    <label className="form-label" htmlFor="create-product-stock">Initial stock</label>
                     <input
+                      id="create-product-stock"
                       type="number"
                       min="0"
                       step="1"
@@ -641,8 +648,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   </div>
 
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label">Customizable</label>
+                    <label className="form-label" htmlFor="create-product-customizable">Customizable</label>
                     <select
+                      id="create-product-customizable"
                       className="input-field"
                       disabled={isSubmitting}
                       value={String(isCustomizable)}
@@ -655,11 +663,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Product images ({images.length}/5)</label>
+                  <label className="form-label" htmlFor="create-product-images">Product images ({images.length}/5)</label>
                   <div
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}
-                    onClick={() => !isSubmitting && images.length < 5 && fileInputRef.current?.click()}
                     style={{
                       border: `1px dashed ${errors.images ? 'var(--danger)' : 'var(--border-active)'}`,
                       borderRadius: 'var(--radius-md)',
@@ -672,12 +679,14 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                     }}
                   >
                     <input
+                      id="create-product-images"
                       ref={fileInputRef}
                       type="file"
                       className="hidden"
                       accept="image/jpeg,image/png,image/webp"
                       multiple
                       disabled={isSubmitting}
+                      aria-label="Upload product images"
                       onChange={(e) => handleImageChange(e.target.files)}
                     />
                     {imagePreview.length > 0 ? (
@@ -688,7 +697,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                           gap: '12px',
                         }}>
                           {imagePreview.map((preview, index) => (
-                            <div key={index} style={{
+                            <div key={preview} style={{
                               position: 'relative',
                               borderRadius: 12,
                               overflow: 'hidden',
@@ -737,9 +746,15 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                           ))}
                         </div>
                         {images.length < 5 && (
-                          <p style={{ margin: 0, color: 'var(--accent)', fontSize: '12px' }}>
-                            Click or drag to add more images
-                          </p>
+                          <button
+                            type="button"
+                            className="btn-ghost"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isSubmitting}
+                            style={{ justifySelf: 'center' }}
+                          >
+                            Add more images
+                          </button>
                         )}
                       </div>
                     ) : (
@@ -751,6 +766,14 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '12px' }}>
                           JPG, PNG, or WebP (up to 5 images)
                         </p>
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          onClick={() => fileInputRef.current?.click()}
+                          disabled={isSubmitting}
+                        >
+                          Choose images
+                        </button>
                       </div>
                     )}
                   </div>

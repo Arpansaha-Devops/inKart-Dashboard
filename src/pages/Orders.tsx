@@ -1019,7 +1019,7 @@ const Orders: React.FC = () => {
             }}
           >
             <div>
-              <label className="form-label">Search</label>
+              <label className="form-label" htmlFor="orders-search">Search</label>
               <div style={{ position: 'relative' }}>
                 <Search
                   size={16}
@@ -1032,6 +1032,7 @@ const Orders: React.FC = () => {
                   }}
                 />
                 <input
+                  id="orders-search"
                   type="text"
                   className="input-field"
                   style={{ paddingLeft: 40 }}
@@ -1046,8 +1047,9 @@ const Orders: React.FC = () => {
             </div>
 
             <div>
-              <label className="form-label">Order Status</label>
+              <label className="form-label" htmlFor="orders-status-filter">Order Status</label>
               <select
+                id="orders-status-filter"
                 className="input-field"
                 value={orderStatus}
                 onChange={(event) => {
@@ -1064,8 +1066,9 @@ const Orders: React.FC = () => {
             </div>
 
             <div>
-              <label className="form-label">Payment Status</label>
+              <label className="form-label" htmlFor="orders-payment-filter">Payment Status</label>
               <select
+                id="orders-payment-filter"
                 className="input-field"
                 value={paymentStatus}
                 onChange={(event) => {
@@ -1082,8 +1085,9 @@ const Orders: React.FC = () => {
             </div>
 
             <div>
-              <label className="form-label">From date</label>
+              <label className="form-label" htmlFor="orders-from-date">From date</label>
               <input
+                id="orders-from-date"
                 type="date"
                 className="input-field"
                 value={fromDate}
@@ -1095,8 +1099,9 @@ const Orders: React.FC = () => {
             </div>
 
             <div>
-              <label className="form-label">To date</label>
+              <label className="form-label" htmlFor="orders-to-date">To date</label>
               <input
+                id="orders-to-date"
                 type="date"
                 className="input-field"
                 value={toDate}
@@ -1348,6 +1353,7 @@ const Orders: React.FC = () => {
       <AnimatePresence>
         {selectedOrder ? (
           <OrderDetailModal
+            key={selectedOrder._id}
             order={selectedOrder}
             onOrderUpdated={handleOrderUpdated}
             onClose={() => setSelectedOrder(null)}
@@ -1464,12 +1470,6 @@ const OrderDetailModal: React.FC<{
       mountedRef.current = false;
     };
   }, []);
-
-  useEffect(() => {
-    setDeliveryDate(order.estimatedDeliveryDate?.slice(0, 10) || '');
-    setDeliveryNote(order.deliveryNote || '');
-    setDeliveryError('');
-  }, [order.deliveryNote, order.estimatedDeliveryDate]);
 
   const handleApprove = async () => {
     if (order.orderStatus === 'confirmed') {

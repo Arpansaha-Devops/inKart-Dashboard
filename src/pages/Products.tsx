@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import apiClient from '../lib/apiClient';
 import { Product } from '../types';
 import {
@@ -260,7 +260,7 @@ const Products: React.FC = () => {
     ) as HTMLElement[];
   };
 
-  const fetchCategoryLookup = async () => {
+  const fetchCategoryLookup = useCallback(async () => {
     try {
       const response = await apiClient.get('/admin/categories');
       const categories = extractCategoriesFromPayload(response.data);
@@ -270,7 +270,7 @@ const Products: React.FC = () => {
     } catch (error) {
       // Silently fail - categories will be extracted from product data
     }
-  };
+  }, []);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -288,7 +288,7 @@ const Products: React.FC = () => {
     operation: 'add' as 'add' | 'subtract',
   });
 
-  const fetchProducts = async () => {
+  const fetchProducts = useCallback(async () => {
     setIsLoading(true);
     try {
       const response = await apiClient.get<any>('/admin/products', {
@@ -323,15 +323,15 @@ const Products: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchProducts();
   }, [page]);
 
   useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  useEffect(() => {
     fetchCategoryLookup();
-  }, []);
+  }, [fetchCategoryLookup]);
 
   useEffect(() => {
     if (!isDeleteModalOpen) return;
@@ -739,7 +739,19 @@ const Products: React.FC = () => {
 
       <AnimatePresence>
         {isModalOpen ? (
-          <div className="modal-backdrop" onClick={() => setIsModalOpen(false)}>
+          <div
+            className="modal-backdrop"
+            onClick={() => setIsModalOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setIsModalOpen(false);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Close product modal"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -789,8 +801,9 @@ const Products: React.FC = () => {
                   }}
                 >
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                    <label className="form-label">Product name</label>
+                    <label className="form-label" htmlFor="edit-product-name">Product name</label>
                     <input
+                      id="edit-product-name"
                       type="text"
                       required
                       className="input-field"
@@ -800,8 +813,9 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                    <label className="form-label">Description</label>
+                    <label className="form-label" htmlFor="edit-product-description">Description</label>
                     <textarea
+                      id="edit-product-description"
                       required
                       rows={3}
                       className="input-field"
@@ -811,8 +825,9 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Category</label>
+                    <label className="form-label" htmlFor="edit-product-category">Category</label>
                     <input
+                      id="edit-product-category"
                       type="text"
                       required
                       className="input-field"
@@ -822,8 +837,9 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Product type</label>
+                    <label className="form-label" htmlFor="edit-product-type">Product type</label>
                     <select
+                      id="edit-product-type"
                       className="input-field"
                       value={formData.productType}
                       onChange={(event) =>
@@ -839,8 +855,9 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Initial stock</label>
+                    <label className="form-label" htmlFor="edit-product-stock">Initial stock</label>
                     <input
+                      id="edit-product-stock"
                       type="number"
                       required
                       min="0"
@@ -854,8 +871,9 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Customizable</label>
+                    <label className="form-label" htmlFor="edit-product-customizable">Customizable</label>
                     <select
+                      id="edit-product-customizable"
                       className="input-field"
                       value={String(formData.isCustomizable)}
                       onChange={(event) =>
@@ -868,8 +886,9 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">Base price</label>
+                    <label className="form-label" htmlFor="edit-product-base-price">Base price</label>
                     <input
+                      id="edit-product-base-price"
                       type="number"
                       required
                       step="0.01"
@@ -882,7 +901,7 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>
-                    <label className="form-label">Product image</label>
+                    <label className="form-label" htmlFor="edit-product-image">Product image</label>
                     <div
                       style={{
                         border: '1px dashed var(--border-active)',
@@ -894,7 +913,9 @@ const Products: React.FC = () => {
                       }}
                     >
                       <input
+                        id="edit-product-image"
                         type="file"
+                        aria-label="Upload product image"
                         style={{
                           position: 'absolute',
                           inset: 0,
@@ -938,7 +959,19 @@ const Products: React.FC = () => {
 
       <AnimatePresence>
         {isStockModalOpen ? (
-          <div className="modal-backdrop" onClick={() => setIsStockModalOpen(false)}>
+          <div
+            className="modal-backdrop"
+            onClick={() => setIsStockModalOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setIsStockModalOpen(false);
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label="Close stock modal"
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -1006,7 +1039,7 @@ const Products: React.FC = () => {
                 </div>
 
                 <div className="form-group">
-                  <label className="form-label">Operation</label>
+                  <span className="form-label" id="stock-operation-label">Operation</span>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                     <button
                       type="button"
@@ -1026,8 +1059,9 @@ const Products: React.FC = () => {
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label">Quantity</label>
+                  <label className="form-label" htmlFor="stock-quantity">Quantity</label>
                   <input
+                    id="stock-quantity"
                     type="number"
                     required
                     min="1"
