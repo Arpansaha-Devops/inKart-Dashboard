@@ -22,14 +22,17 @@ export const updateStock = async (productId: string, data: StockUpdatePayload) =
 export const fetchCategories = async () => {
   const endpoints = ['/admin/categories', '/categories', '/categories/all'];
 
-  for (const endpoint of endpoints) {
-    try {
-      const response = await apiClient.get(endpoint);
-      return response.data;
-    } catch (error: any) {
-      if (error?.response?.status !== 404) {
-        throw error;
-      }
+  const responses = await Promise.allSettled(
+    endpoints.map((endpoint) => apiClient.get(endpoint))
+  );
+
+  for (const response of responses) {
+    if (response.status === 'fulfilled') {
+      return response.value.data;
+    }
+
+    if (response.reason?.response?.status !== 404) {
+      throw response.reason;
     }
   }
 

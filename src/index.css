@@ -677,6 +677,103 @@ table.data-table tbody td {
   gap: 24px;
 }
 
+.orders-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.orders-preview-fallback,
+.orders-mobile-product-placeholder {
+  border-radius: 8px;
+  background: var(--bg-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.orders-preview-fallback {
+  border: 1px dashed var(--border-active);
+}
+
+.orders-preview-image {
+  border-radius: 8px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.orders-error-icon,
+.analytics-error-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.orders-error-icon {
+  background: var(--danger-muted);
+  color: var(--danger);
+}
+
+.analytics-error-icon {
+  background: var(--warning-muted);
+  color: var(--warning);
+}
+
+.orders-mobile-product-placeholder {
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--border);
+}
+
+.orders-standard-preview-frame {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.orders-layer-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  font-size: 13px;
+}
+
+.analytics-trend-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .orders-detail-modal > div:first-child {
   position: sticky;
   top: -1.75rem;

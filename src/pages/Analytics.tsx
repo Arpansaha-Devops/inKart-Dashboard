@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import {
   BarChart2,
   ChartNoAxesCombined,
@@ -9,23 +9,10 @@ import {
   TrendingUp,
   Wallet,
 } from 'lucide-react';
-import {
-  CategoryScale,
-  Chart as ChartJS,
-  Filler,
-  Legend,
-  LineElement,
-  LinearScale,
-  PointElement,
-  Tooltip,
-} from 'chart.js';
-import { Line } from 'react-chartjs-2';
-import { motion } from 'motion/react';
+import { LazyMotion, domAnimation, m } from 'motion/react';
 import { toast } from 'sonner';
 import { getDashboardStats, getRevenueOverTime } from '../services/analyticsService';
 import type { AnalyticsMetric, RevenueDataPoint } from '../types';
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip, Legend, Filler);
 
 type ThemeColors = {
   textPrimary: string;
@@ -59,6 +46,53 @@ type MetricVisual = {
   background: string;
 };
 
+type RevenueChartData = {
+  labels: string[];
+  datasets: {
+    label: string;
+    data: number[];
+    borderColor: string;
+    backgroundColor: string;
+    pointBackgroundColor: string;
+    pointBorderColor: string;
+    pointHoverBackgroundColor: string;
+    pointHoverBorderColor: string;
+    pointRadius: number;
+    pointHoverRadius: number;
+    borderWidth: number;
+    tension: number;
+    fill: boolean;
+  }[];
+};
+
+type RevenueLineChartProps = {
+  data: RevenueChartData;
+  options: Record<string, unknown>;
+};
+
+const LazyRevenueLineChart = lazy(async () => {
+  const [chartComponents, chartJs] = await Promise.all([
+    import('react-chartjs-2'),
+    import('chart.js'),
+  ]);
+
+  chartJs.Chart.register(
+    chartJs.CategoryScale,
+    chartJs.LinearScale,
+    chartJs.PointElement,
+    chartJs.LineElement,
+    chartJs.Tooltip,
+    chartJs.Legend,
+    chartJs.Filler
+  );
+
+  return {
+    default: ({ data, options }: RevenueLineChartProps) => (
+      <chartComponents.Line data={data} options={options} />
+    ),
+  };
+});
+
 const getThemeColors = (): ThemeColors => {
   if (typeof window === 'undefined') {
     return {
@@ -91,6 +125,37 @@ const getThemeColors = (): ThemeColors => {
     warning: styles.getPropertyValue('--warning').trim() || '#f59e0b',
     warningMuted: styles.getPropertyValue('--warning-muted').trim() || 'rgba(245, 158, 11, 0.15)',
   };
+};
+
+const subscribeToThemeChanges = (onThemeChange: () => void) => {
+  if (typeof window === 'undefined') {
+    return () => {};
+  }
+
+  const observer = new MutationObserver(onThemeChange);
+  observer.observe(document.body, {
+    attributes: true,
+    attributeFilter: ['class'],
+  });
+
+  window.addEventListener('themechange', onThemeChange as EventListener);
+
+  return () => {
+    observer.disconnect();
+    window.removeEventListener('themechange', onThemeChange as EventListener);
+  };
+};
+
+const getThemeSnapshot = () => JSON.stringify(getThemeColors());
+
+const useThemeColors = () => {
+  const themeSnapshot = useSyncExternalStore(
+    subscribeToThemeChanges,
+    getThemeSnapshot,
+    getThemeSnapshot
+  );
+
+  return useMemo(() => JSON.parse(themeSnapshot) as ThemeColors, [themeSnapshot]);
 };
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
@@ -241,19 +306,7 @@ const SectionError: React.FC<{
   onRetry: () => void;
 }> = ({ title, description, onRetry }) => (
   <div className="card" style={{ padding: '28px', textAlign: 'center' }}>
-    <div
-      style={{
-        width: 52,
-        height: 52,
-        borderRadius: '50%',
-        margin: '0 auto 14px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'var(--warning-muted)',
-        color: 'var(--warning)',
-      }}
-    >
+    <div className="analytics-error-icon">
       <BarChart2 size={22} />
     </div>
     <h3 style={{ margin: '0 0 8px', fontSize: '18px', color: 'var(--text-primary)' }}>{title}</h3>
@@ -265,8 +318,124 @@ const SectionError: React.FC<{
   </div>
 );
 
+const AnalyticsKpiSection: React.FC<{
+  statsSection: StatsSectionState;
+  statsMetrics: AnalyticsMetric[];
+  themeColors: ThemeColors;
+  onRefresh: () => void;
+}> = ({ statsSection, statsMetrics, themeColors, onRefresh }) => (
+  <section style={{ display: 'grid', gap: 'clamp(12px, 3vw, 16px)' }} aria-labelledby="analytics-kpi-heading">
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+      <h2 id="analytics-kpi-heading" className="section-title" style={{ marginBottom: 0, fontSize: 'clamp(16px, 5vw, 20px)' }}>
+        KPI Overview
+      </h2>
+      {!statsSection.loading && !statsSection.error ? (
+        <button type="button" className="btn-ghost" onClick={onRefresh}>
+          <RefreshCw size={16} />
+          Refresh Stats
+        </button>
+      ) : null}
+    </div>
+
+    {statsSection.loading ? (
+      <StatsSkeleton />
+    ) : statsSection.error ? (
+      <SectionError title="Could not load analytics stats" description={statsSection.error} onRetry={onRefresh} />
+    ) : (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px' }}>
+        {statsMetrics.map((metric, index) => {
+          const visual = getMetricVisual(metric, themeColors);
+          const Icon = visual.icon;
+          const hasTrend = typeof metric.trend === 'number';
+          const trendColor = hasTrend && metric.trend! < 0 ? 'var(--danger)' : 'var(--success)';
+
+          return (
+            <m.div
+              key={metric.key}
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.28, delay: index * 0.08 }}
+              className="card card-hover"
+              style={{ padding: '14px 16px', borderLeft: `4px solid ${visual.color}`, display: 'grid', gap: '12px', minWidth: 0 }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <p style={{ margin: '0 0 4px', fontSize: '12px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {metric.label}
+                  </p>
+                  <p style={{ margin: 0, fontSize: 'clamp(18px, 5vw, 26px)', lineHeight: 1.1, fontWeight: 700, color: 'var(--text-primary)', wordBreak: 'break-word', overflow: 'hidden' }}>
+                    {formatMetricValue(metric)}
+                  </p>
+                </div>
+                <div className="icon-box" style={{ background: visual.background, flexShrink: 0 }}>
+                  <Icon size={16} color={visual.color} />
+                </div>
+              </div>
+
+              <div className="analytics-trend-row" style={{ color: hasTrend ? trendColor : 'var(--text-muted)' }}>
+                <TrendingUp size={12} style={{ flexShrink: 0 }} />
+                <span>
+                  {hasTrend
+                    ? `${metric.trend! >= 0 ? '+' : ''}${formatNumber(metric.trend!)}%`
+                    : 'Live snapshot'}
+                </span>
+              </div>
+            </m.div>
+          );
+        })}
+      </div>
+    )}
+  </section>
+);
+
+const AnalyticsRevenueSection: React.FC<{
+  revenueSection: RevenueSectionState;
+  chartData: RevenueChartData;
+  chartOptions: Record<string, unknown>;
+  onRefresh: () => void;
+}> = ({ revenueSection, chartData, chartOptions, onRefresh }) => (
+  <section style={{ display: 'grid', gap: '16px' }} aria-labelledby="analytics-chart-heading">
+    {revenueSection.loading ? (
+      <ChartSkeleton />
+    ) : revenueSection.error ? (
+      <SectionError title="Could not load revenue over time" description={revenueSection.error} onRetry={onRefresh} />
+    ) : (
+      <div className="card" style={{ padding: 'clamp(14px, 4vw, 20px)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px', marginBottom: '16px', flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <h2 id="analytics-chart-heading" className="section-title" style={{ marginBottom: '4px', fontSize: 'clamp(16px, 5vw, 20px)' }}>
+              Revenue Over Time
+            </h2>
+            <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
+              Real revenue points returned by the analytics endpoint.
+            </p>
+          </div>
+          <button type="button" className="btn-ghost" onClick={onRefresh} style={{ flexShrink: 0 }}>
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
+
+        {revenueSection.points.length === 0 ? (
+          <div style={{ minHeight: 'clamp(200px, 50vw, 360px)', display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
+            No revenue data points are available yet.
+          </div>
+        ) : (
+          <div style={{ overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
+            <div style={{ width: '100%', minWidth: 'min(100vw - 32px, 100%)', height: 'clamp(200px, 50vw, 360px)' }}>
+              <Suspense fallback={<div className="skeleton" style={{ width: '100%', height: '100%' }} />}>
+                <LazyRevenueLineChart data={chartData} options={chartOptions} />
+              </Suspense>
+            </div>
+          </div>
+        )}
+      </div>
+    )}
+  </section>
+);
+
 const Analytics: React.FC = () => {
-  const [themeColors, setThemeColors] = useState<ThemeColors>(getThemeColors);
+  const themeColors = useThemeColors();
   const [statsSection, setStatsSection] = useState<StatsSectionState>({
     loading: true,
     error: null,
@@ -277,33 +446,6 @@ const Analytics: React.FC = () => {
     error: null,
     points: [],
   });
-
-  useEffect(() => {
-    const syncTheme = () => {
-      setThemeColors(getThemeColors());
-    };
-
-    syncTheme();
-
-    const observer = new MutationObserver(syncTheme);
-    observer.observe(document.body, {
-      attributes: true,
-      attributeFilter: ['class'],
-    });
-
-    window.addEventListener('themechange', syncTheme as EventListener);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('themechange', syncTheme as EventListener);
-    };
-  }, []);
-
-  useEffect(() => {
-    ChartJS.defaults.color = themeColors.textSecondary;
-    ChartJS.defaults.borderColor = themeColors.border;
-    ChartJS.defaults.font.family = "'Inter', system-ui, sans-serif";
-  }, [themeColors]);
 
   const fetchStats = async () => {
     setStatsSection((current) => ({
@@ -450,7 +592,8 @@ const Analytics: React.FC = () => {
   );
 
   return (
-    <div className="page-wrapper">
+    <LazyMotion features={domAnimation}>
+      <div className="page-wrapper">
         <div style={{ display: 'grid', gap: 'clamp(16px, 4vw, 24px)' }}>
         <div style={{ display: 'grid', gap: 'clamp(8px, 2vw, 12px)' }}>
           <h1 className="page-title" style={{ fontSize: 'clamp(24px, 6vw, 32px)', margin: 0 }}>Order Analytics</h1>
@@ -459,196 +602,21 @@ const Analytics: React.FC = () => {
           </p>
         </div>
 
-        <section style={{ display: 'grid', gap: 'clamp(12px, 3vw, 16px)' }} aria-labelledby="analytics-kpi-heading">
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              gap: '12px',
-              flexWrap: 'wrap',
-            }}
-          >
-            <h2 id="analytics-kpi-heading" className="section-title" style={{ marginBottom: 0, fontSize: 'clamp(16px, 5vw, 20px)' }}>
-              KPI Overview
-            </h2>
-
-            {!statsSection.loading && !statsSection.error ? (
-              <button type="button" className="btn-ghost" onClick={fetchStats}>
-                <RefreshCw size={16} />
-                Refresh Stats
-              </button>
-            ) : null}
-          </div>
-
-          {statsSection.loading ? (
-            <StatsSkeleton />
-          ) : statsSection.error ? (
-            <SectionError
-              title="Could not load analytics stats"
-              description={statsSection.error}
-              onRetry={fetchStats}
-            />
-          ) : (
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-                gap: '12px',
-              }}
-            >
-              {statsMetrics.map((metric, index) => {
-                const visual = getMetricVisual(metric, themeColors);
-                const Icon = visual.icon;
-                const hasTrend = typeof metric.trend === 'number';
-                const trendColor =
-                  hasTrend && metric.trend! < 0 ? 'var(--danger)' : 'var(--success)';
-
-                return (
-                  <motion.div
-                    key={metric.key}
-                    initial={{ opacity: 0, y: 18 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.28, delay: index * 0.08 }}
-                    className="card card-hover"
-                    style={{
-                      padding: '14px 16px',
-                      borderLeft: `4px solid ${visual.color}`,
-                      display: 'grid',
-                      gap: '12px',
-                      minWidth: 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'flex-start',
-                        gap: '8px',
-                      }}
-                    >
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <p style={{ margin: '0 0 4px', fontSize: '12px', color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {metric.label}
-                        </p>
-                        <p
-                          style={{
-                            margin: 0,
-                            fontSize: 'clamp(18px, 5vw, 26px)',
-                            lineHeight: 1.1,
-                            fontWeight: 700,
-                            color: 'var(--text-primary)',
-                            wordBreak: 'break-word',
-                            overflow: 'hidden',
-                          }}
-                        >
-                          {formatMetricValue(metric)}
-                        </p>
-                      </div>
-
-                      <div className="icon-box" style={{ background: visual.background, flexShrink: 0 }}>
-                        <Icon size={16} color={visual.color} />
-                      </div>
-                    </div>
-
-                    <div
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '6px',
-                        color: hasTrend ? trendColor : 'var(--text-muted)',
-                        fontSize: '11px',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      <TrendingUp size={12} style={{ flexShrink: 0 }} />
-                      <span>
-                        {hasTrend
-                          ? `${metric.trend! >= 0 ? '+' : ''}${formatNumber(metric.trend!)}%`
-                          : 'Live snapshot'}
-                      </span>
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section style={{ display: 'grid', gap: '16px' }} aria-labelledby="analytics-chart-heading">
-          {revenueSection.loading ? (
-            <ChartSkeleton />
-          ) : revenueSection.error ? (
-            <SectionError
-              title="Could not load revenue over time"
-              description={revenueSection.error}
-              onRetry={fetchRevenue}
-            />
-          ) : (
-            <div className="card" style={{ padding: 'clamp(14px, 4vw, 20px)' }}>
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'flex-start',
-                  gap: '12px',
-                  marginBottom: '16px',
-                  flexWrap: 'wrap',
-                }}
-              >
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <h2
-                    id="analytics-chart-heading"
-                    className="section-title"
-                    style={{ marginBottom: '4px', fontSize: 'clamp(16px, 5vw, 20px)' }}
-                  >
-                    Revenue Over Time
-                  </h2>
-                  <p style={{ margin: 0, fontSize: '12px', color: 'var(--text-secondary)' }}>
-                    Real revenue points returned by the analytics endpoint.
-                  </p>
-                </div>
-
-                <button type="button" className="btn-ghost" onClick={fetchRevenue} style={{ flexShrink: 0 }}>
-                  <RefreshCw size={16} />
-                  Refresh
-                </button>
-              </div>
-
-              {revenueSection.points.length === 0 ? (
-                <div
-                  style={{
-                    minHeight: 'clamp(200px, 50vw, 360px)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    textAlign: 'center',
-                    color: 'var(--text-muted)',
-                    fontSize: '14px',
-                  }}
-                >
-                  No revenue data points are available yet.
-                </div>
-              ) : (
-                <div style={{ overflowX: 'auto', overflowY: 'hidden', WebkitOverflowScrolling: 'touch' }}>
-                  <div
-                    style={{
-                      width: '100%',
-                      minWidth: 'min(100vw - 32px, 100%)',
-                      height: 'clamp(200px, 50vw, 360px)',
-                    }}
-                  >
-                    <Line data={chartData} options={chartOptions} />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
+        <AnalyticsKpiSection
+          statsSection={statsSection}
+          statsMetrics={statsMetrics}
+          themeColors={themeColors}
+          onRefresh={fetchStats}
+        />
+        <AnalyticsRevenueSection
+          revenueSection={revenueSection}
+          chartData={chartData}
+          chartOptions={chartOptions}
+          onRefresh={fetchRevenue}
+        />
       </div>
-    </div>
+      </div>
+    </LazyMotion>
   );
 };
 

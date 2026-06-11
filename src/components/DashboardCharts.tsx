@@ -1,16 +1,4 @@
-import React, { useEffect, useMemo } from 'react';
-import {
-  ArcElement,
-  BarElement,
-  CategoryScale,
-  Chart as ChartJS,
-  Legend,
-  LinearScale,
-  PointElement,
-  Title,
-  Tooltip,
-} from 'chart.js';
-import { Bar, Doughnut } from 'react-chartjs-2';
+import React, { lazy, Suspense, useMemo } from 'react';
 
 type ChartThemeColors = {
   textSecondary: string;
@@ -35,16 +23,40 @@ type DashboardChartsProps = {
   barData: DashboardChartData;
 };
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  PointElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend
-);
+type ChartRendererProps = {
+  data: DashboardChartData;
+  options: Record<string, unknown>;
+};
+
+const createLazyChart = (variant: 'bar' | 'doughnut') =>
+  lazy(async () => {
+    const [chartComponents, chartJs] = await Promise.all([
+      import('react-chartjs-2'),
+      import('chart.js'),
+    ]);
+
+    chartJs.Chart.register(
+      chartJs.CategoryScale,
+      chartJs.LinearScale,
+      chartJs.BarElement,
+      chartJs.PointElement,
+      chartJs.ArcElement,
+      chartJs.Title,
+      chartJs.Tooltip,
+      chartJs.Legend
+    );
+
+    const ChartComponent = variant === 'bar' ? chartComponents.Bar : chartComponents.Doughnut;
+
+    return {
+      default: ({ data, options }: ChartRendererProps) => (
+        <ChartComponent data={data} options={options} />
+      ),
+    };
+  });
+
+const LazyBarChart = createLazyChart('bar');
+const LazyDoughnutChart = createLazyChart('doughnut');
 
 const DashboardCharts: React.FC<DashboardChartsProps> = ({
   chart,
@@ -52,12 +64,6 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
   doughnutData,
   barData,
 }) => {
-  useEffect(() => {
-    ChartJS.defaults.color = chartTheme.textSecondary;
-    ChartJS.defaults.borderColor = chartTheme.border;
-    ChartJS.defaults.font.family = "'Inter', system-ui, sans-serif";
-  }, [chartTheme]);
-
   const doughnutOptions = useMemo(
     () => ({
       responsive: true,
@@ -102,10 +108,14 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
     [chartTheme]
   );
 
-  return chart === 'products' ? (
-    <Doughnut data={doughnutData} options={doughnutOptions} />
-  ) : (
-    <Bar data={barData} options={barOptions} />
+  return (
+    <Suspense fallback={<div className="skeleton" style={{ width: '100%', height: '100%' }} />}>
+      {chart === 'products' ? (
+        <LazyDoughnutChart data={doughnutData} options={doughnutOptions} />
+      ) : (
+        <LazyBarChart data={barData} options={barOptions} />
+      )}
+    </Suspense>
   );
 };
 
