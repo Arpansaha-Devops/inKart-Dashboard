@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useReducer, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import apiClient from '../lib/apiClient';
 import { Product } from '../types';
 import {
@@ -107,72 +107,67 @@ const currencyFormatter = new Intl.NumberFormat('en-IN', {
 
 const formatCurrency = (value: number) => currencyFormatter.format(value || 0);
 
-const slugifyProductName = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-const createUniqueProductSlug = (value: string) => {
-  const baseSlug = slugifyProductName(value) || 'product';
-  const randomPart =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID().slice(0, 8)
-      : Math.random().toString(36).slice(2, 10);
-
-  return `${baseSlug}-${Date.now().toString(36)}-${randomPart}`;
-};
-
-const setUniqueProductSlug = (formData: FormData, productName: string) => {
-  const slug = createUniqueProductSlug(productName);
-  formData.set('slug', slug);
-  formData.set('productSlug', slug);
-};
-
 const PRODUCT_PLACEHOLDER_IMAGE =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160'%3E%3Crect width='160' height='160' rx='18' fill='%231a1a1a'/%3E%3Crect x='20' y='20' width='120' height='120' rx='14' fill='%232a2a2a' stroke='%23404040'/%3E%3Cpath d='M52 102l20-24 14 16 18-24 18 32H52z' fill='%23f97316' opacity='.8'/%3E%3Ccircle cx='62' cy='58' r='10' fill='%23f97316' opacity='.9'/%3E%3C/svg%3E";
 
-const DELETED_PRODUCTS_STORAGE_KEY = 'inkart-dashboard-deleted-products';
+const extractCategoriesFromPayload = (payload: any): Record<string, string> => {
+  const byId: Record<string, string> = {};
+  const visit = (node: any) => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      node.forEach(visit);
+      return;
+    }
+    if (typeof node !== 'object') return;
 
-const readDeletedProductIds = (): string[] => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
+    if (typeof node._id === 'string' && typeof node.name === 'string') {
+      byId[node._id] = node.name;
+    }
+    if (node.category && typeof node.category === 'object') {
+      if (typeof node.category._id === 'string' && typeof node.category.name === 'string') {
+        byId[node.category._id] = node.category.name;
+      }
+    }
 
-  try {
-    const storedIds = window.localStorage.getItem(DELETED_PRODUCTS_STORAGE_KEY);
-    const parsedIds = storedIds ? JSON.parse(storedIds) : [];
-
-    return Array.isArray(parsedIds)
-      ? parsedIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-      : [];
-  } catch {
-    return [];
-  }
+    Object.values(node).forEach(visit);
+  };
+  visit(payload);
+  return byId;
 };
 
-const saveDeletedProductIds = (productIds: string[]) => {
-  if (typeof window === 'undefined') {
-    return;
+const getProductImageUrl = (product: any): string => {
+  const directCandidates = [product?.image, product?.imageUrl, product?.thumbnail, product?.thumbnailUrl];
+  for (const candidate of directCandidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      return candidate;
+    }
   }
 
-  try {
-    window.localStorage.setItem(
-      DELETED_PRODUCTS_STORAGE_KEY,
-      JSON.stringify(Array.from(new Set(productIds)))
-    );
-  } catch {
-    // Keep the API delete flow unaffected if browser storage is unavailable.
+  const arrayCandidates = [product?.images, product?.imageUrls, product?.productImages];
+  for (const candidate of arrayCandidates) {
+    if (Array.isArray(candidate) && candidate.length > 0) {
+      const first = candidate[0];
+      if (typeof first === 'string' && first.trim()) {
+        return first;
+      }
+      if (first && typeof first === 'object') {
+        const nested = first.url || first.secure_url || first.path || first.image || first.src;
+        if (typeof nested === 'string' && nested.trim()) {
+          return nested;
+        }
+      }
+    }
   }
+
+  return PRODUCT_PLACEHOLDER_IMAGE;
 };
 
-const rememberDeletedProductId = (productId: string) => {
-  const deletedProductIds = readDeletedProductIds();
-
-  if (!deletedProductIds.includes(productId)) {
-    saveDeletedProductIds([...deletedProductIds, productId]);
-  }
+const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+  const selector =
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  return Array.from(container.querySelectorAll(selector)).filter(
+    (el: any) => !el.hasAttribute('disabled')
+  ) as HTMLElement[];
 };
 
 type ProductFormData = {
@@ -363,58 +358,6 @@ const Products: React.FC = () => {
   const deleteModalContentRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
-  const extractCategoriesFromPayload = (payload: any): Record<string, string> => {
-    const byId: Record<string, string> = {};
-    const visit = (node: any) => {
-      if (!node) return;
-      if (Array.isArray(node)) {
-        node.forEach(visit);
-        return;
-      }
-      if (typeof node !== 'object') return;
-
-      if (typeof node._id === 'string' && typeof node.name === 'string') {
-        byId[node._id] = node.name;
-      }
-      if (node.category && typeof node.category === 'object') {
-        if (typeof node.category._id === 'string' && typeof node.category.name === 'string') {
-          byId[node.category._id] = node.category.name;
-        }
-      }
-
-      Object.values(node).forEach(visit);
-    };
-    visit(payload);
-    return byId;
-  };
-
-  const getProductImageUrl = (product: any): string => {
-    const directCandidates = [product?.image, product?.imageUrl, product?.thumbnail, product?.thumbnailUrl];
-    for (const candidate of directCandidates) {
-      if (typeof candidate === 'string' && candidate.trim()) {
-        return candidate;
-      }
-    }
-
-    const arrayCandidates = [product?.images, product?.imageUrls, product?.productImages];
-    for (const candidate of arrayCandidates) {
-      if (Array.isArray(candidate) && candidate.length > 0) {
-        const first = candidate[0];
-        if (typeof first === 'string' && first.trim()) {
-          return first;
-        }
-        if (first && typeof first === 'object') {
-          const nested = first.url || first.secure_url || first.path || first.image || first.src;
-          if (typeof nested === 'string' && nested.trim()) {
-            return nested;
-          }
-        }
-      }
-    }
-
-    return PRODUCT_PLACEHOLDER_IMAGE;
-  };
-
   const getCategoryLabel = (product: any): string => {
     if (product?.category && typeof product.category === 'object') {
       return product.category.name || product.category._id || 'Unknown Category';
@@ -423,14 +366,6 @@ const Products: React.FC = () => {
       return categoryNameById[product.category] || product.category;
     }
     return 'Unknown Category';
-  };
-
-  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
-    const selector =
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    return Array.from(container.querySelectorAll(selector)).filter(
-      (el: any) => !el.hasAttribute('disabled')
-    ) as HTMLElement[];
   };
 
   const fetchCategoryLookup = useCallback(async () => {
@@ -449,19 +384,17 @@ const Products: React.FC = () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const response = await apiClient.get<any>('/admin/products', {
-        params: { page, limit }
+        params: { page: 1, limit: 500, _ts: Date.now() },
+        headers: {
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
       });
 
       const productsList = extractProducts(response.data);
-      const deletedProductIds = new Set(readDeletedProductIds());
-      const visibleProductsList = productsList.filter(
-        (product) => !deletedProductIds.has(product._id)
-      );
-      const hiddenProductsCount = productsList.length - visibleProductsList.length;
-      const count = extractTotalProducts(response.data, visibleProductsList.length);
 
       const mappedCategories: Record<string, string> = {};
-      visibleProductsList.forEach((product: any) => {
+      productsList.forEach((product: any) => {
         if (product?.category && typeof product.category === 'object') {
           if (typeof product.category._id === 'string' && typeof product.category.name === 'string') {
             mappedCategories[product.category._id] = product.category.name;
@@ -471,7 +404,7 @@ const Products: React.FC = () => {
 
       dispatch({
         type: 'SET_LIST',
-        payload: { products: visibleProductsList, totalCount: Math.max(0, count - hiddenProductsCount) },
+        payload: { products: productsList, totalCount: productsList.length },
       });
       if (Object.keys(mappedCategories).length > 0) {
         dispatch({ type: 'MERGE_CATEGORY_NAMES', payload: mappedCategories });
@@ -482,7 +415,7 @@ const Products: React.FC = () => {
     } finally {
       dispatch({ type: 'SET_LOADING', payload: false });
     }
-  }, [page]);
+  }, []);
 
   useEffect(() => {
     fetchProducts();
@@ -587,30 +520,23 @@ const Products: React.FC = () => {
     return () => document.removeEventListener('keydown', handleEscapeKey);
   }, [isStockModalOpen]);
 
-  const handleOpenModal = (product?: Product) => {
-    if (product) {
-      dispatch({
-        type: 'OPEN_PRODUCT_MODAL',
-        payload: {
-          product,
-          formData: {
-        name: getVisibleProductName(product.name),
-        description: product.description || '',
-        category: typeof product.category === 'object' && product.category !== null ? ((product.category as any)?._id || '') : (product.category || ''),
-        productType: product.productType || 'on_demand',
-        stock: product.stock || 0,
-        isCustomizable: product.isCustomizable ?? true,
-        basePrice: product.basePrice || 0,
-        image: null,
-          },
+  const handleOpenModal = (product: Product) => {
+    dispatch({
+      type: 'OPEN_PRODUCT_MODAL',
+      payload: {
+        product,
+        formData: {
+          name: getVisibleProductName(product.name),
+          description: product.description || '',
+          category: typeof product.category === 'object' && product.category !== null ? ((product.category as any)?._id || '') : (product.category || ''),
+          productType: product.productType || 'on_demand',
+          stock: product.stock || 0,
+          isCustomizable: product.isCustomizable ?? true,
+          basePrice: product.basePrice || 0,
+          image: null,
         },
-      });
-    } else {
-      dispatch({
-        type: 'OPEN_PRODUCT_MODAL',
-        payload: { product: null, formData: defaultProductFormData() },
-      });
-    }
+      },
+    });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -628,14 +554,13 @@ const Products: React.FC = () => {
     data.set('name', formData.name.trim());
 
     try {
-      if (editingProduct) {
-        await apiClient.patch(`/admin/products/${editingProduct._id}`, data);
-        toast.success('Product updated successfully');
-      } else {
-        setUniqueProductSlug(data, formData.name);
-        await apiClient.post('/admin/products', data);
-        toast.success('Product created successfully');
+      // This legacy modal is edit-only; product creation is handled by CreateProductModal.
+      if (!editingProduct) {
+        toast.error('Use the Create Product modal to add new products.');
+        return;
       }
+      await apiClient.patch(`/admin/products/${editingProduct._id}`, data);
+      toast.success('Product updated successfully');
       dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
       fetchProducts();
     } catch (error: any) {
@@ -667,8 +592,7 @@ const Products: React.FC = () => {
     const productId = deletingProduct._id;
     dispatch({ type: 'SET_DELETING_PRODUCT', payload: true });
     try {
-      await deleteProduct(productId);
-      rememberDeletedProductId(productId);
+      const result = await deleteProduct(productId);
       dispatch({
         type: 'SET_PRODUCTS',
         payload: (currentProducts) =>
@@ -678,19 +602,30 @@ const Products: React.FC = () => {
         type: 'SET_TOTAL_COUNT',
         payload: (currentTotal) => Math.max(0, currentTotal - 1),
       });
-      toast.success('Product deleted');
       dispatch({ type: 'CLOSE_DELETE_MODAL' });
       if (products.length === 1 && page > 1) {
         dispatch({ type: 'SET_PAGE', payload: (currentPage) => Math.max(1, currentPage - 1) });
+      } else if (result.verified) {
+        await fetchProducts();
       }
-    } catch {
-      toast.error('Failed to delete product');
+      if (result.verified) {
+        toast.success('Product deleted');
+      } else {
+        toast.warning(result.message || 'Product removed from this view, but backend verification failed.');
+      }
+    } catch (error: any) {
+      toast.error(error?.message || error?.response?.data?.message || 'Failed to delete product');
+      await fetchProducts();
     } finally {
       dispatch({ type: 'SET_DELETING_PRODUCT', payload: false });
     }
   };
 
-  const totalPages = Math.ceil(totalCount / limit);
+  const totalPages = Math.max(1, Math.ceil(totalCount / limit));
+  const paginatedProducts = useMemo(() => {
+    const start = (page - 1) * limit;
+    return products.slice(start, start + limit);
+  }, [page, products]);
 
   return (
     <div className="page-wrapper products-page">
@@ -753,7 +688,7 @@ const Products: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  products.map((product) => (
+                  paginatedProducts.map((product) => (
                     <tr key={product._id} className="group">
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -853,7 +788,7 @@ const Products: React.FC = () => {
             </table>
           </div>
 
-          {totalPages > 1 ? (
+          {products.length > 0 && totalPages > 1 ? (
             <div
               style={{
                 display: 'flex',
@@ -936,7 +871,7 @@ const Products: React.FC = () => {
                       margin: 0,
                     }}
                   >
-                    {editingProduct ? 'Edit Product' : 'Create Product'}
+                    Edit Product
                   </h2>
                   <button
                     type="button"
@@ -1133,7 +1068,7 @@ const Products: React.FC = () => {
                     Cancel
                   </button>
                   <button type="submit" className="btn-primary">
-                    {editingProduct ? 'Save Changes' : 'Create Product'}
+                    Save Changes
                   </button>
                 </div>
               </form>

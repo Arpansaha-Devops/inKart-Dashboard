@@ -12,17 +12,46 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const clearAuthStorage = () => {
+  Cookies.remove('user');
+  Cookies.remove('token');
+  Cookies.remove('refreshToken');
+  localStorage.removeItem('user');
+  localStorage.removeItem('token');
+  localStorage.removeItem('refreshToken');
+};
+
+function isTokenExpired(token: string): boolean {
+  try {
+    const encodedPayload = token.split('.')[1];
+    const normalizedPayload = encodedPayload
+      .replace(/-/g, '+')
+      .replace(/_/g, '/')
+      .padEnd(Math.ceil(encodedPayload.length / 4) * 4, '=');
+    const payload = JSON.parse(atob(normalizedPayload));
+    return typeof payload.exp !== 'number' || payload.exp * 1000 < Date.now();
+  } catch {
+    return true;
+  }
+}
+
 const readStoredAuth = (): { user: User | null; token: string | null } => {
   try {
     const storedUser = Cookies.get('user') || localStorage.getItem('user');
     const storedToken = Cookies.get('token') || localStorage.getItem('token');
 
+    if (!storedUser || !storedToken || isTokenExpired(storedToken)) {
+      clearAuthStorage();
+      return { user: null, token: null };
+    }
+
     return {
-      user: storedUser && storedToken ? JSON.parse(storedUser) : null,
-      token: storedToken || null,
+      user: JSON.parse(storedUser),
+      token: storedToken,
     };
   } catch (e) {
     console.error('Failed to parse user from cookies', e);
+    clearAuthStorage();
     return { user: null, token: null };
   }
 };
@@ -49,12 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = useCallback(() => {
     setUser(null);
     setToken(null);
-    Cookies.remove('user');
-    Cookies.remove('token');
-    Cookies.remove('refreshToken');
-    localStorage.removeItem('user');
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
+    clearAuthStorage();
   }, []);
 
   const value = useMemo(

@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { X, Upload, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { createProduct } from '../services/productService';
 import apiClient from '../lib/apiClient';
+import { setUniqueProductSlug } from '../lib/productSlugs';
 
 interface CreateProductModalProps {
   isOpen: boolean;
@@ -88,29 +90,6 @@ function createProductFormReducer(
   }
 }
 
-const slugifyProductName = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-
-const createUniqueProductSlug = (value: string) => {
-  const baseSlug = slugifyProductName(value) || 'product';
-  const randomPart =
-    typeof crypto !== 'undefined' && 'randomUUID' in crypto
-      ? crypto.randomUUID().slice(0, 8)
-      : Math.random().toString(36).slice(2, 10);
-
-  return `${baseSlug}-${Date.now().toString(36)}-${randomPart}`;
-};
-
-const setUniqueProductSlug = (formData: FormData, productName: string) => {
-  const slug = createUniqueProductSlug(productName);
-  formData.set('slug', slug);
-  formData.set('productSlug', slug);
-};
-
 const getCreateProductErrorMessage = (error: any): string => {
   const message = error?.response?.data?.message || '';
 
@@ -124,7 +103,22 @@ const getCreateProductErrorMessage = (error: any): string => {
   return message || 'Failed to create product';
 };
 
+const isObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value.trim());
+
+const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+  const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  return Array.from(container.querySelectorAll(selector)).filter(
+    (element: any) => !element.hasAttribute('disabled')
+  ) as HTMLElement[];
+};
+
+const handleDragOver = (event: React.DragEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+};
+
 const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  const navigate = useNavigate();
   const [state, dispatch] = useReducer(
     createProductFormReducer,
     createProductFormInitialState
@@ -151,15 +145,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   const handleCloseRef = useRef<() => void>(() => {});
   const isOpenRef = useRef(isOpen);
   const categoryListId = 'known-category-names';
-
-  const isObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value.trim());
-
-  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
-    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    return Array.from(container.querySelectorAll(selector)).filter(
-      (element: any) => !element.hasAttribute('disabled')
-    ) as HTMLElement[];
-  };
 
   const extractCategoriesFromPayload = useCallback((payload: any): CategoryLookupItem[] => {
     const items: CategoryLookupItem[] = [];
@@ -426,15 +411,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
     dispatch({ type: 'SET_SUBMITTING', payload: true });
 
-    const token = localStorage.getItem('token');
-    if (!token) {
-      toast.error('Session expired. Please login again.');
-      localStorage.clear();
-      window.location.href = '/login';
-      dispatch({ type: 'SET_SUBMITTING', payload: false });
-      return;
-    }
-
     const formData = new FormData();
     formData.append('name', name.trim());
     setUniqueProductSlug(formData, name);
@@ -457,19 +433,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       onSuccess();
     } catch (error: any) {
       if (error.response?.status === 401) {
-        localStorage.clear();
-        window.location.href = '/login';
+        navigate('/login');
         return;
       }
       toast.error(getCreateProductErrorMessage(error));
     } finally {
       dispatch({ type: 'SET_SUBMITTING', payload: false });
     }
-  };
-
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
   };
 
   const handleDrop = (e: React.DragEvent) => {

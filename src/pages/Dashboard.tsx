@@ -49,7 +49,6 @@ type DashboardDataAction =
 const COMMON_ARRAY_KEYS = ['data', 'users', 'products', 'coupons', 'categories', 'results', 'items', 'list', 'docs'];
 const COMMON_COUNT_KEYS = ['totalCount', 'total', 'count', 'totalResults', 'length'];
 const CHART_COLORS = ['#F97316', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
-const DELETED_PRODUCTS_STORAGE_KEY = 'inkart-dashboard-deleted-products';
 
 const quickActions = [
   {
@@ -206,23 +205,6 @@ const isUserLike = (item: any): item is User =>
       (typeof item.email === 'string' || typeof item.name === 'string')
   );
 
-const readDeletedProductIds = (): string[] => {
-  if (typeof window === 'undefined') {
-    return [];
-  }
-
-  try {
-    const storedIds = window.localStorage.getItem(DELETED_PRODUCTS_STORAGE_KEY);
-    const parsedIds = storedIds ? JSON.parse(storedIds) : [];
-
-    return Array.isArray(parsedIds)
-      ? parsedIds.filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
-      : [];
-  } catch {
-    return [];
-  }
-};
-
 const pickBestArray = (payload: any, validator: (item: any) => boolean, directCandidates: any[] = []) => {
   for (const candidate of directCandidates) {
     if (Array.isArray(candidate)) {
@@ -288,6 +270,13 @@ const Dashboard: React.FC = () => {
   const [state, dispatch] = useReducer(dashboardDataReducer, dashboardDataInitialState);
   const { stats, isLoading, recentUsers, doughnutData, barData } = state;
   const hasShownDashboardErrorRef = useRef(false);
+  const lastKnownCounts = useRef({
+    users: 0,
+    products: 0,
+    coupons: 0,
+    categories: 0,
+  });
+  const lastKnownRecentUsers = useRef<User[]>([]);
   const [chartTheme, setChartTheme] = useState<ChartThemeColors>(getChartThemeColors);
 
   useEffect(() => {
@@ -321,10 +310,10 @@ const Dashboard: React.FC = () => {
           chartCouponsRes,
         ] = await Promise.allSettled([
           apiClient.get('/users/all', { params: { limit: 1 } }),
-          apiClient.get('/admin/products', { params: { limit: 1 } }),
+          apiClient.get('/admin/products', { params: { limit: 1, _ts: Date.now() } }),
           apiClient.get('/admin/coupons', { params: { page: 1, limit: 1 } }),
           apiClient.get('/admin/categories'),
-          apiClient.get('/admin/products', { params: { page: 1, limit: 200 } }),
+          apiClient.get('/admin/products', { params: { page: 1, limit: 200, _ts: Date.now() } }),
           apiClient.get('/admin/coupons', { params: { page: 1, limit: 50 } }),
         ]);
 
@@ -343,16 +332,19 @@ const Dashboard: React.FC = () => {
           chartCouponsRes,
         ].filter((result) => result.status === 'rejected').length;
 
-        const totalUsers = findCount(usersPayload) ?? 0;
-        const totalCoupons = findCount(couponsPayload) ?? 0;
-        const dashboardUsers = extractUsers(usersPayload);
+        const dashboardUsers =
+          usersRes.status === 'fulfilled'
+            ? extractUsers(usersPayload)
+            : lastKnownRecentUsers.current;
+        if (usersRes.status === 'fulfilled') {
+          lastKnownRecentUsers.current = dashboardUsers;
+        }
 
         const categories = pickBestArray(categoriesPayload, isCategoryLike, [
           (categoriesPayload as any)?.categories,
           (categoriesPayload as any)?.data?.categories,
           (categoriesPayload as any)?.data,
         ]);
-        const activeCategories = categories.filter((category: any) => category?.isActive === true).length;
 
         const chartProducts = pickBestArray(chartProductsPayload, isProductLike, [
           (chartProductsPayload as any)?.products,
@@ -361,10 +353,6 @@ const Dashboard: React.FC = () => {
           (chartProductsPayload as any)?.data?.docs,
           (chartProductsPayload as any)?.data,
         ]);
-        const deletedProductIds = new Set(readDeletedProductIds());
-        const visibleChartProducts = chartProducts.filter(
-          (product: any) => !deletedProductIds.has(product._id)
-        );
         const productPageProducts = pickBestArray(productsPayload, isProductLike, [
           (productsPayload as any)?.products,
           (productsPayload as any)?.data?.products,
@@ -372,10 +360,23 @@ const Dashboard: React.FC = () => {
           (productsPayload as any)?.data?.docs,
           (productsPayload as any)?.data,
         ]);
-        const visibleProductPageProducts = productPageProducts.filter(
-          (product: any) => !deletedProductIds.has(product._id)
-        );
-        const totalProducts = visibleChartProducts.length || visibleProductPageProducts.length;
+        const nextCounts = {
+          users: usersRes.status === 'fulfilled'
+            ? findCount(usersPayload) ?? lastKnownCounts.current.users
+            : lastKnownCounts.current.users,
+          products: chartProductsRes.status === 'fulfilled'
+            ? chartProducts.length
+            : productsRes.status === 'fulfilled'
+              ? productPageProducts.length
+            : lastKnownCounts.current.products,
+          coupons: couponsRes.status === 'fulfilled'
+            ? findCount(couponsPayload) ?? lastKnownCounts.current.coupons
+            : lastKnownCounts.current.coupons,
+          categories: categoriesRes.status === 'fulfilled'
+            ? categories.filter((category: any) => category?.isActive === true).length
+            : lastKnownCounts.current.categories,
+        };
+        lastKnownCounts.current = nextCounts;
         const chartCoupons = pickBestArray(chartCouponsPayload, isCouponLike, [
           (chartCouponsPayload as any)?.coupons,
           (chartCouponsPayload as any)?.data?.coupons,
@@ -388,23 +389,23 @@ const Dashboard: React.FC = () => {
           type: 'SET_SUMMARY',
           payload: {
             stats: {
-              totalUsers,
-              totalProducts,
-              totalCoupons,
-              activeCategories,
+              totalUsers: nextCounts.users,
+              totalProducts: nextCounts.products,
+              totalCoupons: nextCounts.coupons,
+              activeCategories: nextCounts.categories,
             },
             recentUsers: dashboardUsers.slice(0, 5),
           },
         });
 
-        if (categories.length > 0) {
+        if (categories.length > 0 && chartProducts.length > 0) {
           const labels = categories.map((category: any) => category?.name || 'Unnamed');
           const counts = categories.map((category: any) => {
             const categoryId = normalizeValue(category?._id);
             const categoryName = normalizeValue(category?.name);
             const categorySlug = normalizeValue(category?.slug);
 
-            return visibleChartProducts.reduce((total: number, product: any) => {
+            return chartProducts.reduce((total: number, product: any) => {
               const productCategory = product?.category;
 
               if (typeof productCategory === 'string') {
@@ -449,10 +450,10 @@ const Dashboard: React.FC = () => {
             ],
             },
           });
-        } else {
+        } else if (chartProducts.length > 0) {
           const fallbackMap = new Map<string, number>();
 
-          visibleChartProducts.forEach((product: any) => {
+          chartProducts.forEach((product: any) => {
             const categoryValue =
               typeof product?.category === 'string'
                 ? product.category
@@ -478,6 +479,20 @@ const Dashboard: React.FC = () => {
                 borderWidth: 0,
               },
             ],
+            },
+          });
+        } else {
+          dispatch({
+            type: 'SET_DOUGHNUT_DATA',
+            payload: {
+              labels: [],
+              datasets: [
+                {
+                  data: [],
+                  backgroundColor: [],
+                  borderWidth: 0,
+                },
+              ],
             },
           });
         }

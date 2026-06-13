@@ -1,5 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import Cookies from 'js-cookie';
+import { toast } from 'sonner';
 
 const TOKEN_STORAGE_KEY = 'token';
 const USER_STORAGE_KEY = 'user';
@@ -10,13 +11,7 @@ const configuredBaseURL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
 ).replace(/\/+$/, '');
 
-const shouldUseLocalProxy =
-  import.meta.env.DEV &&
-  typeof window !== 'undefined' &&
-  ['localhost', '127.0.0.1'].includes(window.location.hostname) &&
-  configuredBaseURL === DEFAULT_API_BASE_URL;
-
-const baseURL = shouldUseLocalProxy ? '/api' : configuredBaseURL;
+const baseURL = configuredBaseURL;
 
 const AUTH_BYPASS_ROUTES = [
   '/auth/login',
@@ -52,6 +47,8 @@ const clearAuthStorage = () => {
   localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
 };
 
+let sessionExpiryRedirectScheduled = false;
+
 const shouldBypassAuth = (url?: string) => {
   if (!url) return false;
   return AUTH_BYPASS_ROUTES.some((route) => url.includes(route));
@@ -59,8 +56,23 @@ const shouldBypassAuth = (url?: string) => {
 
 const redirectToLogin = () => {
   const targetPath = '/inkarts-admin/login';
-  if (window.location.pathname !== targetPath) {
-    window.location.href = targetPath;
+  if (typeof window === 'undefined' || window.location.pathname === targetPath) {
+    return;
+  }
+
+  window.location.replace(targetPath);
+};
+
+const handleExpiredSession = () => {
+  clearAuthStorage();
+
+  if (!sessionExpiryRedirectScheduled) {
+    sessionExpiryRedirectScheduled = true;
+    toast.error('Session expired. Please log in again.');
+
+    window.setTimeout(() => {
+      redirectToLogin();
+    }, 1500);
   }
 };
 
@@ -116,13 +128,13 @@ apiClient.interceptors.response.use(
         }
       }
 
-      clearAuthStorage();
-      redirectToLogin();
+      handleExpiredSession();
+      return Promise.reject(error);
     }
 
-    if (status === 401 && (!originalRequest || shouldBypassAuth(originalRequest.url))) {
-      clearAuthStorage();
-      redirectToLogin();
+    if (status === 401 && !originalRequest) {
+      handleExpiredSession();
+      return Promise.reject(error);
     }
 
     return Promise.reject(error);

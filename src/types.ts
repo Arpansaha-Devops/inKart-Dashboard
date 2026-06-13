@@ -10,13 +10,15 @@ export interface User {
 export interface Product {
   _id: string;
   name: string;
+  slug?: string;
   description: string;
-  category: string;
+  category: string | Category;
   productType: 'stocked' | 'on_demand';
   stock: number;
   isCustomizable?: boolean;
   basePrice: number;
-  image: string;
+  image?: string;
+  images?: Array<string | { url?: string; secure_url?: string; path?: string; image?: string; src?: string }>;
   createdAt: string;
 }
 
