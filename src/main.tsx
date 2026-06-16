@@ -4,6 +4,11 @@ import App from './App.tsx';
 import './index.css';
 
 const THEME_STORAGE_KEY = 'inkart-dashboard-theme';
+const LEGACY_DELETED_CATEGORIES_STORAGE_KEY = 'inkart-dashboard-deleted-categories';
+
+if (typeof window !== 'undefined') {
+  window.localStorage.removeItem(LEGACY_DELETED_CATEGORIES_STORAGE_KEY);
+}
 
 const storedTheme =
   typeof window !== 'undefined' && window.localStorage.getItem(THEME_STORAGE_KEY) === 'light'

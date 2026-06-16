@@ -192,7 +192,12 @@ const isCategoryLike = (item: any): boolean =>
   Boolean(item && typeof item === 'object' && typeof item._id === 'string' && typeof item.name === 'string');
 
 const isProductLike = (item: any): boolean =>
-  Boolean(item && typeof item === 'object' && typeof item._id === 'string' && typeof item.name === 'string');
+  Boolean(
+    item &&
+      typeof item === 'object' &&
+      (typeof item._id === 'string' || typeof item.id === 'string') &&
+      typeof item.name === 'string'
+  );
 
 const isCouponLike = (item: any): boolean =>
   Boolean(item && typeof item === 'object' && typeof item._id === 'string' && typeof item.code === 'string');
@@ -266,6 +271,15 @@ const extractUsers = (payload: any): User[] => {
   return best;
 };
 
+const extractProducts = (payload: any): any[] =>
+  pickBestArray(payload, isProductLike, [
+    payload?.products,
+    payload?.data?.products,
+    payload?.data?.items,
+    payload?.data?.docs,
+    payload?.data,
+  ]);
+
 const Dashboard: React.FC = () => {
   const [state, dispatch] = useReducer(dashboardDataReducer, dashboardDataInitialState);
   const { stats, isLoading, recentUsers, doughnutData, barData } = state;
@@ -321,7 +335,7 @@ const Dashboard: React.FC = () => {
         const productsPayload = productsRes.status === 'fulfilled' ? productsRes.value.data : null;
         const couponsPayload = couponsRes.status === 'fulfilled' ? couponsRes.value.data : null;
         const categoriesPayload = categoriesRes.status === 'fulfilled' ? categoriesRes.value.data : null;
-        const chartProductsPayload = chartProductsRes.status === 'fulfilled' ? chartProductsRes.value.data : null;
+        let chartProductsPayload = chartProductsRes.status === 'fulfilled' ? chartProductsRes.value.data : null;
         const chartCouponsPayload = chartCouponsRes.status === 'fulfilled' ? chartCouponsRes.value.data : null;
         const failedCalls = [
           usersRes,
@@ -346,25 +360,27 @@ const Dashboard: React.FC = () => {
           (categoriesPayload as any)?.data,
         ]);
 
-        const chartProducts = pickBestArray(chartProductsPayload, isProductLike, [
-          (chartProductsPayload as any)?.products,
-          (chartProductsPayload as any)?.data?.products,
-          (chartProductsPayload as any)?.data?.items,
-          (chartProductsPayload as any)?.data?.docs,
-          (chartProductsPayload as any)?.data,
-        ]);
-        const productPageProducts = pickBestArray(productsPayload, isProductLike, [
-          (productsPayload as any)?.products,
-          (productsPayload as any)?.data?.products,
-          (productsPayload as any)?.data?.items,
-          (productsPayload as any)?.data?.docs,
-          (productsPayload as any)?.data,
-        ]);
+        let chartProducts = extractProducts(chartProductsPayload);
+        let productPageProducts = extractProducts(productsPayload);
+
+        if (chartProducts.length === 0 && productPageProducts.length === 0) {
+          try {
+            const publicProductsResponse = await apiClient.get('/products', {
+              params: { page: 1, limit: 500 },
+            });
+            chartProductsPayload = publicProductsResponse.data;
+            chartProducts = extractProducts(chartProductsPayload);
+            productPageProducts = chartProducts;
+          } catch {
+            // Keep the admin endpoint result as the dashboard source when public fallback is unavailable.
+          }
+        }
+
         const nextCounts = {
           users: usersRes.status === 'fulfilled'
             ? findCount(usersPayload) ?? lastKnownCounts.current.users
             : lastKnownCounts.current.users,
-          products: chartProductsRes.status === 'fulfilled'
+          products: chartProducts.length > 0
             ? chartProducts.length
             : productsRes.status === 'fulfilled'
               ? productPageProducts.length

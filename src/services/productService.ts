@@ -13,7 +13,8 @@ const isProductWithId = (value: unknown, productId: string) =>
   Boolean(
     value &&
       typeof value === 'object' &&
-      (value as { _id?: unknown })._id === productId
+      ((value as { _id?: unknown; id?: unknown })._id === productId ||
+        (value as { _id?: unknown; id?: unknown }).id === productId)
   );
 
 const payloadContainsProduct = (payload: unknown, productId: string): boolean => {
@@ -87,10 +88,6 @@ export const deleteProduct = async (productId: string): Promise<DeleteProductRes
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const verifyResponse = await apiClient.get('/admin/products', {
       params: { page: 1, limit: PRODUCT_DELETE_VERIFY_LIMIT, _ts: Date.now() },
-      headers: {
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
     });
 
     if (!payloadContainsProduct(verifyResponse.data, productId)) {
@@ -106,10 +103,6 @@ export const deleteProduct = async (productId: string): Promise<DeleteProductRes
     await apiClient.delete(`/products/${productId}`);
     const verifyResponse = await apiClient.get('/admin/products', {
       params: { page: 1, limit: PRODUCT_DELETE_VERIFY_LIMIT, _ts: Date.now() },
-      headers: {
-        'Cache-Control': 'no-cache',
-        Pragma: 'no-cache',
-      },
     });
 
     if (!payloadContainsProduct(verifyResponse.data, productId)) {

@@ -6,6 +6,7 @@ const TOKEN_STORAGE_KEY = 'token';
 const USER_STORAGE_KEY = 'user';
 const REFRESH_TOKEN_STORAGE_KEY = 'refreshToken';
 const DEFAULT_API_BASE_URL = 'https://inkart-virid.vercel.app/api/v1';
+const CACHE_BUST_PARAM = '_ts';
 
 const configuredBaseURL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
@@ -51,7 +52,16 @@ let sessionExpiryRedirectScheduled = false;
 
 const shouldBypassAuth = (url?: string) => {
   if (!url) return false;
-  return AUTH_BYPASS_ROUTES.some((route) => url.includes(route));
+  try {
+    const pathname = new URL(url, baseURL).pathname;
+    return AUTH_BYPASS_ROUTES.some(
+      (route) => pathname === route || pathname.startsWith(`${route}/`)
+    );
+  } catch {
+    return AUTH_BYPASS_ROUTES.some(
+      (route) => url === route || url.startsWith(`${route}/`)
+    );
+  }
 };
 
 const redirectToLogin = () => {
@@ -81,6 +91,22 @@ const apiClient = axios.create({
 });
 
 apiClient.interceptors.request.use((config) => {
+  const method = (config.method || 'get').toLowerCase();
+  if (method === 'get') {
+    if (config.params instanceof URLSearchParams) {
+      if (!config.params.has(CACHE_BUST_PARAM)) {
+        config.params.set(CACHE_BUST_PARAM, String(Date.now()));
+      }
+    } else {
+      config.params = {
+        ...(config.params || {}),
+        [CACHE_BUST_PARAM]: (config.params as Record<string, unknown> | undefined)?.[
+          CACHE_BUST_PARAM
+        ] ?? Date.now(),
+      };
+    }
+  }
+
   if (!shouldBypassAuth(config.url)) {
     const token = readToken();
     if (token) {

@@ -22,9 +22,19 @@ const isProductLike = (item: any): item is Product => {
   return Boolean(
     item &&
       typeof item === 'object' &&
-      typeof item._id === 'string' &&
+      (typeof item._id === 'string' || typeof item.id === 'string') &&
       (typeof item.name === 'string' || typeof item.description === 'string')
   );
+};
+
+const getProductId = (product: Product | null | undefined): string => {
+  if (!product) return '';
+  return product._id || product.id || '';
+};
+
+const normalizeProduct = (product: Product): Product => {
+  const productId = getProductId(product);
+  return productId ? { ...product, _id: productId } : product;
 };
 
 const collectArrays = (node: unknown, arrays: any[][] = []): any[][] => {
@@ -53,20 +63,41 @@ const extractProducts = (payload: any): Product[] => {
 
   for (const candidate of directCandidates) {
     if (Array.isArray(candidate) && candidate.some(isProductLike)) {
-      return candidate.filter(isProductLike);
+      return candidate.filter(isProductLike).map(normalizeProduct);
     }
   }
 
   const deepCandidates = collectArrays(payload);
   let best: Product[] = [];
   deepCandidates.forEach((arr) => {
-    const filtered = arr.filter(isProductLike);
+    const filtered = arr.filter(isProductLike).map(normalizeProduct);
     if (filtered.length > best.length) {
       best = filtered;
     }
   });
 
   return best;
+};
+
+const mergeProducts = (existingProducts: Product[], incomingProducts: Product[]): Product[] => {
+  const merged = new Map<string, Product>();
+
+  incomingProducts.forEach((product) => {
+    const normalized = normalizeProduct(product);
+    const productId = getProductId(normalized);
+    if (productId) {
+      merged.set(productId, normalized);
+    }
+  });
+
+  existingProducts.forEach((product) => {
+    const productId = getProductId(product);
+    if (productId && !merged.has(productId)) {
+      merged.set(productId, normalizeProduct(product));
+    }
+  });
+
+  return Array.from(merged.values());
 };
 
 const extractTotalProducts = (payload: any, fallback = 0): number => {
@@ -206,6 +237,7 @@ type ProductsState = {
 
 type ProductsAction =
   | { type: 'SET_LIST'; payload: { products: Product[]; totalCount: number } }
+  | { type: 'MERGE_LIST'; payload: Product[] }
   | { type: 'SET_PRODUCTS'; payload: Product[] | ((previous: Product[]) => Product[]) }
   | { type: 'SET_TOTAL_COUNT'; payload: number | ((previous: number) => number) }
   | { type: 'SET_PAGE'; payload: number | ((previous: number) => number) }
@@ -256,6 +288,10 @@ function productsReducer(state: ProductsState, action: ProductsAction): Products
   switch (action.type) {
     case 'SET_LIST':
       return { ...state, products: action.payload.products, totalCount: action.payload.totalCount };
+    case 'MERGE_LIST': {
+      const products = mergeProducts(state.products, action.payload);
+      return { ...state, products, totalCount: products.length };
+    }
     case 'SET_PRODUCTS':
       return {
         ...state,
@@ -380,18 +416,25 @@ const Products: React.FC = () => {
     }
   }, []);
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (options: { mergeWithCurrent?: boolean } = {}) => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const response = await apiClient.get<any>('/admin/products', {
         params: { page: 1, limit: 500, _ts: Date.now() },
-        headers: {
-          'Cache-Control': 'no-cache',
-          Pragma: 'no-cache',
-        },
       });
 
-      const productsList = extractProducts(response.data);
+      let productsList = extractProducts(response.data);
+
+      if (productsList.length === 0) {
+        try {
+          const publicResponse = await apiClient.get<any>('/products', {
+            params: { page: 1, limit: 500, _ts: Date.now() },
+          });
+          productsList = extractProducts(publicResponse.data);
+        } catch {
+          // Keep the admin response as the source of truth when public fallback is unavailable.
+        }
+      }
 
       const mappedCategories: Record<string, string> = {};
       productsList.forEach((product: any) => {
@@ -402,10 +445,14 @@ const Products: React.FC = () => {
         }
       });
 
-      dispatch({
-        type: 'SET_LIST',
-        payload: { products: productsList, totalCount: productsList.length },
-      });
+      if (options.mergeWithCurrent) {
+        dispatch({ type: 'MERGE_LIST', payload: productsList });
+      } else {
+        dispatch({
+          type: 'SET_LIST',
+          payload: { products: productsList, totalCount: productsList.length },
+        });
+      }
       if (Object.keys(mappedCategories).length > 0) {
         dispatch({ type: 'MERGE_CATEGORY_NAMES', payload: mappedCategories });
       }
@@ -539,6 +586,14 @@ const Products: React.FC = () => {
     });
   };
 
+  const handleCreateProductSuccess = (createdProductPayload?: unknown) => {
+    const createdProducts = extractProducts(createdProductPayload);
+    if (createdProducts.length > 0) {
+      dispatch({ type: 'MERGE_LIST', payload: createdProducts });
+    }
+    fetchProducts({ mergeWithCurrent: createdProducts.length > 0 });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const data = new FormData();
@@ -559,7 +614,12 @@ const Products: React.FC = () => {
         toast.error('Use the Create Product modal to add new products.');
         return;
       }
-      await apiClient.patch(`/admin/products/${editingProduct._id}`, data);
+      const editingProductId = getProductId(editingProduct);
+      if (!editingProductId) {
+        toast.error('Product ID is missing');
+        return;
+      }
+      await apiClient.patch(`/admin/products/${editingProductId}`, data);
       toast.success('Product updated successfully');
       dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
       fetchProducts();
@@ -573,7 +633,12 @@ const Products: React.FC = () => {
     if (!stockProduct) return;
 
     try {
-      await apiClient.patch(`/admin/products/${stockProduct._id}/stock`, stockData);
+      const stockProductId = getProductId(stockProduct);
+      if (!stockProductId) {
+        toast.error('Product ID is missing');
+        return;
+      }
+      await apiClient.patch(`/admin/products/${stockProductId}/stock`, stockData);
       toast.success('Stock updated successfully');
       dispatch({ type: 'CLOSE_STOCK_MODAL' });
       fetchProducts();
@@ -587,16 +652,16 @@ const Products: React.FC = () => {
   };
 
   const handleDeleteProduct = async () => {
-    if (!deletingProduct?._id) return;
+    const productId = getProductId(deletingProduct);
+    if (!productId) return;
 
-    const productId = deletingProduct._id;
     dispatch({ type: 'SET_DELETING_PRODUCT', payload: true });
     try {
       const result = await deleteProduct(productId);
       dispatch({
         type: 'SET_PRODUCTS',
         payload: (currentProducts) =>
-          currentProducts.filter((product) => product._id !== productId),
+          currentProducts.filter((product) => getProductId(product) !== productId),
       });
       dispatch({
         type: 'SET_TOTAL_COUNT',
@@ -689,7 +754,7 @@ const Products: React.FC = () => {
                   </tr>
                 ) : (
                   paginatedProducts.map((product) => (
-                    <tr key={product._id} className="group">
+                    <tr key={getProductId(product)} className="group">
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                           <img
@@ -1307,7 +1372,7 @@ const Products: React.FC = () => {
       <CreateProductModal
         isOpen={isCreateModalOpen}
         onClose={() => dispatch({ type: 'CLOSE_CREATE_MODAL' })}
-        onSuccess={() => fetchProducts()}
+        onSuccess={handleCreateProductSuccess}
       />
     </div>
   );

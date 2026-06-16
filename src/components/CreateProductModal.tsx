@@ -10,7 +10,7 @@ import { setUniqueProductSlug } from '../lib/productSlugs';
 interface CreateProductModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (createdProductPayload?: unknown) => void;
 }
 
 interface FormErrors {
@@ -420,17 +420,18 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     formData.append('productType', productType);
     formData.append('stock', String(stock));
     formData.append('isCustomizable', String(isCustomizable));
+    formData.append('isActive', 'true');
     images.forEach((image, index) => {
       formData.append('images', image);
     });
     formData.append('basePrice', String(basePrice));
 
     try {
-      await createProduct(formData);
+      const response = await createProduct(formData);
       toast.success('Product created successfully!');
       resetForm();
       onClose();
-      onSuccess();
+      onSuccess(response.data);
     } catch (error: any) {
       if (error.response?.status === 401) {
         navigate('/login');
