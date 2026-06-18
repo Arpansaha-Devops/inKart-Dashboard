@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
 import apiClient from '../lib/apiClient';
-import { Product } from '../types';
+import type { Product, QuantityPricingTier } from '../types';
 import {
+  ArrowDown,
+  ArrowUp,
   Plus,
   Edit2,
   Trash2,
@@ -15,7 +17,7 @@ import {
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
-import { deleteProduct } from '../services/productService';
+import { deleteProduct, updateProduct } from '../services/productService';
 import { getVisibleProductName } from '../lib/productNames';
 
 const isProductLike = (item: any): item is Product => {
@@ -209,7 +211,16 @@ type ProductFormData = {
   stock: number;
   isCustomizable: boolean;
   basePrice: number;
+  quantityPricing: QuantityPricingTierForm[];
   image: File | null;
+};
+
+type QuantityPricingTierForm = QuantityPricingTier & {
+  id: string;
+};
+
+type ProductFormErrors = {
+  quantityPricing?: string;
 };
 
 type StockFormData = {
@@ -232,6 +243,7 @@ type ProductsState = {
   stockProduct: Product | null;
   deletingProduct: Product | null;
   formData: ProductFormData;
+  formErrors: ProductFormErrors;
   stockData: StockFormData;
 };
 
@@ -253,7 +265,57 @@ type ProductsAction =
   | { type: 'CLOSE_DELETE_MODAL' }
   | { type: 'SET_DELETING_PRODUCT'; payload: boolean }
   | { type: 'SET_FORM_DATA'; payload: ProductFormData | ((previous: ProductFormData) => ProductFormData) }
+  | { type: 'SET_FORM_ERRORS'; payload: ProductFormErrors | ((previous: ProductFormErrors) => ProductFormErrors) }
   | { type: 'SET_STOCK_DATA'; payload: StockFormData | ((previous: StockFormData) => StockFormData) };
+
+const emptyPricingTier = (id = 'tier-1'): QuantityPricingTierForm => ({
+  id,
+  minQty: 0,
+  pricePerUnit: 0,
+});
+
+const toPricingTierFormRows = (tiers?: QuantityPricingTier[]): QuantityPricingTierForm[] => {
+  if (!Array.isArray(tiers) || tiers.length === 0) {
+    return [emptyPricingTier()];
+  }
+
+  return tiers.map((tier, index) => ({
+    id: `tier-${index + 1}`,
+    minQty: Number.isFinite(Number(tier.minQty)) ? Number(tier.minQty) : 0,
+    pricePerUnit: Number.isFinite(Number(tier.pricePerUnit)) ? Number(tier.pricePerUnit) : 0,
+  }));
+};
+
+const sortQuantityPricing = (tiers: QuantityPricingTier[]) =>
+  [...tiers].sort((a, b) => a.minQty - b.minQty);
+
+const validateQuantityPricing = (tiers: QuantityPricingTier[]): string | null => {
+  if (tiers.length === 0) {
+    return 'Add at least one pricing tier';
+  }
+
+  if (tiers.some((tier) => !Number.isInteger(tier.minQty) || tier.minQty <= 0)) {
+    return 'Min quantity must be a positive whole number for every tier';
+  }
+
+  if (tiers.some((tier) => !Number.isFinite(tier.pricePerUnit) || tier.pricePerUnit <= 0)) {
+    return 'Price per unit must be greater than 0 for every tier';
+  }
+
+  const minQtyValues = new Set<number>();
+  for (const tier of tiers) {
+    if (minQtyValues.has(tier.minQty)) {
+      return 'Pricing tiers cannot use duplicate min quantities';
+    }
+    minQtyValues.add(tier.minQty);
+  }
+
+  if (sortQuantityPricing(tiers)[0]?.minQty !== 1) {
+    return 'The first pricing tier must start at min quantity 1';
+  }
+
+  return null;
+};
 
 const defaultProductFormData = (): ProductFormData => ({
   name: '',
@@ -263,6 +325,7 @@ const defaultProductFormData = (): ProductFormData => ({
   stock: 0,
   isCustomizable: true,
   basePrice: 0,
+  quantityPricing: [emptyPricingTier()],
   image: null,
 });
 
@@ -281,6 +344,7 @@ const productsInitialState: ProductsState = {
   stockProduct: null,
   deletingProduct: null,
   formData: defaultProductFormData(),
+  formErrors: {},
   stockData: { quantity: 0, operation: 'add' },
 };
 
@@ -325,10 +389,11 @@ function productsReducer(state: ProductsState, action: ProductsAction): Products
         ...state,
         editingProduct: action.payload.product,
         formData: action.payload.formData,
+        formErrors: {},
         isModalOpen: true,
       };
     case 'CLOSE_PRODUCT_MODAL':
-      return { ...state, isModalOpen: false };
+      return { ...state, isModalOpen: false, formErrors: {} };
     case 'OPEN_STOCK_MODAL':
       return {
         ...state,
@@ -354,6 +419,14 @@ function productsReducer(state: ProductsState, action: ProductsAction): Products
         formData:
           typeof action.payload === 'function'
             ? action.payload(state.formData)
+            : action.payload,
+      };
+    case 'SET_FORM_ERRORS':
+      return {
+        ...state,
+        formErrors:
+          typeof action.payload === 'function'
+            ? action.payload(state.formErrors)
             : action.payload,
       };
     case 'SET_STOCK_DATA':
@@ -386,6 +459,7 @@ const Products: React.FC = () => {
     stockProduct,
     deletingProduct,
     formData,
+    formErrors,
     stockData,
   } = state;
   const limit = 10;
@@ -580,6 +654,7 @@ const Products: React.FC = () => {
           stock: product.stock || 0,
           isCustomizable: product.isCustomizable ?? true,
           basePrice: product.basePrice || 0,
+          quantityPricing: toPricingTierFormRows(product.quantityPricing),
           image: null,
         },
       },
@@ -594,10 +669,90 @@ const Products: React.FC = () => {
     fetchProducts({ mergeWithCurrent: createdProducts.length > 0 });
   };
 
+  const updatePricingTier = (
+    tierId: string,
+    field: 'minQty' | 'pricePerUnit',
+    value: number
+  ) => {
+    dispatch({
+      type: 'SET_FORM_DATA',
+      payload: (previous) => ({
+        ...previous,
+        quantityPricing: previous.quantityPricing.map((tier) =>
+          tier.id === tierId ? { ...tier, [field]: value } : tier
+        ),
+      }),
+    });
+    if (formErrors.quantityPricing) {
+      dispatch({
+        type: 'SET_FORM_ERRORS',
+        payload: (previous) => ({ ...previous, quantityPricing: undefined }),
+      });
+    }
+  };
+
+  const addPricingTier = () => {
+    dispatch({
+      type: 'SET_FORM_DATA',
+      payload: (previous) => ({
+        ...previous,
+        quantityPricing: [
+          ...previous.quantityPricing,
+          {
+            id: `tier-${Date.now()}-${previous.quantityPricing.length}`,
+            minQty: 0,
+            pricePerUnit: 0,
+          },
+        ],
+      }),
+    });
+    if (formErrors.quantityPricing) {
+      dispatch({
+        type: 'SET_FORM_ERRORS',
+        payload: (previous) => ({ ...previous, quantityPricing: undefined }),
+      });
+    }
+  };
+
+  const removePricingTier = (tierId: string) => {
+    if (formData.quantityPricing.length <= 1) return;
+    dispatch({
+      type: 'SET_FORM_DATA',
+      payload: (previous) => ({
+        ...previous,
+        quantityPricing: previous.quantityPricing.filter((tier) => tier.id !== tierId),
+      }),
+    });
+  };
+
+  const movePricingTier = (index: number, direction: -1 | 1) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= formData.quantityPricing.length) return;
+    const nextTiers = [...formData.quantityPricing];
+    [nextTiers[index], nextTiers[nextIndex]] = [nextTiers[nextIndex], nextTiers[index]];
+    dispatch({
+      type: 'SET_FORM_DATA',
+      payload: (previous) => ({ ...previous, quantityPricing: nextTiers }),
+    });
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const pricingTiers = formData.quantityPricing.map(({ minQty, pricePerUnit }) => ({
+      minQty,
+      pricePerUnit,
+    }));
+    const quantityPricingError = validateQuantityPricing(pricingTiers);
+    if (quantityPricingError) {
+      dispatch({ type: 'SET_FORM_ERRORS', payload: { quantityPricing: quantityPricingError } });
+      return;
+    }
+    dispatch({ type: 'SET_FORM_ERRORS', payload: {} });
+    const sortedPricingTiers = sortQuantityPricing(pricingTiers);
+
     const data = new FormData();
     Object.entries(formData).forEach(([key, value]) => {
+      if (key === 'quantityPricing') return;
       if (value !== null && value !== undefined) {
         if (value instanceof File) {
           data.append(key === 'image' ? 'images' : key, value);
@@ -607,6 +762,7 @@ const Products: React.FC = () => {
       }
     });
     data.set('name', formData.name.trim());
+    data.set('quantityPricing', JSON.stringify(sortedPricingTiers));
 
     try {
       // This legacy modal is edit-only; product creation is handled by CreateProductModal.
@@ -619,7 +775,7 @@ const Products: React.FC = () => {
         toast.error('Product ID is missing');
         return;
       }
-      await apiClient.patch(`/admin/products/${editingProductId}`, data);
+      await updateProduct(editingProductId, data);
       toast.success('Product updated successfully');
       dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
       fetchProducts();
@@ -1080,6 +1236,132 @@ const Products: React.FC = () => {
                         })
                       }
                     />
+                  </div>
+
+                  <div
+                    className="form-group"
+                    style={{
+                      gridColumn: '1 / -1',
+                      display: 'grid',
+                      gap: '12px',
+                      padding: '16px',
+                      border: `1px solid ${formErrors.quantityPricing ? 'var(--danger)' : 'var(--border)'}`,
+                      borderRadius: 'var(--radius-md)',
+                      background: 'var(--bg-surface)',
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: '12px',
+                        flexWrap: 'wrap',
+                      }}
+                    >
+                      <label className="form-label" style={{ margin: 0 }}>
+                        Pricing Tiers
+                      </label>
+                      <button type="button" className="btn-ghost" onClick={addPricingTier}>
+                        <Plus size={15} />
+                        Add tier
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      {formData.quantityPricing.map((tier, index) => (
+                        <div
+                          key={tier.id}
+                          style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
+                            gap: '10px',
+                            alignItems: 'end',
+                          }}
+                        >
+                          <div>
+                            <label className="form-label" htmlFor={`edit-tier-min-${tier.id}`}>
+                              Min Quantity
+                            </label>
+                            <input
+                              id={`edit-tier-min-${tier.id}`}
+                              type="number"
+                              min="1"
+                              step="1"
+                              className="input-field"
+                              value={tier.minQty || ''}
+                              onChange={(event) =>
+                                updatePricingTier(
+                                  tier.id,
+                                  'minQty',
+                                  Number(event.target.value) || 0
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div>
+                            <label className="form-label" htmlFor={`edit-tier-price-${tier.id}`}>
+                              Price Per Unit
+                            </label>
+                            <input
+                              id={`edit-tier-price-${tier.id}`}
+                              type="number"
+                              min="0.01"
+                              step="0.01"
+                              className="input-field"
+                              value={tier.pricePerUnit || ''}
+                              onChange={(event) =>
+                                updatePricingTier(
+                                  tier.id,
+                                  'pricePerUnit',
+                                  parseFloat(event.target.value) || 0
+                                )
+                              }
+                            />
+                          </div>
+
+                          <div style={{ display: 'inline-flex', gap: 6, justifyContent: 'flex-end', alignSelf: 'end' }}>
+                            <button
+                              type="button"
+                              className="action-icon-button"
+                              onClick={() => movePricingTier(index, -1)}
+                              disabled={index === 0}
+                              aria-label="Move pricing tier up"
+                              title="Move up"
+                            >
+                              <ArrowUp size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              className="action-icon-button"
+                              onClick={() => movePricingTier(index, 1)}
+                              disabled={index === formData.quantityPricing.length - 1}
+                              aria-label="Move pricing tier down"
+                              title="Move down"
+                            >
+                              <ArrowDown size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              className="action-icon-button danger"
+                              onClick={() => removePricingTier(tier.id)}
+                              disabled={formData.quantityPricing.length <= 1}
+                              aria-label="Remove pricing tier"
+                              title="Remove tier"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {formErrors.quantityPricing ? (
+                      <p style={{ color: 'var(--danger)', fontSize: '12px', margin: 0 }}>
+                        {formErrors.quantityPricing}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>

@@ -18,10 +18,30 @@ export interface Product {
   stock: number;
   isCustomizable?: boolean;
   basePrice: number;
+  quantityPricing?: QuantityPricingTier[];
   image?: string;
   images?: Array<string | { url?: string; secure_url?: string; path?: string; image?: string; src?: string }>;
   createdAt: string;
 }
+
+export interface QuantityPricingTier {
+  minQty: number;
+  pricePerUnit: number;
+}
+
+export interface CreateProductPayload {
+  name: string;
+  price: number;
+  description: string;
+  category: string;
+  productType: 'stocked' | 'on_demand';
+  stock: number;
+  isCustomizable?: boolean;
+  basePrice: number;
+  quantityPricing?: QuantityPricingTier[];
+}
+
+export type UpdateProductPayload = Partial<CreateProductPayload>;
 
 export interface AuthResponse {
   success: boolean;

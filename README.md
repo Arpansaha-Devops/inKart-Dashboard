@@ -1,44 +1,52 @@
 # InkArt Admin Dashboard
 
-This README documents the current admin project in this repository. The admin dashboard and the InkArt e-commerce storefront use the same backend API, so admin changes can directly affect catalog, category, coupon, user, and analytics data seen by the customer-facing app.
+This repository contains the InkArt admin dashboard. It is a Vite + React + TypeScript single-page app for managing the same backend data used by the customer-facing InkArt e-commerce storefront.
+
+Admin changes are live business data changes. Product, category, coupon, customer, order, and analytics operations in this dashboard can affect what the storefront displays or consumes through the shared API.
 
 ## Overview
 
-InkArt Admin Dashboard is a Vite + React + TypeScript single-page admin panel for managing the InkArt backend.
+Current functionality:
 
-Current features:
-
-- Admin-only login and protected routes
-- Dashboard summary cards and charts
-- Orders listing, filtering, CSV export, and detail view
-- Order analytics page with KPI cards and revenue chart
-- Customer listing, search, detail view, and delete
-- Product listing, create, edit, stock update, and delete
-- Category listing, create, edit, and delete
-- Coupon listing, create, edit, delete, active/expired summaries, and category targeting
-- Dark/light theme switching persisted in local storage
-- Responsive sidebar, header, and right notification panel shell
+- Admin login with password flow and optional OTP verification flow
+- Protected admin-only routes
+- Dashboard summary cards, product/category charts, coupon discount chart, recent users, and quick actions
+- Orders listing with server filters, search, date range filtering, pagination, CSV export, detail modal, order approval, delivery estimate updates, and confirmation email resend
+- Order analytics KPI cards and revenue-over-time chart
+- Customer listing, debounced search, pagination, customer details, and user deletion
+- Product listing, create, edit, stock adjustment, quantity pricing tiers, image upload, and verified delete
+- Category listing, create, edit, delete, status display, and client-side pagination
+- Coupon listing, create, edit, delete, active/expired summaries, validity windows, usage limits, and category targeting
+- Dark/light theme switching persisted in localStorage
+- Responsive sidebar, header, right-side notification/activity/manager panel shell, modals, tables, cards, and chart surfaces
 
 ## Shared API Contract
 
-The app talks to the same API used by the e-commerce project.
+The dashboard uses the same backend API as the e-commerce project.
 
 - Default API base URL: `https://inkart-virid.vercel.app/api/v1`
 - Runtime override: `VITE_API_BASE_URL`
-- Frontend route basename: `/inkarts-admin`
+- Browser route basename: `/inkarts-admin`
 - Vite base path: `/inkarts-admin/`
 - Local dev URL: `http://localhost:8000/inkarts-admin/login`
 
-All API requests go through [src/lib/apiClient.ts](src/lib/apiClient.ts), except the refresh-token retry which uses raw `axios.post` internally.
+All normal API calls go through [src/lib/apiClient.ts](src/lib/apiClient.ts). The refresh-token retry uses raw `axios.post` internally so it can retry the failed request after receiving a new access token.
 
 Important API client behavior:
 
-- Trims trailing slashes from the configured base URL.
-- Uses the local Vite `/api` proxy in development on `localhost` or `127.0.0.1` when `VITE_API_BASE_URL` is still the default live API URL.
-- Adds `Authorization: Bearer <token>` to authenticated requests.
+- Trims trailing slashes from `VITE_API_BASE_URL`.
+- Defaults to the live backend URL when `VITE_API_BASE_URL` is not set.
+- Adds a `_ts` cache-busting query param to every GET request.
+- Adds `Authorization: Bearer <token>` to authenticated requests, reading from cookies first and localStorage second.
 - Skips auth headers for `/auth/login`, `/auth/register`, `/auth/verify-login-otp`, `/auth/verify-otp`, and `/auth/refresh-token`.
-- On `401`, tries `POST /auth/refresh-token` once if a refresh token exists.
-- If refresh fails, clears auth storage and redirects to `/inkarts-admin/login`.
+- On a `401`, retries once with `POST /auth/refresh-token` if a refresh token exists.
+- If refresh fails, clears auth storage, shows a session-expired toast, and redirects to `/inkarts-admin/login`.
+
+[vite.config.ts](vite.config.ts) defines a dev proxy from `/api` to the live backend, but the current API client does not automatically switch to `/api`. To use the proxy locally, set:
+
+```env
+VITE_API_BASE_URL="/api"
+```
 
 ## Tech Stack
 
@@ -55,7 +63,7 @@ Important API client behavior:
 - js-cookie
 - clsx + tailwind-merge
 
-Present in dependencies but not used by visible app features:
+Present in dependencies but not used by current visible app features:
 
 - `@google/genai`
 - `date-fns`
@@ -68,13 +76,14 @@ npm run build    # production build
 npm run preview  # preview production build
 npm run lint     # TypeScript check with tsc --noEmit
 npm run clean    # remove dist with rm -rf
+npm run doctor   # run react-doctor
 ```
 
 Note: `npm run clean` uses Unix-style `rm -rf`, so it may not work in a plain Windows shell.
 
 ## Environment
 
-Defined in `.env.example`:
+Defined in [.env.example](.env.example):
 
 ```env
 GEMINI_API_KEY="MY_GEMINI_API_KEY"
@@ -99,22 +108,24 @@ Actual frontend runtime usage:
 - Sets dev server port to `8000`.
 - Defines alias `@` as the repository root, not `src`.
 - Defines a `/api` proxy to `https://inkart-virid.vercel.app/api/v1`.
-
-Important note: in local development, [src/lib/apiClient.ts](src/lib/apiClient.ts) automatically switches to `/api` when the configured API base URL is the default live API URL and the page is served from `localhost` or `127.0.0.1`.
+- Injects `process.env.GEMINI_API_KEY`.
+- Allows HMR unless `DISABLE_HMR=true`.
 
 [src/main.tsx](src/main.tsx):
 
+- Removes the legacy `localStorage['inkart-dashboard-deleted-categories']` key at startup.
 - Reads `localStorage['inkart-dashboard-theme']`.
 - Defaults to dark mode unless the stored value is exactly `light`.
-- Applies `body.dark` or `body.light` before React render.
+- Applies `body.dark` or `body.light` and `color-scheme` before React render.
 - Renders `<App />` inside `StrictMode`.
 
 [src/App.tsx](src/App.tsx):
 
-- Wraps everything with `AuthProvider`.
+- Wraps the app with `AuthProvider`.
 - Uses `BrowserRouter` with `basename="/inkarts-admin"`.
 - Mounts `Toaster`.
 - Defines public and protected routes.
+- Lazy-loads `Dashboard` and `Analytics`.
 
 ## Route Map
 
@@ -147,21 +158,23 @@ Sidebar navigation matches the protected routes:
 
 - Stores `user`, `token`, and `isLoading`.
 - Hydrates `user` and `token` from cookies first, then localStorage.
-- `login()` saves `user`, `token`, and `refreshToken` into cookies and localStorage.
+- Checks JWT expiry during hydration; expired or malformed tokens are cleared.
+- `login()` saves `user`, `token`, and `refreshToken` into cookies and localStorage for 7 days.
 - `logout()` clears auth cookies and localStorage values.
+- `isLoading` is currently always `false` after synchronous hydration.
 
 [src/components/PrivateRoute.tsx](src/components/PrivateRoute.tsx):
 
-- Shows `Loading...` while auth state hydrates.
 - Requires `token`, `user`, and `user.role === 'admin'`.
 - Redirects unauthorized users to `/login`.
 
 [src/pages/Login.tsx](src/pages/Login.tsx):
 
-- Calls `POST /auth/login`.
-- Expects `token`, `refreshToken`, and `data.user`.
-- Rejects non-admin users.
-- Calls auth context `login()` and navigates to `/dashboard`.
+- Calls `POST /auth/login` with email/password.
+- If the login response is successful but does not include user/token data, switches to OTP mode.
+- Calls `POST /auth/verify-login-otp` with email/OTP in OTP mode.
+- Accepts auth payloads from either top-level fields or `data`.
+- Requires an admin user, access token, and refresh token before entering the dashboard.
 
 [src/components/Sidebar.tsx](src/components/Sidebar.tsx):
 
@@ -170,24 +183,30 @@ Sidebar navigation matches the protected routes:
 
 ## API Endpoint Matrix
 
-All backend endpoints referenced by current code:
+All backend endpoints referenced by current source:
 
 | Method | Endpoint | Used In |
 |---|---|---|
 | `POST` | `/auth/login` | Login |
+| `POST` | `/auth/verify-login-otp` | Login OTP step |
 | `POST` | `/auth/logout` | Sidebar logout |
 | `POST` | `/auth/refresh-token` | API client interceptor |
 | `GET` | `/users/all` | Dashboard, Customers |
 | `DELETE` | `/admin/users/:id` | Customers |
 | `GET` | `/admin/orders` | Orders |
+| `PATCH` | `/admin/orders/:id/approve` | Order detail actions |
+| `PATCH` | `/admin/orders/:id/delivery-estimate` | Order detail actions |
+| `POST` | `/admin/orders/:id/resend-confirmation` | Order detail actions |
 | `GET` | `/admin/products` | Dashboard, Products, CreateProductModal, productService |
+| `GET` | `/products` | Dashboard/Products fallback, product delete fallback |
 | `POST` | `/admin/products` | Products, CreateProductModal, productService |
 | `PATCH` | `/admin/products/:id` | Products, productService |
 | `PATCH` | `/admin/products/:id/stock` | Products, productService |
 | `DELETE` | `/admin/products/:id` | Products, productService |
+| `DELETE` | `/products/:id` | productService fallback after admin delete |
 | `GET` | `/admin/categories` | Dashboard, Products, Categories, Coupons, CreateProductModal, services |
-| `GET` | `/categories` | Categories fallback, Products/CreateProductModal category fallback |
-| `GET` | `/categories/all` | Products/CreateProductModal category fallback, productService |
+| `GET` | `/categories` | Category fallback, product/category lookup fallback |
+| `GET` | `/categories/all` | Product category lookup fallback |
 | `POST` | `/admin/categories` | CreateCategoryModal, categoryService |
 | `PATCH` | `/admin/categories/:id` | EditCategoryModal, categoryService |
 | `DELETE` | `/admin/categories/:id` | DeleteCategoryModal, categoryService |
@@ -204,7 +223,7 @@ All backend endpoints referenced by current code:
 
 File: [src/pages/Dashboard.tsx](src/pages/Dashboard.tsx)
 
-Shows total users, total products, total coupons, active categories, product distribution, coupon discount chart, recent user activity, and quick actions.
+Shows total users, total products, total coupons, active categories, products by category, coupon discount chart, recent user activity, and quick actions.
 
 API calls:
 
@@ -214,13 +233,14 @@ API calls:
 - `GET /admin/categories`
 - `GET /admin/products?page=1&limit=200`
 - `GET /admin/coupons?page=1&limit=50`
+- fallback `GET /products?page=1&limit=500`
 
 Implementation notes:
 
 - Uses `Promise.allSettled` so partial failures do not break the whole page.
 - Recursively extracts counts and arrays from inconsistent response shapes.
+- Keeps last known counts/recent users when individual requests fail.
 - Refreshes every 30 seconds.
-- Reads `localStorage['inkart-dashboard-deleted-products']` to hide locally deleted products from chart counts.
 - Updates chart theme colors when the body theme changes.
 
 ### Analytics
@@ -237,29 +257,35 @@ API calls through [src/services/analyticsService.ts](src/services/analyticsServi
 Implementation notes:
 
 - The service defensively parses many possible analytics response shapes.
-- Recognizes revenue-like keys such as `revenue`, `totalRevenue`, `sales`, `grossRevenue`, and `netRevenue`.
+- Recognizes revenue-like keys such as `revenue`, `totalRevenue`, `amount`, `sales`, `grossRevenue`, and `netRevenue`.
 - Derives average order value from revenue/orders if the API does not provide it.
+- Adds a revenue trend to the total revenue metric when at least two revenue points exist.
 - Chart and metric colors update when the theme changes.
+- Stats and revenue sections can be retried independently.
 
 ### Orders
 
 File: [src/pages/Orders.tsx](src/pages/Orders.tsx)
 
-Lists checkout orders with summary metrics, search, status filters, payment filters, date range filtering, pagination, CSV export, and a read-only order detail modal.
+Lists orders with summary metrics, search, status filters, payment filters, date range filtering, pagination, CSV export, and a detailed order modal.
 
 API calls:
 
 - `GET /admin/orders?page={page}&limit=10&status={optional}&paymentStatus={optional}&search={optional}`
+- `PATCH /admin/orders/:id/approve`
+- `PATCH /admin/orders/:id/delivery-estimate`
+- `POST /admin/orders/:id/resend-confirmation`
 
 Implementation notes:
 
 - Normalizes flexible order payload shapes into a local `Order` model.
-- Supports standard and customized order display, including customized preview image, canvas dimensions, and front/back layer details when present.
+- Handles both standard and customized order payloads, including preview images, canvas dimensions, front/back layers, product images, coupons, address fields, and timeline/history rows.
 - Recognizes order statuses: placed, confirmed, processing, shipped, delivered, cancelled, return requested, and returned.
 - Recognizes payment statuses: pending, paid, failed, and refunded.
 - Applies date range filtering client-side after the paged API response is loaded.
-- Exports the currently loaded page of orders as CSV.
-- Detail modal can copy the order number; status action buttons currently show a "Status update coming soon" toast rather than calling an update API.
+- Exports the currently loaded/filtered page of orders as CSV.
+- Detail modal can copy the order number.
+- Admin actions can approve eligible orders, set/update future delivery estimates with an optional note, and resend the confirmation email.
 
 ### Customers
 
@@ -288,25 +314,30 @@ Lists products, edits product details, updates stock, deletes products, and open
 
 API calls:
 
-- `GET /admin/products?page={page}&limit=10`
+- `GET /admin/products?page=1&limit=500`
+- fallback `GET /products?page=1&limit=500`
 - `GET /admin/categories`
 - `PATCH /admin/products/:id`
-- `POST /admin/products`
+- `POST /admin/products` through `CreateProductModal`/`productService`
 - `PATCH /admin/products/:id/stock`
 - `DELETE /admin/products/:id` through `productService`
+- fallback `DELETE /products/:id` through `productService`
 
 Implementation notes:
 
 - Product arrays and totals are extracted from flexible response shapes.
+- The page fetches a large product set and paginates client-side.
 - Category labels are resolved from `/admin/categories` and nested product category data.
-- Product deletes are stored in `localStorage['inkart-dashboard-deleted-products']` and hidden locally.
-- The create flow uses `CreateProductModal`; the inline modal in `Products.tsx` is mainly used for editing and still contains create code paths.
+- Product display names are cleaned with [src/lib/productNames.ts](src/lib/productNames.ts) so hidden uniqueness markers are not shown to admins.
+- Edit submits `FormData` with name, description, category, product type, stock, customizable flag, base price, optional image, and sorted `quantityPricing`.
+- Quantity pricing tiers must have positive whole-number `minQty`, positive `pricePerUnit`, unique minimum quantities, and a first tier starting at quantity 1.
+- Delete verifies removal by refetching `/admin/products`; if the admin delete still appears to leave the product, it attempts the public `/products/:id` delete fallback.
 
 ### Create Product Modal
 
 File: [src/components/CreateProductModal.tsx](src/components/CreateProductModal.tsx)
 
-Dedicated product creation flow with validation, category lookup, image upload, and FormData submission.
+Dedicated product creation flow with validation, category lookup, drag/drop image upload, quantity pricing, and FormData submission.
 
 API calls:
 
@@ -320,20 +351,25 @@ Submitted fields:
 
 - `name`
 - generated `slug`
+- generated `productSlug`
 - `price`
 - `description`
-- resolved `category`
+- resolved category id as `category`
 - `productType`
-- optional `stock`
+- `stock`
+- `isCustomizable`
+- `isActive`
 - `images`
 - `basePrice`
+- `quantityPricing`
 
 Implementation notes:
 
-- Requires name, price, description, category, base price, and at least one image.
-- Allows up to 5 images.
-- Category input accepts an active category name or a 24-character category id.
-- Some auth failure branches redirect to `/login` instead of `/inkarts-admin/login`.
+- Requires name, price, description, active category, base price, at least one image, and valid quantity pricing.
+- Allows up to 5 JPG, PNG, or WebP images.
+- Category input accepts an active category name or a 24-character active category id.
+- Slugs are generated by [src/lib/productSlugs.ts](src/lib/productSlugs.ts) using a sanitized product name plus timestamp.
+- Some auth failure branches navigate to `/login`; because the router basename is `/inkarts-admin`, this still resolves inside the admin app.
 
 ### Categories
 
@@ -351,9 +387,10 @@ API calls through [src/services/categoryService.ts](src/services/categoryService
 
 Implementation notes:
 
-- Deleted category ids are stored in `localStorage['inkart-dashboard-deleted-categories']` and hidden locally.
 - Status display comes from `isActive`.
 - Create sends `FormData`; edit sends a JSON patch payload.
+- Deleted categories are refetched from the server after delete.
+- The old local deleted-category cache key is cleared at startup by `main.tsx`.
 
 ### Coupons
 
@@ -374,6 +411,7 @@ Implementation notes:
 
 - Supports server pagination or local slicing fallback.
 - Normalizes applicable category names to ids before submit.
+- Uses selectable active-category chips; an empty category list means the coupon applies to all categories.
 - Validates required code/description, positive discount, percentage <= 100, and `validUntil > validFrom`.
 - Expired state is computed from `isActive` and `validUntil`.
 - Modal and delete dialog include focus trap and accessibility behavior.
@@ -401,13 +439,18 @@ Implementation notes:
 
 [src/components/NotificationPanel.tsx](src/components/NotificationPanel.tsx):
 
-- Right-side panel with notifications, activities, and manager contacts sections.
+- Right-side portal panel with notifications, activities, and manager contacts sections.
 - Uses empty local arrays right now and calls no API.
-- Docked on desktop at `>= 1280px`, overlay-style on smaller screens.
+- Starts open by default, can be toggled with the bell button, closes on Escape, and locks body scroll while open.
 
 [src/context/NotificationContext.tsx](src/context/NotificationContext.tsx):
 
 - Defines notification panel open-state context, but it is not currently mounted by `App` or `Layout`.
+
+[src/components/DashboardCharts.tsx](src/components/DashboardCharts.tsx):
+
+- Lazy-loads Chart.js/react-chartjs-2 only when charts render.
+- Supports dashboard doughnut and bar chart variants.
 
 Category modal components:
 
@@ -417,7 +460,7 @@ Category modal components:
 
 All category modals implement keyboard/click-outside behavior and use `categoryService`.
 
-## Services
+## Services and Utilities
 
 [src/services/productService.ts](src/services/productService.ts):
 
@@ -426,7 +469,13 @@ All category modals implement keyboard/click-outside behavior and use `categoryS
 - `updateProduct(productId, formData)` -> `PATCH /admin/products/:id`
 - `updateStock(productId, data)` -> `PATCH /admin/products/:id/stock`
 - `fetchCategories()` -> tries `/admin/categories`, `/categories`, `/categories/all`
-- `deleteProduct(productId)` -> `DELETE /admin/products/:id`
+- `deleteProduct(productId)` -> deletes through `/admin/products/:id`, verifies by refetching products, then optionally tries `/products/:id`
+
+[src/services/orderService.ts](src/services/orderService.ts):
+
+- `approveOrder(orderId)` -> `PATCH /admin/orders/:id/approve`
+- `setDeliveryEstimate(orderId, data)` -> `PATCH /admin/orders/:id/delivery-estimate`
+- `resendConfirmation(orderId)` -> `POST /admin/orders/:id/resend-confirmation`
 
 [src/services/categoryService.ts](src/services/categoryService.ts):
 
@@ -448,12 +497,27 @@ All category modals implement keyboard/click-outside behavior and use `categoryS
 - `getRevenueOverTime()` -> `GET /admin/analytics/revenue-over-time`
 - Parses flexible metric and chart response payloads into stable frontend types.
 
+[src/lib/productSlugs.ts](src/lib/productSlugs.ts):
+
+- Generates sanitized unique product slugs and writes both `slug` and `productSlug` into FormData.
+
+[src/lib/productNames.ts](src/lib/productNames.ts):
+
+- Hides internal duplicate-friendly name markers from admin display.
+
+[src/lib/utils.ts](src/lib/utils.ts):
+
+- Provides `cn()` for class merging and `formatDate()` for display dates.
+
 ## Types
 
 [src/types.ts](src/types.ts) defines:
 
 - `User`
 - `Product`
+- `QuantityPricingTier`
+- `CreateProductPayload`
+- `UpdateProductPayload`
 - `AuthResponse`
 - `PaginatedResponse<T>`
 - `Coupon`
@@ -485,7 +549,7 @@ Key app structure:
 - badge classes for status/product/coupon states
 - responsive classes for product tables, sidebar, header, and notification panel behavior
 
-The UI is operational-dashboard oriented: dense tables, summary cards, modal workflows, and chart surfaces.
+The UI is an operational dashboard: dense tables, summary cards, modal workflows, chart surfaces, responsive drawers, and focused admin actions.
 
 ## Local Development
 
@@ -499,6 +563,12 @@ npm install
 
 ```env
 VITE_API_BASE_URL="https://inkart-virid.vercel.app/api/v1"
+```
+
+To route local requests through the Vite proxy instead:
+
+```env
+VITE_API_BASE_URL="/api"
 ```
 
 3. Start the dev server:
@@ -515,24 +585,24 @@ http://localhost:8000/inkarts-admin/login
 
 ## QA Notes and Known Quirks
 
-- This admin and the e-commerce storefront share the same backend data. Product/category/coupon mutations in admin should be tested against storefront behavior.
-- `CreateProductModal.tsx` redirects to `/login` in some auth failure paths, while the app basename expects `/inkarts-admin/login`.
-- `Orders.tsx` displays next-status actions, but those buttons currently only show a toast and do not persist status changes.
-- `Products.tsx` has an inline modal with create/edit logic, but visible creation uses `CreateProductModal`.
-- Product and category deletes are also remembered in localStorage and hidden locally after successful delete.
-- Several UI strings contain encoding artifacts such as `â‚¹`, `â€¢`, `Â©`, and `Youâ€™ll`.
-- The Vite `/api` proxy is used automatically on localhost when the configured API URL is the default live API URL.
-- The notification panel is UI-only and not connected to backend data.
+- This admin and the e-commerce storefront share the same backend data. Product/category/coupon/order mutations in admin should be tested against storefront behavior.
+- The `/api` proxy exists in Vite config, but the API client only uses it when `VITE_API_BASE_URL` is set to `/api`.
+- The notification panel is UI-only and not connected to backend data yet.
+- `NotificationContext` exists but is not mounted by the current app shell.
+- Several UI strings still contain encoding artifacts such as `â€™`, `â‚¹`, `Â·`, and `Ã—`.
 - `public/favicon_io/site.webmanifest` uses root-relative icon paths even though the files live under `public/favicon_io/`.
+- `package.json` is still named `react-example`, even though metadata identifies this as the InkArt Admin Panel.
 
-## Verification Performed
+## Verification Performed For This README
 
-This README was recreated after reviewing:
+This README was updated after reviewing:
 
-- Root config files
+- Root project/config files
 - App bootstrap and route definitions
 - Auth context and protected route behavior
-- API client and services
+- API client behavior and base URL handling
 - Every page under `src/pages`
-- Shared layout, header, sidebar, notification panel, and modal components
+- Services under `src/services`
+- Shared layout, header, sidebar, notification panel, chart, and modal components
+- Shared utilities and type definitions
 - Endpoint usage via source search

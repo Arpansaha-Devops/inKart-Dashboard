@@ -9,6 +9,8 @@ export type DeleteProductResult = {
   message?: string;
 };
 
+export type ProductFormDataPayload = FormData;
+
 const isProductWithId = (value: unknown, productId: string) =>
   Boolean(
     value &&
@@ -35,7 +37,7 @@ const payloadContainsProduct = (payload: unknown, productId: string): boolean =>
   );
 };
 
-export const createProduct = async (formData: FormData) => {
+export const createProduct = async (formData: ProductFormDataPayload) => {
   return apiClient.post('/admin/products', formData);
 };
 
@@ -45,7 +47,7 @@ export const getProducts = async (page = 1, limit = 10) => {
   });
 };
 
-export const updateProduct = async (productId: string, formData: FormData) => {
+export const updateProduct = async (productId: string, formData: ProductFormDataPayload) => {
   return apiClient.patch(`/admin/products/${productId}`, formData);
 };
 
