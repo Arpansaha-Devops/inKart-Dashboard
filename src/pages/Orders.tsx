@@ -26,7 +26,13 @@ import {
 import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
-import { approveOrder, resendConfirmation, setDeliveryEstimate } from '../services/orderService';
+import {
+  approveOrder,
+  getDeliveryEstimateForPincode,
+  resendConfirmation,
+  setDeliveryEstimate,
+  type PincodeDeliveryEstimate,
+} from '../services/orderService';
 
 type OrderStatus =
   | 'placed'
@@ -583,6 +589,36 @@ const formatDeliveryDate = (value?: string) => {
   const date = new Date(`${value.slice(0, 10)}T00:00:00`);
   if (Number.isNaN(date.getTime())) return '';
   return deliveryDateFormatter.format(date);
+};
+
+const toDateInputValue = (value?: string | null) => {
+  if (!value) return '';
+  const trimmed = value.trim();
+  const isoMatch = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  const dayMonthYearMatch = trimmed.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/);
+  if (dayMonthYearMatch) {
+    return `${dayMonthYearMatch[3]}-${dayMonthYearMatch[2]}-${dayMonthYearMatch[1]}`;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return '';
+  }
+
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, '0');
+  const day = String(parsed.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatComputedDeliveryDate = (value?: string | null) => {
+  if (!value) return 'N/A';
+  const inputValue = toDateInputValue(value);
+  return inputValue ? formatDeliveryDate(inputValue) : value;
 };
 
 const todayDateInputValue = () => {
@@ -1533,6 +1569,14 @@ type OrderDetailState = {
   isSavingEstimate: boolean;
   isResending: boolean;
   isResendConfirmOpen: boolean;
+  computedEstimate: ComputedDeliveryEstimateState;
+};
+
+type ComputedDeliveryEstimateState = {
+  status: 'idle' | 'loading' | 'success' | 'error' | 'skipped';
+  pincode: string;
+  result: PincodeDeliveryEstimate | null;
+  error: string;
 };
 
 type OrderDetailAction =
@@ -1543,7 +1587,24 @@ type OrderDetailAction =
   | { type: 'setSavingEstimate'; value: boolean }
   | { type: 'setResending'; value: boolean }
   | { type: 'setResendConfirmOpen'; value: boolean }
+  | { type: 'setComputedEstimate'; value: ComputedDeliveryEstimateState }
   | { type: 'toggleResendConfirm' };
+
+const createComputedEstimateState = (
+  status: ComputedDeliveryEstimateState['status'],
+  pincode = '',
+  result: PincodeDeliveryEstimate | null = null,
+  error = ''
+): ComputedDeliveryEstimateState => ({
+  status,
+  pincode,
+  result,
+  error,
+});
+
+const getOrderPincode = (order: Order) => order.address.pincode.trim();
+
+const isValidPincode = (pincode: string) => /^\d{6}$/.test(pincode);
 
 const getInitialOrderDetailState = (order: Order): OrderDetailState => ({
   deliveryDate: order.estimatedDeliveryDate?.slice(0, 10) || '',
@@ -1553,6 +1614,7 @@ const getInitialOrderDetailState = (order: Order): OrderDetailState => ({
   isSavingEstimate: false,
   isResending: false,
   isResendConfirmOpen: false,
+  computedEstimate: createComputedEstimateState('idle', getOrderPincode(order)),
 });
 
 const orderDetailReducer = (
@@ -1578,6 +1640,8 @@ const orderDetailReducer = (
       return { ...state, isResending: action.value };
     case 'setResendConfirmOpen':
       return { ...state, isResendConfirmOpen: action.value };
+    case 'setComputedEstimate':
+      return { ...state, computedEstimate: action.value };
     case 'toggleResendConfirm':
       return { ...state, isResendConfirmOpen: !state.isResendConfirmOpen };
     default:
@@ -1594,6 +1658,7 @@ const OrderDetailModal: React.FC<{
   const terminalLabel = terminalStatusLabel(order.orderStatus);
   const mountedRef = useRef(true);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const computedEstimateCacheRef = useRef(new Map<string, ComputedDeliveryEstimateState>());
   const [detailState, dispatchDetail] = useReducer(
     orderDetailReducer,
     order,
@@ -1607,6 +1672,7 @@ const OrderDetailModal: React.FC<{
     isSavingEstimate,
     isResending,
     isResendConfirmOpen,
+    computedEstimate,
   } = detailState;
   const isAnyRequestInFlight = isApproving || isSavingEstimate || isResending;
   const hasEstimate = Boolean(order.estimatedDeliveryDate);
@@ -1621,6 +1687,60 @@ const OrderDetailModal: React.FC<{
       dialogRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    const pincode = getOrderPincode(order);
+
+    if (!isValidPincode(pincode)) {
+      dispatchDetail({
+        type: 'setComputedEstimate',
+        value: createComputedEstimateState('skipped', pincode),
+      });
+      return;
+    }
+
+    const cacheKey = `${order._id}:${pincode}`;
+    const cachedEstimate = computedEstimateCacheRef.current.get(cacheKey);
+    if (cachedEstimate) {
+      dispatchDetail({ type: 'setComputedEstimate', value: cachedEstimate });
+      return;
+    }
+
+    let isCurrentRequest = true;
+    dispatchDetail({
+      type: 'setComputedEstimate',
+      value: createComputedEstimateState('loading', pincode),
+    });
+
+    void getDeliveryEstimateForPincode(pincode)
+      .then((result) => {
+        if (!isCurrentRequest || !mountedRef.current) return;
+        const nextState = createComputedEstimateState('success', pincode, result);
+        computedEstimateCacheRef.current.set(cacheKey, nextState);
+        dispatchDetail({ type: 'setComputedEstimate', value: nextState });
+      })
+      .catch((error: unknown) => {
+        if (!isCurrentRequest || !mountedRef.current) return;
+        const nextState = createComputedEstimateState(
+          'error',
+          pincode,
+          null,
+          getErrorMessage(error, 'Could not load computed delivery estimate.')
+        );
+        computedEstimateCacheRef.current.set(cacheKey, nextState);
+        dispatchDetail({ type: 'setComputedEstimate', value: nextState });
+      });
+
+    return () => {
+      isCurrentRequest = false;
+    };
+  }, [order]);
+
+  const handleUseComputedDate = () => {
+    const computedDate = toDateInputValue(computedEstimate.result?.estimatedDate);
+    if (!computedDate) return;
+    dispatchDetail({ type: 'setDeliveryDate', value: computedDate });
+  };
 
   const handleApprove = async () => {
     if (order.orderStatus === 'confirmed') {
@@ -1971,6 +2091,12 @@ const OrderDetailModal: React.FC<{
             </div>
           </div>
 
+          <ComputedDeliveryEstimatePanel
+            estimate={computedEstimate}
+            onUseDate={handleUseComputedDate}
+            disabled={isAnyRequestInFlight}
+          />
+
           <form className="orders-delivery-form" onSubmit={(event) => void handleSaveEstimate(event)}>
             <div style={{ display: 'grid', gap: 6 }}>
               <label className="form-label" htmlFor="estimated-delivery-date">
@@ -2038,6 +2164,108 @@ const OrderDetailModal: React.FC<{
         </div>
       </m.div>
     </dialog>
+  );
+};
+
+const getServiceableBadge = (value: boolean | null) => {
+  if (value === true) {
+    return { className: 'badge-active', label: 'Yes' };
+  }
+
+  if (value === false) {
+    return { className: 'badge-inactive', label: 'No' };
+  }
+
+  return { className: 'badge-warning', label: 'Unknown' };
+};
+
+const ComputedDeliveryEstimatePanel: React.FC<{
+  estimate: ComputedDeliveryEstimateState;
+  onUseDate: () => void;
+  disabled: boolean;
+}> = ({ estimate, onUseDate, disabled }) => {
+  const computedDateInputValue = toDateInputValue(estimate.result?.estimatedDate);
+  const serviceableBadge = getServiceableBadge(estimate.result?.isServiceable ?? null);
+
+  return (
+    <section
+      className="card"
+      aria-label="Computed delivery estimate by pincode"
+      style={{
+        padding: 16,
+        boxShadow: 'none',
+        background: 'var(--bg-surface)',
+        display: 'grid',
+        gap: 12,
+      }}
+    >
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          flexWrap: 'wrap',
+        }}
+      >
+        <div style={{ display: 'grid', gap: 4 }}>
+          <h3 className="section-title" style={{ margin: 0 }}>
+            Computed Delivery Estimate
+          </h3>
+          <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12 }}>
+            By customer pincode
+          </p>
+        </div>
+
+        {computedDateInputValue ? (
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={onUseDate}
+            disabled={disabled}
+          >
+            Use this date
+          </button>
+        ) : null}
+      </div>
+
+      {estimate.status === 'loading' || estimate.status === 'idle' ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--text-secondary)', fontSize: 13 }}>
+          <Loader2 className="animate-spin" size={16} />
+          Checking pincode estimate...
+        </div>
+      ) : null}
+
+      {estimate.status === 'skipped' ? (
+        <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>
+          No pincode available for this order
+        </p>
+      ) : null}
+
+      {estimate.status === 'error' ? (
+        <p style={{ margin: 0, color: 'var(--danger)', fontSize: 13 }}>
+          {estimate.error || 'Could not load computed delivery estimate.'}
+        </p>
+      ) : null}
+
+      {estimate.status === 'success' && estimate.result ? (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <InfoRow label="Pincode" value={estimate.pincode || 'N/A'} />
+          <InfoRow
+            label="Estimated delivery"
+            value={formatComputedDeliveryDate(estimate.result.estimatedDate)}
+          />
+          <InfoRow
+            label="Estimated cost"
+            value={estimate.result.cost !== null ? formatCurrency(estimate.result.cost) : 'N/A'}
+          />
+          <div className="detail-row">
+            <span className="form-label" style={{ margin: 0 }}>Serviceable</span>
+            <span className={serviceableBadge.className}>{serviceableBadge.label}</span>
+          </div>
+        </div>
+      ) : null}
+    </section>
   );
 };
 

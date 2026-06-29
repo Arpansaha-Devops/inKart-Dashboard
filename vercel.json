@@ -1,0 +1,20 @@
+{
+  "rewrites": [
+    {
+      "source": "/admin/assets/:path*",
+      "destination": "/assets/:path*"
+    },
+    {
+      "source": "/admin/favicon_io/:path*",
+      "destination": "/favicon_io/:path*"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin/:path*",
+      "destination": "/index.html"
+    }
+  ]
+}

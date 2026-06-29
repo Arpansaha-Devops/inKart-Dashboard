@@ -65,7 +65,7 @@ const shouldBypassAuth = (url?: string) => {
 };
 
 const redirectToLogin = () => {
-  const targetPath = '/inkarts-admin/login';
+  const targetPath = '/admin/login';
   if (typeof window === 'undefined' || window.location.pathname === targetPath) {
     return;
   }

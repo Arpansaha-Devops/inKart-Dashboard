@@ -23,7 +23,7 @@ const FullScreenLoader = () => (
 export default function App() {
   return (
     <AuthProvider>
-      <Router basename="/inkarts-admin">
+      <Router basename="/admin">
         <Routes>
           <Route path="/login" element={<Login />} />
 
