@@ -29,20 +29,14 @@ import apiClient from '../lib/apiClient';
 import {
   approveOrder,
   getDeliveryEstimateForPincode,
+  getOrderStatus,
   resendConfirmation,
   setDeliveryEstimate,
+  type OrderStatusValue,
   type PincodeDeliveryEstimate,
 } from '../services/orderService';
 
-type OrderStatus =
-  | 'placed'
-  | 'confirmed'
-  | 'processing'
-  | 'shipped'
-  | 'delivered'
-  | 'cancelled'
-  | 'return_requested'
-  | 'returned';
+type OrderStatus = OrderStatusValue;
 
 type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
 type OrderSource = 'customized' | 'standard';
@@ -765,6 +759,13 @@ const terminalStatusLabel = (status: OrderStatus): string | null => {
   return null;
 };
 
+const terminalOrderStatuses = new Set<OrderStatus>([
+  'delivered',
+  'cancelled',
+  'return_requested',
+  'returned',
+]);
+
 type OrdersState = {
   orders: Order[];
   totalCount: number;
@@ -795,7 +796,8 @@ type OrdersAction =
   | { type: 'SET_TO_DATE'; payload: string }
   | { type: 'CLEAR_FILTERS' }
   | { type: 'SET_SELECTED_ORDER'; payload: Order | null | ((previous: Order | null) => Order | null) }
-  | { type: 'UPDATE_ORDER'; payload: Order };
+  | { type: 'UPDATE_ORDER'; payload: Order }
+  | { type: 'UPDATE_ORDER_STATUS'; payload: { orderId: string; status: OrderStatus } };
 
 const ordersInitialState: OrdersState = {
   orders: [],
@@ -882,6 +884,19 @@ function ordersReducer(state: OrdersState, action: OrdersAction): OrdersState {
         selectedOrder:
           state.selectedOrder && state.selectedOrder._id === action.payload._id
             ? { ...state.selectedOrder, ...action.payload }
+            : state.selectedOrder,
+      };
+    case 'UPDATE_ORDER_STATUS':
+      return {
+        ...state,
+        orders: state.orders.map((order) =>
+          order._id === action.payload.orderId
+            ? { ...order, orderStatus: action.payload.status }
+            : order
+        ),
+        selectedOrder:
+          state.selectedOrder && state.selectedOrder._id === action.payload.orderId
+            ? { ...state.selectedOrder, orderStatus: action.payload.status }
             : state.selectedOrder,
       };
     default:
@@ -1040,6 +1055,10 @@ const Orders: React.FC = () => {
     },
     [loadOrders]
   );
+
+  const handleOrderStatusUpdated = useCallback((orderId: string, status: OrderStatus) => {
+    dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { orderId, status } });
+  }, []);
 
   const exportCsv = () => {
     const headers = [
@@ -1472,6 +1491,7 @@ const Orders: React.FC = () => {
               key={selectedOrder._id}
               order={selectedOrder}
               onOrderUpdated={handleOrderUpdated}
+              onOrderStatusUpdated={handleOrderStatusUpdated}
               onClose={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: null })}
               onCopy={() => void copyText(selectedOrder.orderNumber)}
             />
@@ -1568,6 +1588,8 @@ type OrderDetailState = {
   isApproving: boolean;
   isSavingEstimate: boolean;
   isResending: boolean;
+  isRefreshingStatus: boolean;
+  statusRefreshError: string;
   isResendConfirmOpen: boolean;
   computedEstimate: ComputedDeliveryEstimateState;
 };
@@ -1586,6 +1608,8 @@ type OrderDetailAction =
   | { type: 'setApproving'; value: boolean }
   | { type: 'setSavingEstimate'; value: boolean }
   | { type: 'setResending'; value: boolean }
+  | { type: 'setRefreshingStatus'; value: boolean }
+  | { type: 'setStatusRefreshError'; value: string }
   | { type: 'setResendConfirmOpen'; value: boolean }
   | { type: 'setComputedEstimate'; value: ComputedDeliveryEstimateState }
   | { type: 'toggleResendConfirm' };
@@ -1613,6 +1637,8 @@ const getInitialOrderDetailState = (order: Order): OrderDetailState => ({
   isApproving: false,
   isSavingEstimate: false,
   isResending: false,
+  isRefreshingStatus: false,
+  statusRefreshError: '',
   isResendConfirmOpen: false,
   computedEstimate: createComputedEstimateState('idle', getOrderPincode(order)),
 });
@@ -1638,6 +1664,10 @@ const orderDetailReducer = (
       return { ...state, isSavingEstimate: action.value };
     case 'setResending':
       return { ...state, isResending: action.value };
+    case 'setRefreshingStatus':
+      return { ...state, isRefreshingStatus: action.value };
+    case 'setStatusRefreshError':
+      return { ...state, statusRefreshError: action.value };
     case 'setResendConfirmOpen':
       return { ...state, isResendConfirmOpen: action.value };
     case 'setComputedEstimate':
@@ -1652,13 +1682,15 @@ const orderDetailReducer = (
 const OrderDetailModal: React.FC<{
   order: Order;
   onOrderUpdated: (order: Order) => void;
+  onOrderStatusUpdated: (orderId: string, status: OrderStatus) => void;
   onClose: () => void;
   onCopy: () => void;
-}> = ({ order, onOrderUpdated, onClose, onCopy }) => {
+}> = ({ order, onOrderUpdated, onOrderStatusUpdated, onClose, onCopy }) => {
   const terminalLabel = terminalStatusLabel(order.orderStatus);
   const mountedRef = useRef(true);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const computedEstimateCacheRef = useRef(new Map<string, ComputedDeliveryEstimateState>());
+  const isStatusRequestInFlightRef = useRef(false);
   const [detailState, dispatchDetail] = useReducer(
     orderDetailReducer,
     order,
@@ -1671,6 +1703,8 @@ const OrderDetailModal: React.FC<{
     isApproving,
     isSavingEstimate,
     isResending,
+    isRefreshingStatus,
+    statusRefreshError,
     isResendConfirmOpen,
     computedEstimate,
   } = detailState;
@@ -1687,6 +1721,48 @@ const OrderDetailModal: React.FC<{
       dialogRef.current?.close();
     };
   }, []);
+
+  const refreshOrderStatus = useCallback(async () => {
+    if (isStatusRequestInFlightRef.current) return;
+
+    isStatusRequestInFlightRef.current = true;
+    dispatchDetail({ type: 'setRefreshingStatus', value: true });
+    dispatchDetail({ type: 'setStatusRefreshError', value: '' });
+
+    try {
+      const result = await getOrderStatus(order._id);
+      if (!mountedRef.current) return;
+
+      if (!result.status) {
+        dispatchDetail({ type: 'setStatusRefreshError', value: "Couldn't refresh status" });
+        return;
+      }
+
+      if (result.status !== order.orderStatus) {
+        onOrderStatusUpdated(order._id, result.status);
+      }
+    } catch (error: unknown) {
+      console.error('Failed to refresh order status', error);
+      if (mountedRef.current) {
+        dispatchDetail({ type: 'setStatusRefreshError', value: "Couldn't refresh status" });
+      }
+    } finally {
+      isStatusRequestInFlightRef.current = false;
+      if (mountedRef.current) {
+        dispatchDetail({ type: 'setRefreshingStatus', value: false });
+      }
+    }
+  }, [onOrderStatusUpdated, order._id, order.orderStatus]);
+
+  useEffect(() => {
+    if (terminalOrderStatuses.has(order.orderStatus)) return;
+
+    const intervalId = window.setInterval(() => {
+      void refreshOrderStatus();
+    }, 30_000);
+
+    return () => window.clearInterval(intervalId);
+  }, [order.orderStatus, refreshOrderStatus]);
 
   useEffect(() => {
     const pincode = getOrderPincode(order);
@@ -2022,7 +2098,39 @@ const OrderDetailModal: React.FC<{
             </div>
             <div className="detail-row">
               <span className="form-label" style={{ margin: 0 }}>Order Status</span>
-              <OrderStatusBadge status={order.orderStatus} />
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'flex-end',
+                  gap: 6,
+                  flexWrap: 'wrap',
+                }}
+              >
+                <OrderStatusBadge status={order.orderStatus} />
+                <button
+                  type="button"
+                  className="action-icon-button"
+                  onClick={() => void refreshOrderStatus()}
+                  disabled={isRefreshingStatus}
+                  aria-label="Refresh order status"
+                  title="Refresh status"
+                >
+                  {isRefreshingStatus ? (
+                    <Loader2 className="animate-spin" size={14} />
+                  ) : (
+                    <RefreshCw size={14} />
+                  )}
+                </button>
+                {statusRefreshError ? (
+                  <span
+                    aria-live="polite"
+                    style={{ color: 'var(--danger)', fontSize: 12 }}
+                  >
+                    {statusRefreshError}
+                  </span>
+                ) : null}
+              </div>
             </div>
             <InfoRow label="Notes" value={order.notes || 'N/A'} />
           </div>

@@ -12,6 +12,24 @@ export interface PincodeDeliveryEstimate {
   raw: unknown;
 }
 
+export const ORDER_STATUS_VALUES = [
+  'placed',
+  'confirmed',
+  'processing',
+  'shipped',
+  'delivered',
+  'cancelled',
+  'return_requested',
+  'returned',
+] as const;
+
+export type OrderStatusValue = (typeof ORDER_STATUS_VALUES)[number];
+
+export interface OrderStatusResult {
+  status: OrderStatusValue | null;
+  raw: unknown;
+}
+
 const DATE_KEYS = [
   'estimatedDate',
   'estimatedDeliveryDate',
@@ -42,7 +60,11 @@ const SERVICEABILITY_KEYS = [
   'canDeliver',
 ];
 
+const ORDER_STATUS_KEYS = ['status', 'orderStatus', 'currentStatus'];
+const ORDER_STATUS_SET = new Set<string>(ORDER_STATUS_VALUES);
+
 let hasLoggedPincodeEstimateResponse = false;
+let hasLoggedOrderStatusResponse = false;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value && typeof value === 'object' && !Array.isArray(value));
@@ -120,6 +142,18 @@ const toDateString = (value: unknown): string | null => {
   return Number.isNaN(parsed.getTime()) ? null : text;
 };
 
+const toOrderStatus = (value: unknown): OrderStatusValue | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (normalized === 'pending') return 'placed';
+  if (normalized === 'completed') return 'delivered';
+  if (normalized === 'canceled') return 'cancelled';
+  return ORDER_STATUS_SET.has(normalized) ? (normalized as OrderStatusValue) : null;
+};
+
 const pickValueByKeys = <T extends string | number | boolean>(
   payload: unknown,
   keys: string[],
@@ -150,6 +184,13 @@ const normalizePincodeEstimateResponse = (payload: unknown): PincodeDeliveryEsti
   raw: payload,
 });
 
+const normalizeOrderStatusResponse = (payload: unknown): OrderStatusResult => ({
+  status:
+    toOrderStatus(payload) ||
+    pickValueByKeys(payload, ORDER_STATUS_KEYS, toOrderStatus),
+  raw: payload,
+});
+
 export async function approveOrder(orderId: string): Promise<void> {
   await apiClient.patch(`/admin/orders/${orderId}/approve`);
 }
@@ -163,6 +204,17 @@ export async function setDeliveryEstimate(
 
 export async function resendConfirmation(orderId: string): Promise<void> {
   await apiClient.post(`/admin/orders/${orderId}/resend-confirmation`);
+}
+
+export async function getOrderStatus(orderId: string): Promise<OrderStatusResult> {
+  const response = await apiClient.get(`/admin/orders/${orderId}/status`);
+
+  if (!hasLoggedOrderStatusResponse) {
+    console.log('Raw order status response:', response.data);
+    hasLoggedOrderStatusResponse = true;
+  }
+
+  return normalizeOrderStatusResponse(response.data);
 }
 
 export async function getDeliveryEstimateForPincode(
