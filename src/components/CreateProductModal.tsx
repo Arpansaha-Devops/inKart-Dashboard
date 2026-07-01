@@ -5,6 +5,11 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { createProduct } from '../services/productService';
 import apiClient from '../lib/apiClient';
+import {
+  formatProductImageBytes,
+  optimizeProductImages,
+  PRODUCT_IMAGE_TYPES,
+} from '../lib/productImages';
 import { setUniqueProductSlug } from '../lib/productSlugs';
 import type { QuantityPricingTier } from '../types';
 
@@ -100,6 +105,10 @@ function createProductFormReducer(
 
 const getCreateProductErrorMessage = (error: any): string => {
   const message = error?.response?.data?.message || '';
+
+  if (error?.response?.status === 413) {
+    return 'The product images are too large for the server. Please remove an image or choose smaller files.';
+  }
 
   if (
     error?.response?.status === 409 ||
@@ -229,16 +238,19 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   }, []);
 
   const fetchKnownCategories = useCallback(async () => {
-    const categoryEndpoints = ['/admin/categories', '/categories', '/categories/all'];
+    const categoryEndpoints = ['/admin/categories', '/categories'];
     try {
-      const endpointResults = await Promise.allSettled(
-        categoryEndpoints.map((endpoint) => apiClient.get(endpoint))
-      );
-      const aggregated = endpointResults.flatMap((result) =>
-        result.status === 'fulfilled'
-          ? extractCategoriesFromPayload(result.value.data)
-          : []
-      );
+      let aggregated: CategoryLookupItem[] = [];
+
+      for (const endpoint of categoryEndpoints) {
+        try {
+          const response = await apiClient.get(endpoint);
+          aggregated = extractCategoriesFromPayload(response.data);
+          if (aggregated.length > 0) break;
+        } catch (error: any) {
+          if (error?.response?.status !== 404) throw error;
+        }
+      }
 
       if (aggregated.length === 0) {
         const response = await apiClient.get('/admin/products', {
@@ -391,8 +403,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
         toast.error('Maximum 5 images allowed');
         break;
       }
-      if (!file.type.startsWith('image/')) {
-        toast.error(`${file.name} is not a valid image file`);
+      if (!PRODUCT_IMAGE_TYPES.includes(file.type as (typeof PRODUCT_IMAGE_TYPES)[number])) {
+        toast.error(`${file.name} must be a JPG, PNG, or WebP image`);
         continue;
       }
       filesToAdd.push(file);
@@ -522,23 +534,24 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
     dispatch({ type: 'SET_SUBMITTING', payload: true });
 
-    const formData = new FormData();
-    formData.append('name', name.trim());
-    setUniqueProductSlug(formData, name);
-    formData.append('price', String(price));
-    formData.append('description', description);
-    formData.append('category', resolvedCategoryId);
-    formData.append('productType', productType);
-    formData.append('stock', String(stock));
-    formData.append('isCustomizable', String(isCustomizable));
-    formData.append('isActive', 'true');
-    images.forEach((image, index) => {
-      formData.append('images', image);
-    });
-    formData.append('basePrice', String(basePrice));
-    formData.append('quantityPricing', JSON.stringify(sortedPricingTiers));
-
     try {
+      const optimizedImages = await optimizeProductImages(images);
+      const formData = new FormData();
+      formData.append('name', name.trim());
+      setUniqueProductSlug(formData, name);
+      formData.append('price', String(price));
+      formData.append('description', description);
+      formData.append('category', resolvedCategoryId);
+      formData.append('productType', productType);
+      formData.append('stock', String(stock));
+      formData.append('isCustomizable', String(isCustomizable));
+      formData.append('isActive', 'true');
+      optimizedImages.forEach((image) => {
+        formData.append('images', image);
+      });
+      formData.append('basePrice', String(basePrice));
+      formData.append('quantityPricing', JSON.stringify(sortedPricingTiers));
+
       const response = await createProduct(formData);
       toast.success('Product created successfully!');
       resetForm();
@@ -1109,7 +1122,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                           Click or drag images to upload
                         </p>
                         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '12px' }}>
-                          JPG, PNG, or WebP (up to 5 images)
+                          JPG, PNG, or WebP (up to 5 images; large files are optimized automatically)
                         </p>
                         <button
                           type="button"
@@ -1125,6 +1138,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   {errors.images ? (
                     <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
                       {errors.images}
+                    </p>
+                  ) : images.length > 0 ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: '6px 0 0' }}>
+                      Selected size: {formatProductImageBytes(images.reduce((total, image) => total + image.size, 0))}
                     </p>
                   ) : null}
                 </div>

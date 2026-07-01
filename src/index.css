@@ -713,6 +713,107 @@ table.data-table tbody td {
   flex-shrink: 0;
 }
 
+.orders-design-preview-card {
+  display: grid;
+  gap: 12px;
+  box-shadow: none;
+}
+
+.orders-design-preview-card .section-title {
+  margin: 0;
+}
+
+.orders-design-preview-trigger {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: zoom-in;
+}
+
+.orders-design-preview-trigger:hover {
+  border-color: var(--border-active);
+  background: var(--bg-card-hover);
+}
+
+.orders-design-preview-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.orders-design-preview-trigger img {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  max-height: 340px;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+}
+
+.orders-design-preview-trigger span {
+  font-size: 12px;
+}
+
+.orders-design-preview-placeholder {
+  min-height: 300px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 1px dashed var(--border-active);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.orders-preview-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--overlay-backdrop);
+  backdrop-filter: blur(6px);
+}
+
+.orders-preview-lightbox-box {
+  width: 100%;
+  max-width: 900px;
+  display: grid;
+  gap: 16px;
+  overflow: hidden;
+}
+
+.orders-preview-lightbox-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.orders-preview-lightbox-header .section-title {
+  margin: 0;
+}
+
+.orders-preview-lightbox-image {
+  display: block;
+  max-width: 100%;
+  max-height: calc(90vh - 110px);
+  justify-self: center;
+  object-fit: contain;
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+}
+
 .orders-error-icon,
 .analytics-error-icon {
   width: 52px;

@@ -54,6 +54,15 @@ interface Layer {
   text?: string;
 }
 
+interface OrderCustomization {
+  _id: string;
+  previewImageUrl?: string;
+  canvasWidth: number;
+  canvasHeight: number;
+  layers: Layer[];
+  backLayers?: Layer[];
+}
+
 interface OrderItem {
   _id: string;
   product: {
@@ -78,14 +87,7 @@ interface Order {
     phone?: string;
   };
   items: OrderItem[];
-  customization?: {
-    _id: string;
-    previewImageUrl?: string;
-    canvasWidth: number;
-    canvasHeight: number;
-    layers: Layer[];
-    backLayers?: Layer[];
-  };
+  customization?: OrderCustomization;
   totalAmount: number;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
@@ -298,6 +300,41 @@ const normalizeLayer = (value: unknown): Layer | null => {
 const normalizeLayers = (items: unknown[]) =>
   items.map(normalizeLayer).filter((layer): layer is Layer => layer !== null);
 
+const normalizeCustomization = (
+  value: Record<string, unknown>,
+  fallbackId = ''
+): OrderCustomization => ({
+  _id: getString(value, ['_id', 'id'], fallbackId),
+  previewImageUrl:
+    getString(value, ['previewImageUrl', 'previewUrl', 'imageUrl']) || undefined,
+  canvasWidth: getNumber(value, ['canvasWidth', 'width']),
+  canvasHeight: getNumber(value, ['canvasHeight', 'height']),
+  layers: normalizeLayers(getArray(value, ['layers', 'frontLayers', 'objects'])),
+  backLayers: (() => {
+    const layers = normalizeLayers(getArray(value, ['backLayers', 'backObjects']));
+    return layers.length > 0 ? layers : undefined;
+  })(),
+});
+
+const normalizeCustomizationResponse = (
+  payload: unknown,
+  fallbackId: string
+): OrderCustomization | null => {
+  const root = isRecord(payload) ? payload : {};
+  const data = isRecord(root.data) ? root.data : {};
+  const candidates = [
+    data.customization,
+    data.design,
+    root.customization,
+    root.design,
+    root.data,
+    payload,
+  ];
+  const customization = candidates.find(isRecord);
+
+  return customization ? normalizeCustomization(customization, fallbackId) : null;
+};
+
 const normalizeItem = (value: unknown): OrderItem | null => {
   if (!isRecord(value)) return null;
   const productValue = value.product;
@@ -359,8 +396,14 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
   const customer = getRecord(value, 'customer');
   const user = getRecord(value, 'user');
   const product = getRecord(value, 'product');
+  const rawItems = getArray(value, ['items', 'orderItems', 'products']);
+  const firstItem = rawItems.find(isRecord) || {};
   const customization = getRecord(value, 'customization');
+  const customizationById = getRecord(value, 'customizationId');
   const design = getRecord(value, 'design');
+  const itemCustomization = getRecord(firstItem, 'customization');
+  const itemCustomizationById = getRecord(firstItem, 'customizationId');
+  const itemDesign = getRecord(firstItem, 'design');
   const address = getRecord(value, 'address');
   const deliveryAddress = getRecord(value, 'deliveryAddress');
   const shippingAddress = getRecord(value, 'shippingAddress');
@@ -372,12 +415,42 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
     : Object.keys(deliveryAddress).length
       ? deliveryAddress
       : shippingAddress;
-  const customizationSource = Object.keys(customization).length ? customization : design;
+  const customizationSource = Object.keys(customization).length
+    ? customization
+    : Object.keys(customizationById).length
+      ? customizationById
+      : Object.keys(design).length
+        ? design
+        : Object.keys(itemCustomization).length
+          ? itemCustomization
+          : Object.keys(itemCustomizationById).length
+            ? itemCustomizationById
+            : itemDesign;
+  const customizationId =
+    getString(customizationSource, ['_id', 'id']) ||
+    (typeof value.customization === 'string' ? value.customization : '') ||
+    (typeof value.customizationId === 'string' ? value.customizationId : '') ||
+    (typeof value.design === 'string' ? value.design : '') ||
+    getString(value, ['designId']) ||
+    (typeof firstItem.customization === 'string' ? firstItem.customization : '') ||
+    (typeof firstItem.customizationId === 'string' ? firstItem.customizationId : '') ||
+    (typeof firstItem.design === 'string' ? firstItem.design : '') ||
+    getString(firstItem, ['designId']);
   const couponSource = Object.keys(coupon).length ? coupon : appliedCoupon;
   const orderNumber = getString(value, ['orderNumber', 'orderId', 'customOrderId'], id);
-  const items = normalizeItems(getArray(value, ['items', 'orderItems', 'products']), product);
-  const frontLayers = normalizeLayers(getArray(customizationSource, ['layers', 'frontLayers', 'objects']));
-  const backLayers = normalizeLayers(getArray(customizationSource, ['backLayers', 'backObjects']));
+  const items = normalizeItems(rawItems, product);
+  const frontLayerValues = getArray(customizationSource, ['layers', 'frontLayers', 'objects']);
+  const backLayerValues = getArray(customizationSource, ['backLayers', 'backObjects']);
+  const frontLayers = normalizeLayers(
+    frontLayerValues.length > 0
+      ? frontLayerValues
+      : getArray(value, ['layers', 'frontLayers', 'objects'])
+  );
+  const backLayers = normalizeLayers(
+    backLayerValues.length > 0
+      ? backLayerValues
+      : getArray(value, ['backLayers', 'backObjects'])
+  );
   const couponCode =
     getString(couponSource, ['code', 'couponCode']) || getString(value, ['couponCode']);
   const timeline = getArray(value, ['timeline', 'statusHistory', 'history'])
@@ -412,12 +485,20 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
     customization:
       effectiveSource === 'customized'
         ? {
-            _id: getString(customizationSource, ['_id', 'id']),
+            _id: customizationId,
             previewImageUrl:
               getString(customizationSource, ['previewImageUrl', 'previewUrl', 'imageUrl']) ||
               getString(value, ['previewImageUrl']),
-            canvasWidth: getNumber(customizationSource, ['canvasWidth', 'width']),
-            canvasHeight: getNumber(customizationSource, ['canvasHeight', 'height']),
+            canvasWidth: getNumber(
+              customizationSource,
+              ['canvasWidth', 'width'],
+              getNumber(value, ['canvasWidth'])
+            ),
+            canvasHeight: getNumber(
+              customizationSource,
+              ['canvasHeight', 'height'],
+              getNumber(value, ['canvasHeight'])
+            ),
             layers: frontLayers,
             backLayers: backLayers.length > 0 ? backLayers : undefined,
           }
@@ -460,9 +541,13 @@ const pickOrdersArray = (payload: unknown): unknown[] => {
   const dataRecord = isRecord(data) ? data : {};
   const candidates = [
     dataRecord.orders,
+    dataRecord.customizedOrders,
+    dataRecord.customOrders,
     dataRecord.items,
     dataRecord.docs,
     root.orders,
+    root.customizedOrders,
+    root.customOrders,
     root.items,
     data,
     payload,
@@ -1696,6 +1781,10 @@ const OrderDetailModal: React.FC<{
     order,
     getInitialOrderDetailState
   );
+  const [isDesignPreviewOpen, setIsDesignPreviewOpen] = useState(false);
+  const [hasDesignPreviewError, setHasDesignPreviewError] = useState(false);
+  const [resolvedCustomization, setResolvedCustomization] = useState(order.customization);
+  const [isDesignPreviewLoading, setIsDesignPreviewLoading] = useState(false);
   const {
     deliveryDate,
     deliveryNote,
@@ -1712,6 +1801,13 @@ const OrderDetailModal: React.FC<{
   const hasEstimate = Boolean(order.estimatedDeliveryDate);
   const canApprove = order.orderStatus === 'placed';
   const standardPreviewImage = order.items.find((item) => item.product.image)?.product.image;
+  const designPreviewUrl = resolvedCustomization?.previewImageUrl;
+  const hasDesignPreview = Boolean(designPreviewUrl) && !hasDesignPreviewError;
+
+  const handleDesignPreviewError = () => {
+    setHasDesignPreviewError(true);
+    setIsDesignPreviewOpen(false);
+  };
 
   useEffect(() => {
     mountedRef.current = true;
@@ -1721,6 +1817,50 @@ const OrderDetailModal: React.FC<{
       dialogRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    const customizationId = order.customization?._id;
+    if (
+      order.source !== 'customized' ||
+      order.customization?.previewImageUrl ||
+      !customizationId
+    ) {
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsDesignPreviewLoading(true);
+
+    void apiClient
+      .get(`/customization/${encodeURIComponent(customizationId)}`, {
+        signal: controller.signal,
+      })
+      .then((response) => {
+        const customization = normalizeCustomizationResponse(response.data, customizationId);
+        if (!customization || controller.signal.aborted) return;
+
+        setResolvedCustomization((current) => ({
+          ...current,
+          ...customization,
+          previewImageUrl: customization.previewImageUrl || current?.previewImageUrl,
+          layers: customization.layers.length > 0 ? customization.layers : current?.layers || [],
+          backLayers: customization.backLayers?.length
+            ? customization.backLayers
+            : current?.backLayers,
+        }));
+        setHasDesignPreviewError(false);
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          console.error('Failed to load customization preview', error);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsDesignPreviewLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [order.customization?._id, order.customization?.previewImageUrl, order.source]);
 
   const refreshOrderStatus = useCallback(async () => {
     if (isStatusRequestInFlightRef.current) return;
@@ -1907,7 +2047,14 @@ const OrderDetailModal: React.FC<{
     <dialog
       ref={dialogRef}
       className="modal-backdrop orders-modal-backdrop"
-      onCancel={onClose}
+      onCancel={(event) => {
+        if (isDesignPreviewOpen) {
+          event.preventDefault();
+          setIsDesignPreviewOpen(false);
+          return;
+        }
+        onClose();
+      }}
       style={{
         border: 0,
         margin: 0,
@@ -1947,26 +2094,57 @@ const OrderDetailModal: React.FC<{
           <div style={{ display: 'grid', gap: 16 }}>
             {order.source === 'customized' ? (
               <>
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
-                  <PreviewImage
-                    src={order.customization?.previewImageUrl}
-                    alt={`${productLabel(order)} full preview`}
-                    size={300}
-                  />
-                </div>
+                <section
+                  className="card orders-design-preview-card"
+                  aria-labelledby="design-preview-title"
+                >
+                  <h3 id="design-preview-title" className="section-title">
+                    Design Preview
+                  </h3>
+
+                  {isDesignPreviewLoading ? (
+                    <div className="orders-design-preview-placeholder" aria-live="polite">
+                      <Loader2 className="animate-spin" size={32} />
+                      <span>Loading design preview...</span>
+                    </div>
+                  ) : hasDesignPreview ? (
+                    <button
+                      type="button"
+                      className="orders-design-preview-trigger"
+                      onClick={() => setIsDesignPreviewOpen(true)}
+                      aria-haspopup="dialog"
+                    >
+                      <img
+                        src={designPreviewUrl}
+                        alt={`${productLabel(order)} design preview`}
+                        referrerPolicy="no-referrer"
+                        onError={handleDesignPreviewError}
+                      />
+                      <span>Click image to enlarge</span>
+                    </button>
+                  ) : (
+                    <div className="orders-design-preview-placeholder">
+                      <ImageIcon size={36} />
+                      <span>Preview not available</span>
+                    </div>
+                  )}
+                </section>
                 <div className="detail-row">
                   <span className="form-label" style={{ margin: 0 }}>Canvas</span>
                   <span>
-                    {order.customization?.canvasWidth || 0} x {order.customization?.canvasHeight || 0}
+                    {resolvedCustomization?.canvasWidth || 0} x {resolvedCustomization?.canvasHeight || 0}
                   </span>
                 </div>
                 <div className="detail-row">
                   <span className="form-label" style={{ margin: 0 }}>Layers</span>
-                  <span>{(order.customization?.layers.length || 0) + (order.customization?.backLayers?.length || 0)}</span>
+                  <span>
+                    {(resolvedCustomization?.layers.length || 0) +
+                      (resolvedCustomization?.backLayers?.length || 0)}
+                  </span>
                 </div>
-                <LayerList title="Front layers" layers={order.customization?.layers || []} />
-                {order.customization?.backLayers?.length ? (
-                  <LayerList title="Back layers" layers={order.customization.backLayers} />
+                <LayerList title="Front layers" layers={resolvedCustomization?.layers || []} />
+                {resolvedCustomization?.backLayers?.length ? (
+                  <LayerList title="Back layers" layers={resolvedCustomization.backLayers} />
                 ) : null}
               </>
             ) : (
@@ -2270,6 +2448,50 @@ const OrderDetailModal: React.FC<{
             Close
           </button>
         </div>
+
+        {isDesignPreviewOpen && hasDesignPreview ? (
+          <div
+            className="orders-preview-lightbox"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="design-preview-lightbox-title"
+            onMouseDown={() => setIsDesignPreviewOpen(false)}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape') {
+                event.stopPropagation();
+                setIsDesignPreviewOpen(false);
+              }
+            }}
+          >
+            <div
+              className="modal-box modal-box-lg orders-preview-lightbox-box"
+              onMouseDown={(event) => event.stopPropagation()}
+            >
+              <div className="orders-preview-lightbox-header">
+                <h3 id="design-preview-lightbox-title" className="section-title">
+                  Design Preview
+                </h3>
+                <button
+                  type="button"
+                  className="action-icon-button"
+                  onClick={() => setIsDesignPreviewOpen(false)}
+                  aria-label="Close enlarged design preview"
+                  autoFocus
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <img
+                className="orders-preview-lightbox-image"
+                src={designPreviewUrl}
+                alt={`${productLabel(order)} enlarged design preview`}
+                referrerPolicy="no-referrer"
+                onError={handleDesignPreviewError}
+              />
+            </div>
+          </div>
+        ) : null}
       </m.div>
     </dialog>
   );

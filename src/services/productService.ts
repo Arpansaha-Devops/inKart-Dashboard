@@ -56,7 +56,7 @@ export const updateStock = async (productId: string, data: StockUpdatePayload) =
 };
 
 export const fetchCategories = async () => {
-  const endpoints = ['/admin/categories', '/categories', '/categories/all'];
+  const endpoints = ['/admin/categories', '/categories'];
 
   let lastError: unknown = null;
 
