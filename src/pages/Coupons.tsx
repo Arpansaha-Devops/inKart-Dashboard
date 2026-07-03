@@ -94,10 +94,12 @@ const normalizeApplicableCategories = (values: string[], categories: Category[])
 
   return Array.from(
     new Set(
-      values
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0)
-        .map((value) => categoryNameToId.get(value.toLowerCase()) ?? value)
+      values.flatMap((value) => {
+        const trimmedValue = value.trim();
+        return trimmedValue
+          ? [categoryNameToId.get(trimmedValue.toLowerCase()) ?? trimmedValue]
+          : [];
+      })
     )
   );
 };

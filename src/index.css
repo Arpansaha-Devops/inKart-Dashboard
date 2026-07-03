@@ -433,7 +433,18 @@ table.data-table tbody td {
   backdrop-filter: blur(6px);
 }
 
+.modal-backdrop-dismiss {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: default;
+}
+
 .modal-box {
+  position: relative;
+  z-index: 1;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);

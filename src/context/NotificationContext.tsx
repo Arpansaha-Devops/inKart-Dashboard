@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, use, useMemo, useState, type ReactNode } from 'react';
 
 interface NotificationContextType {
   isNotificationOpen: boolean;
@@ -7,7 +7,7 @@ interface NotificationContextType {
 
 const NotificationContext = createContext<NotificationContextType | undefined>(undefined);
 
-export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const NotificationProvider = ({ children }: { children: ReactNode }) => {
   const [isNotificationOpen, setIsNotificationOpen] = useState(true);
   const value = useMemo(
     () => ({ isNotificationOpen, setIsNotificationOpen }),
@@ -22,7 +22,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 };
 
 export const useNotification = () => {
-  const context = useContext(NotificationContext);
+  const context = use(NotificationContext);
   if (context === undefined) {
     throw new Error('useNotification must be used within a NotificationProvider');
   }

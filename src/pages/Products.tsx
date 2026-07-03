@@ -65,14 +65,14 @@ const extractProducts = (payload: any): Product[] => {
 
   for (const candidate of directCandidates) {
     if (Array.isArray(candidate) && candidate.some(isProductLike)) {
-      return candidate.filter(isProductLike).map(normalizeProduct);
+      return candidate.flatMap((item) => isProductLike(item) ? [normalizeProduct(item)] : []);
     }
   }
 
   const deepCandidates = collectArrays(payload);
   let best: Product[] = [];
   deepCandidates.forEach((arr) => {
-    const filtered = arr.filter(isProductLike).map(normalizeProduct);
+    const filtered = arr.flatMap((item) => isProductLike(item) ? [normalizeProduct(item)] : []);
     if (filtered.length > best.length) {
       best = filtered;
     }
@@ -1052,23 +1052,18 @@ const Products: React.FC = () => {
         {isModalOpen ? (
           <div
             className="modal-backdrop"
-            onClick={() => dispatch({ type: 'CLOSE_PRODUCT_MODAL' })}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            aria-label="Close product modal"
           >
+            <button
+              type="button"
+              className="modal-backdrop-dismiss"
+              onClick={() => dispatch({ type: 'CLOSE_PRODUCT_MODAL' })}
+              aria-label="Close product modal"
+            />
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               className="modal-box modal-box-lg"
-              onClick={(event) => event.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-labelledby="product-edit-title"
@@ -1428,23 +1423,18 @@ const Products: React.FC = () => {
         {isStockModalOpen ? (
           <div
             className="modal-backdrop"
-            onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                dispatch({ type: 'CLOSE_STOCK_MODAL' });
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            aria-label="Close stock modal"
           >
+            <button
+              type="button"
+              className="modal-backdrop-dismiss"
+              onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}
+              aria-label="Close stock modal"
+            />
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               className="modal-box"
-              onClick={(event) => event.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-labelledby="product-stock-title"

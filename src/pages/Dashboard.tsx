@@ -513,12 +513,16 @@ const Dashboard: React.FC = () => {
           });
         }
 
-        const couponRows = chartCoupons
-          .filter((coupon: any) => typeof coupon?.code === 'string' && coupon.code.trim().length > 0)
-          .map((coupon: any) => ({
+        const couponRows = chartCoupons.flatMap((coupon: any) => {
+          if (typeof coupon?.code !== 'string' || coupon.code.trim().length === 0) {
+            return [];
+          }
+
+          return [{
             code: coupon.code as string,
             discountValue: Number(coupon?.discountValue) || 0,
-          }));
+          }];
+        });
 
         dispatch({
           type: 'SET_BAR_DATA',

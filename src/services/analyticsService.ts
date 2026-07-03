@@ -167,10 +167,14 @@ const getBucketLabel = (value: unknown): string | null => {
     return date;
   }
 
-  const primitiveParts = Object.values(bucket)
-    .filter((entry) => ['string', 'number'].includes(typeof entry))
-    .map((entry) => String(entry).trim())
-    .filter(Boolean);
+  const primitiveParts = Object.values(bucket).flatMap((entry) => {
+    if (typeof entry !== 'string' && typeof entry !== 'number') {
+      return [];
+    }
+
+    const part = String(entry).trim();
+    return part ? [part] : [];
+  });
 
   return primitiveParts.length > 0 ? primitiveParts.join(' - ') : null;
 };

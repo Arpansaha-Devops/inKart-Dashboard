@@ -294,7 +294,7 @@ const Customers: React.FC = () => {
 
     dispatch({ type: 'SET_DELETING_USER', payload: true });
     try {
-      const token = Cookies.get('token') || localStorage.getItem('token');
+      const token = Cookies.get('token') || localStorage.getItem('token:v1');
       await apiClient.delete(`/admin/users/${deletingUser._id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
@@ -568,23 +568,18 @@ const Customers: React.FC = () => {
         {selectedUser ? (
           <div
             className="modal-backdrop"
-            onClick={() => dispatch({ type: 'SET_SELECTED_USER', payload: null })}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                dispatch({ type: 'SET_SELECTED_USER', payload: null });
-              }
-            }}
-            role="button"
-            tabIndex={0}
-            aria-label="Close customer details"
           >
+            <button
+              type="button"
+              className="modal-backdrop-dismiss"
+              onClick={() => dispatch({ type: 'SET_SELECTED_USER', payload: null })}
+              aria-label="Close customer details"
+            />
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               className="modal-box"
-              onClick={(event) => event.stopPropagation()}
               role="dialog"
               aria-modal="true"
               aria-labelledby="customer-details-title"
