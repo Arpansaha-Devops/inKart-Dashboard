@@ -26,16 +26,16 @@ type RetryableRequestConfig = InternalAxiosRequestConfig & {
   _retry?: boolean;
 };
 
-const readToken = () =>
-  Cookies.get(TOKEN_STORAGE_KEY) || localStorage.getItem(TOKEN_STORAGE_KEY);
+const readToken = () => Cookies.get(TOKEN_STORAGE_KEY);
 
-const readRefreshToken = () =>
-  Cookies.get(REFRESH_TOKEN_STORAGE_KEY) ||
-  localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
+const readRefreshToken = () => Cookies.get(REFRESH_TOKEN_STORAGE_KEY);
 
 const saveToken = (token: string) => {
-  Cookies.set(TOKEN_STORAGE_KEY, token, { expires: 7 });
-  localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  Cookies.set(TOKEN_STORAGE_KEY, token, {
+    expires: 7,
+    sameSite: 'strict',
+    secure: window.location.protocol === 'https:',
+  });
 };
 
 const clearAuthStorage = () => {
@@ -43,9 +43,13 @@ const clearAuthStorage = () => {
   Cookies.remove(TOKEN_STORAGE_KEY);
   Cookies.remove(REFRESH_TOKEN_STORAGE_KEY);
 
+  // Clean up credentials persisted by older frontend versions.
   localStorage.removeItem(USER_STORAGE_KEY);
+  localStorage.removeItem(`${USER_STORAGE_KEY}:v1`);
   localStorage.removeItem(TOKEN_STORAGE_KEY);
+  localStorage.removeItem(`${TOKEN_STORAGE_KEY}:v1`);
   localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  localStorage.removeItem(`${REFRESH_TOKEN_STORAGE_KEY}:v1`);
 };
 
 let sessionExpiryRedirectScheduled = false;

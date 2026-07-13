@@ -13,7 +13,7 @@ import {
   Clock3,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'motion/react';
+import { m, AnimatePresence } from 'motion/react';
 import { Category, Coupon, CreateCouponPayload } from '../types';
 import { createCoupon, updateCoupon, deleteCoupon } from '../services/couponService';
 import { getCategories } from '../services/categoryService';
@@ -86,6 +86,22 @@ const extractTotalCoupons = (payload: any, fallback = 0): number => {
 
   return visit(payload) ?? fallback;
 };
+
+const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+  const selector =
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter(
+    (element) => !element.hasAttribute('disabled')
+  );
+};
+
+const getDiscountLabel = (coupon: Coupon): string =>
+  coupon.discountType === 'percentage'
+    ? `${coupon.discountValue}%`
+    : formatCurrency(coupon.discountValue);
+
+const getMinOrderLabel = (coupon: Coupon): string =>
+  coupon.minOrderAmount ? formatCurrency(coupon.minOrderAmount) : '\u2014';
 
 const normalizeApplicableCategories = (values: string[], categories: Category[]): string[] => {
   const categoryNameToId = new Map(
@@ -263,14 +279,6 @@ const Coupons: React.FC = () => {
   const modalContentRef = useRef<HTMLDivElement>(null);
   const deleteModalContentRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
-
-  const getFocusableElements = (container: HTMLElement): HTMLButtonElement[] => {
-    const selector =
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    return Array.from(container.querySelectorAll(selector)).filter(
-      (el: any) => !el.hasAttribute('disabled')
-    ) as HTMLButtonElement[];
-  };
 
   useEffect(() => {
     if (!isModalOpen) return;
@@ -619,17 +627,6 @@ const Coupons: React.FC = () => {
     }
   };
 
-  const getDiscountLabel = (coupon: Coupon): string => {
-    if (coupon.discountType === 'percentage') {
-      return `${coupon.discountValue}%`;
-    }
-    return formatCurrency(coupon.discountValue);
-  };
-
-  const getMinOrderLabel = (coupon: Coupon): string => {
-    return coupon.minOrderAmount ? formatCurrency(coupon.minOrderAmount) : '\u2014';
-  };
-
   const toggleApplicableCategory = (categoryId: string) => {
     dispatch({
       type: 'SET_FORM_DATA',
@@ -641,6 +638,8 @@ const Coupons: React.FC = () => {
       }),
     });
   };
+
+  const selectedApplicableCategoryIds = new Set(formData.applicableCategories);
 
   return (
     <div className="page-wrapper">
@@ -868,7 +867,7 @@ const Coupons: React.FC = () => {
             className="modal-backdrop"
             role="presentation"
           >
-            <motion.div
+            <m.div
               ref={modalContentRef}
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1085,7 +1084,7 @@ const Coupons: React.FC = () => {
                     >
                       {activeCategories.length > 0 ? (
                         activeCategories.map((category) => {
-                          const isSelected = formData.applicableCategories.includes(category._id);
+                          const isSelected = selectedApplicableCategoryIds.has(category._id);
 
                           return (
                             <button
@@ -1223,7 +1222,7 @@ const Coupons: React.FC = () => {
                   {isSubmitting ? (editingCoupon ? 'Updating...' : 'Creating...') : editingCoupon ? 'Update' : 'Create'}
                 </button>
               </div>
-            </motion.div>
+            </m.div>
           </div>
         ) : null}
       </AnimatePresence>
@@ -1235,7 +1234,7 @@ const Coupons: React.FC = () => {
             className="modal-backdrop"
             role="presentation"
           >
-            <motion.div
+            <m.div
               ref={deleteModalContentRef}
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1298,7 +1297,7 @@ const Coupons: React.FC = () => {
                   {isLoadingAPI ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
-            </motion.div>
+            </m.div>
           </div>
         ) : null}
       </AnimatePresence>

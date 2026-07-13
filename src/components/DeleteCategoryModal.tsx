@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m } from 'motion/react';
 import { AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { deleteCategory } from '../services/categoryService';
@@ -131,7 +131,7 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
           className="modal-backdrop"
           role="presentation"
         >
-          <motion.div
+          <m.div
             ref={contentRef}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -192,7 +192,7 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
                 {isDeleting ? 'Deleting...' : 'Delete'}
               </button>
             </div>
-          </motion.div>
+          </m.div>
         </div>
       ) : null}
     </AnimatePresence>

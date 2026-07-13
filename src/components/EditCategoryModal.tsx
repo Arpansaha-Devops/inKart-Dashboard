@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence, m } from 'motion/react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateCategory } from '../services/categoryService';
@@ -60,8 +60,16 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
     onCloseRef.current();
   }, []);
 
-  const selectedCategoryId = isOpen && category?._id ? category._id : '';
-  if (selectedCategoryId && selectedCategoryId !== syncedCategoryIdRef.current && category) {
+  useEffect(() => {
+    const selectedCategoryId = isOpen && category?._id ? category._id : '';
+
+    if (!selectedCategoryId) {
+      syncedCategoryIdRef.current = '';
+      return;
+    }
+
+    if (selectedCategoryId === syncedCategoryIdRef.current || !category) return;
+
     syncedCategoryIdRef.current = selectedCategoryId;
     setFormData({
       name: category.name || '',
@@ -70,9 +78,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
       isActive: category.isActive ?? true,
     });
     isSlugEditedRef.current = false;
-  } else if (!selectedCategoryId && syncedCategoryIdRef.current) {
-    syncedCategoryIdRef.current = '';
-  }
+  }, [category, isOpen]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -174,7 +180,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
     <AnimatePresence>
       {isOpen && category ? (
         <div ref={overlayRef} className="modal-backdrop" role="presentation">
-          <motion.div
+          <m.div
             ref={contentRef}
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -288,7 +294,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
                 </button>
               </div>
             </form>
-          </motion.div>
+          </m.div>
         </div>
       ) : null}
     </AnimatePresence>

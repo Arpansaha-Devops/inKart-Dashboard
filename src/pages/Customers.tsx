@@ -11,7 +11,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { formatDate } from '../lib/utils';
-import { motion, AnimatePresence } from 'motion/react';
+import { m, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
 import Cookies from 'js-cookie';
@@ -159,6 +159,14 @@ function customersReducer(state: CustomersState, action: CustomersAction): Custo
   }
 }
 
+const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
+  const selector =
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+  return Array.from(container.querySelectorAll<HTMLElement>(selector)).filter(
+    (element) => !element.hasAttribute('disabled')
+  );
+};
+
 const Customers: React.FC = () => {
   const { user: currentUser } = useAuth();
   const [state, dispatch] = useReducer(customersReducer, customersInitialState);
@@ -207,13 +215,6 @@ const Customers: React.FC = () => {
     }, 300);
     return () => clearTimeout(timer);
   }, [fetchUsers]);
-
-  const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
-    const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    return Array.from(container.querySelectorAll(selector)).filter(
-      (el: any) => !el.hasAttribute('disabled')
-    ) as HTMLElement[];
-  };
 
   useEffect(() => {
     if (!isDeleteModalOpen) return;
@@ -294,7 +295,7 @@ const Customers: React.FC = () => {
 
     dispatch({ type: 'SET_DELETING_USER', payload: true });
     try {
-      const token = Cookies.get('token') || localStorage.getItem('token:v1');
+      const token = Cookies.get('token');
       await apiClient.delete(`/admin/users/${deletingUser._id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
@@ -496,7 +497,7 @@ const Customers: React.FC = () => {
             className="modal-backdrop"
             role="presentation"
           >
-            <motion.div
+            <m.div
               ref={deleteModalContentRef}
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -559,7 +560,7 @@ const Customers: React.FC = () => {
                   {isDeletingUser ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
-            </motion.div>
+            </m.div>
           </div>
         ) : null}
       </AnimatePresence>
@@ -575,7 +576,7 @@ const Customers: React.FC = () => {
               onClick={() => dispatch({ type: 'SET_SELECTED_USER', payload: null })}
               aria-label="Close customer details"
             />
-            <motion.div
+            <m.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -711,7 +712,7 @@ const Customers: React.FC = () => {
                   </div>
                 </div>
               </div>
-            </motion.div>
+            </m.div>
           </div>
         ) : null}
       </AnimatePresence>

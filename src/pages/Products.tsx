@@ -15,7 +15,7 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'motion/react';
+import { m, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
 import { deleteProduct, updateProduct } from '../services/productService';
 import { getVisibleProductName } from '../lib/productNames';
@@ -194,6 +194,8 @@ const getProductImageUrl = (product: any): string => {
 
   return PRODUCT_PLACEHOLDER_IMAGE;
 };
+
+const isObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value.trim());
 
 const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
   const selector =
@@ -470,13 +472,28 @@ const Products: React.FC = () => {
 
   const getCategoryLabel = (product: any): string => {
     if (product?.category && typeof product.category === 'object') {
-      return product.category.name || product.category._id || 'Unknown Category';
+      return product.category.name || categoryNameById[product.category._id] || product.category._id || 'Unknown Category';
     }
     if (typeof product?.category === 'string') {
       return categoryNameById[product.category] || product.category;
     }
     return 'Unknown Category';
   };
+
+  const resolveCategoryId = (input: string): string | null => {
+    const normalized = input.trim();
+    if (!normalized) return null;
+    if (isObjectId(normalized)) return normalized;
+    const match = Object.entries(categoryNameById).find(
+      ([, name]) => name?.trim().toLowerCase() === normalized.toLowerCase()
+    );
+    return match?.[0] ?? null;
+  };
+
+  const categoryOptions = useMemo(
+    () => Array.from(new Set(Object.values(categoryNameById).filter((name): name is string => Boolean(name)))).sort(),
+    [categoryNameById]
+  );
 
   const fetchCategoryLookup = useCallback(async () => {
     try {
@@ -642,6 +659,13 @@ const Products: React.FC = () => {
   }, [isStockModalOpen]);
 
   const handleOpenModal = (product: Product) => {
+    const categoryValue =
+      typeof product.category === 'object' && product.category !== null
+        ? product.category.name || categoryNameById[product.category._id] || product.category._id || ''
+        : typeof product.category === 'string'
+        ? categoryNameById[product.category] || product.category
+        : '';
+
     dispatch({
       type: 'OPEN_PRODUCT_MODAL',
       payload: {
@@ -649,7 +673,7 @@ const Products: React.FC = () => {
         formData: {
           name: getVisibleProductName(product.name),
           description: product.description || '',
-          category: typeof product.category === 'object' && product.category !== null ? ((product.category as any)?._id || '') : (product.category || ''),
+          category: categoryValue,
           productType: product.productType || 'on_demand',
           stock: product.stock || 0,
           isCustomizable: product.isCustomizable ?? true,
@@ -750,10 +774,16 @@ const Products: React.FC = () => {
     dispatch({ type: 'SET_FORM_ERRORS', payload: {} });
     const sortedPricingTiers = sortQuantityPricing(pricingTiers);
 
+    const resolvedCategoryId = resolveCategoryId(formData.category);
+    if (!resolvedCategoryId) {
+      toast.error('Category not recognized. Use an active category name or a valid category ID.');
+      return;
+    }
+
     const data = new FormData();
     Object.entries(formData).forEach(([key, value]) => {
       if (key === 'quantityPricing') return;
-      if (value !== null && value !== undefined) {
+      if (key !== 'category' && value !== null && value !== undefined) {
         if (value instanceof File) {
           data.append(key === 'image' ? 'images' : key, value);
         } else {
@@ -762,6 +792,7 @@ const Products: React.FC = () => {
       }
     });
     data.set('name', formData.name.trim());
+    data.set('category', resolvedCategoryId);
     data.set('quantityPricing', JSON.stringify(sortedPricingTiers));
 
     try {
@@ -1059,7 +1090,7 @@ const Products: React.FC = () => {
               onClick={() => dispatch({ type: 'CLOSE_PRODUCT_MODAL' })}
               aria-label="Close product modal"
             />
-            <motion.div
+            <m.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -1145,6 +1176,7 @@ const Products: React.FC = () => {
                     <input
                       id="edit-product-category"
                       type="text"
+                      list="product-category-options"
                       required
                       className="input-field"
                       value={formData.category}
@@ -1155,6 +1187,11 @@ const Products: React.FC = () => {
                         })
                       }
                     />
+                    <datalist id="product-category-options">
+                      {categoryOptions.map((name) => (
+                        <option key={name} value={name} />
+                      ))}
+                    </datalist>
                   </div>
 
                   <div className="form-group">
@@ -1254,9 +1291,9 @@ const Products: React.FC = () => {
                         flexWrap: 'wrap',
                       }}
                     >
-                      <label className="form-label" style={{ margin: 0 }}>
+                      <span className="form-label" style={{ margin: 0 }}>
                         Pricing Tiers
-                      </label>
+                      </span>
                       <button type="button" className="btn-ghost" onClick={addPricingTier}>
                         <Plus size={15} />
                         Add tier
@@ -1414,7 +1451,7 @@ const Products: React.FC = () => {
                   </button>
                 </div>
               </form>
-            </motion.div>
+            </m.div>
           </div>
         ) : null}
       </AnimatePresence>
@@ -1430,7 +1467,7 @@ const Products: React.FC = () => {
               onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}
               aria-label="Close stock modal"
             />
-            <motion.div
+            <m.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -1561,7 +1598,7 @@ const Products: React.FC = () => {
                   </button>
                 </div>
               </form>
-            </motion.div>
+            </m.div>
           </div>
         ) : null}
       </AnimatePresence>
@@ -1573,7 +1610,7 @@ const Products: React.FC = () => {
             className="modal-backdrop"
             role="presentation"
           >
-            <motion.div
+            <m.div
               ref={deleteModalContentRef}
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -1636,16 +1673,19 @@ const Products: React.FC = () => {
                   {isDeletingProduct ? 'Deleting...' : 'Delete'}
                 </button>
               </div>
-            </motion.div>
+            </m.div>
           </div>
         ) : null}
       </AnimatePresence>
 
-      <CreateProductModal
-        isOpen={isCreateModalOpen}
-        onClose={() => dispatch({ type: 'CLOSE_CREATE_MODAL' })}
-        onSuccess={handleCreateProductSuccess}
-      />
+      <AnimatePresence>
+        {isCreateModalOpen ? (
+          <CreateProductModal
+            onClose={() => dispatch({ type: 'CLOSE_CREATE_MODAL' })}
+            onSuccess={handleCreateProductSuccess}
+          />
+        ) : null}
+      </AnimatePresence>
     </div>
   );
 };

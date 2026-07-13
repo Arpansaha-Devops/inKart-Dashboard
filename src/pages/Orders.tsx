@@ -1774,6 +1774,7 @@ const OrderDetailModal: React.FC<{
   const terminalLabel = terminalStatusLabel(order.orderStatus);
   const mountedRef = useRef(true);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const previewDialogRef = useRef<HTMLDialogElement>(null);
   const computedEstimateCacheRef = useRef(new Map<string, ComputedDeliveryEstimateState>());
   const isStatusRequestInFlightRef = useRef(false);
   const [detailState, dispatchDetail] = useReducer(
@@ -1783,7 +1784,7 @@ const OrderDetailModal: React.FC<{
   );
   const [isDesignPreviewOpen, setIsDesignPreviewOpen] = useState(false);
   const [hasDesignPreviewError, setHasDesignPreviewError] = useState(false);
-  const [resolvedCustomization, setResolvedCustomization] = useState(order.customization);
+  const [fetchedCustomization, setFetchedCustomization] = useState<OrderCustomization | null>(null);
   const [isDesignPreviewLoading, setIsDesignPreviewLoading] = useState(false);
   const {
     deliveryDate,
@@ -1801,6 +1802,27 @@ const OrderDetailModal: React.FC<{
   const hasEstimate = Boolean(order.estimatedDeliveryDate);
   const canApprove = order.orderStatus === 'placed';
   const standardPreviewImage = order.items.find((item) => item.product.image)?.product.image;
+  const fetchedCustomizationForOrder =
+    fetchedCustomization?._id === order.customization?._id ? fetchedCustomization : null;
+  const resolvedCustomization = fetchedCustomizationForOrder
+    ? {
+        ...order.customization,
+        ...fetchedCustomizationForOrder,
+        previewImageUrl:
+          order.customization?.previewImageUrl || fetchedCustomizationForOrder.previewImageUrl,
+        canvasWidth:
+          order.customization?.canvasWidth || fetchedCustomizationForOrder.canvasWidth,
+        canvasHeight:
+          order.customization?.canvasHeight || fetchedCustomizationForOrder.canvasHeight,
+        layers:
+          order.customization?.layers.length
+            ? order.customization.layers
+            : fetchedCustomizationForOrder.layers,
+        backLayers: order.customization?.backLayers?.length
+          ? order.customization.backLayers
+          : fetchedCustomizationForOrder.backLayers,
+      }
+    : order.customization;
   const designPreviewUrl = resolvedCustomization?.previewImageUrl;
   const hasDesignPreview = Boolean(designPreviewUrl) && !hasDesignPreviewError;
 
@@ -1817,6 +1839,17 @@ const OrderDetailModal: React.FC<{
       dialogRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    const previewDialog = previewDialogRef.current;
+    if (!previewDialog) return;
+
+    if (isDesignPreviewOpen && hasDesignPreview && !previewDialog.open) {
+      previewDialog.showModal();
+    } else if ((!isDesignPreviewOpen || !hasDesignPreview) && previewDialog.open) {
+      previewDialog.close();
+    }
+  }, [hasDesignPreview, isDesignPreviewOpen]);
 
   useEffect(() => {
     const customizationId = order.customization?._id;
@@ -1839,15 +1872,7 @@ const OrderDetailModal: React.FC<{
         const customization = normalizeCustomizationResponse(response.data, customizationId);
         if (!customization || controller.signal.aborted) return;
 
-        setResolvedCustomization((current) => ({
-          ...current,
-          ...customization,
-          previewImageUrl: customization.previewImageUrl || current?.previewImageUrl,
-          layers: customization.layers.length > 0 ? customization.layers : current?.layers || [],
-          backLayers: customization.backLayers?.length
-            ? customization.backLayers
-            : current?.backLayers,
-        }));
+        setFetchedCustomization(customization);
         setHasDesignPreviewError(false);
       })
       .catch((error: unknown) => {
@@ -2047,6 +2072,7 @@ const OrderDetailModal: React.FC<{
     <dialog
       ref={dialogRef}
       className="modal-backdrop orders-modal-backdrop"
+      aria-labelledby="order-detail-title"
       onCancel={(event) => {
         if (isDesignPreviewOpen) {
           event.preventDefault();
@@ -2070,8 +2096,6 @@ const OrderDetailModal: React.FC<{
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         className="modal-box modal-box-lg orders-detail-modal"
         style={{ maxWidth: 980 }}
-        onMouseDown={(event) => event.stopPropagation()}
-        aria-labelledby="order-detail-title"
       >
         <div
           style={{
@@ -2449,23 +2473,25 @@ const OrderDetailModal: React.FC<{
           </button>
         </div>
 
-        {isDesignPreviewOpen && hasDesignPreview ? (
-          <div
+        {hasDesignPreview ? (
+          <dialog
+            ref={previewDialogRef}
             className="orders-preview-lightbox"
-            role="dialog"
-            aria-modal="true"
             aria-labelledby="design-preview-lightbox-title"
-            onMouseDown={() => setIsDesignPreviewOpen(false)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.stopPropagation();
-                setIsDesignPreviewOpen(false);
-              }
+            onCancel={(event) => {
+              event.stopPropagation();
+              setIsDesignPreviewOpen(false);
             }}
+            onClose={() => setIsDesignPreviewOpen(false)}
           >
+            <button
+              type="button"
+              className="orders-preview-lightbox-dismiss"
+              onClick={() => setIsDesignPreviewOpen(false)}
+              aria-label="Close enlarged design preview"
+            />
             <div
               className="modal-box modal-box-lg orders-preview-lightbox-box"
-              onMouseDown={(event) => event.stopPropagation()}
             >
               <div className="orders-preview-lightbox-header">
                 <h3 id="design-preview-lightbox-title" className="section-title">
@@ -2490,7 +2516,7 @@ const OrderDetailModal: React.FC<{
                 onError={handleDesignPreviewError}
               />
             </div>
-          </div>
+          </dialog>
         ) : null}
       </m.div>
     </dialog>

@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useEffect, useReducer, useRef, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Package,
@@ -48,7 +48,8 @@ type DashboardDataAction =
 
 const COMMON_ARRAY_KEYS = ['data', 'users', 'products', 'coupons', 'categories', 'results', 'items', 'list', 'docs'];
 const COMMON_COUNT_KEYS = ['totalCount', 'total', 'count', 'totalResults', 'length'];
-const CHART_COLORS = ['#F97316', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ef4444'];
+const PRODUCT_CHART_LIMIT = 500;
+const COUPON_CHART_LIMIT = 50;
 
 const quickActions = [
   {
@@ -188,6 +189,27 @@ const normalizeValue = (value: unknown): string => {
   return value.trim().toLowerCase();
 };
 
+const hashString = (value: string): number => {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const createChartColor = (label: string, index: number): string => {
+  const seed = hashString(label || `chart-item-${index}`);
+  const hue = (seed + index * 137.508) % 360;
+  const saturation = 68 + (seed % 12);
+  const lightness = 47 + ((seed >> 3) % 10);
+
+  return `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
+};
+
+const createChartColors = (labels: string[]): string[] =>
+  labels.map((label, index) => createChartColor(label, index));
+
 const isCategoryLike = (item: any): boolean =>
   Boolean(item && typeof item === 'object' && typeof item._id === 'string' && typeof item.name === 'string');
 
@@ -315,36 +337,24 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const [
-          usersRes,
-          productsRes,
-          couponsRes,
-          categoriesRes,
-          chartProductsRes,
-          chartCouponsRes,
-        ] = await Promise.allSettled([
-          apiClient.get('/users/all', { params: { limit: 1 } }),
-          apiClient.get('/admin/products', { params: { limit: 1, _ts: Date.now() } }),
-          apiClient.get('/admin/coupons', { params: { page: 1, limit: 1 } }),
+        const [usersRes, productsRes, couponsRes, categoriesRes] = await Promise.allSettled([
+          apiClient.get('/users/all', { params: { page: 1, limit: 5 } }),
+          apiClient.get('/admin/products', {
+            params: { page: 1, limit: PRODUCT_CHART_LIMIT, _ts: Date.now() },
+          }),
+          apiClient.get('/admin/coupons', { params: { page: 1, limit: COUPON_CHART_LIMIT } }),
           apiClient.get('/admin/categories'),
-          apiClient.get('/admin/products', { params: { page: 1, limit: 200, _ts: Date.now() } }),
-          apiClient.get('/admin/coupons', { params: { page: 1, limit: 50 } }),
         ]);
 
         const usersPayload = usersRes.status === 'fulfilled' ? usersRes.value.data : null;
         const productsPayload = productsRes.status === 'fulfilled' ? productsRes.value.data : null;
         const couponsPayload = couponsRes.status === 'fulfilled' ? couponsRes.value.data : null;
         const categoriesPayload = categoriesRes.status === 'fulfilled' ? categoriesRes.value.data : null;
-        let chartProductsPayload = chartProductsRes.status === 'fulfilled' ? chartProductsRes.value.data : null;
-        const chartCouponsPayload = chartCouponsRes.status === 'fulfilled' ? chartCouponsRes.value.data : null;
-        const failedCalls = [
-          usersRes,
-          productsRes,
-          couponsRes,
-          categoriesRes,
-          chartProductsRes,
-          chartCouponsRes,
-        ].filter((result) => result.status === 'rejected').length;
+        let chartProductsPayload = productsPayload;
+        const chartCouponsPayload = couponsPayload;
+        const failedCalls = [usersRes, productsRes, couponsRes, categoriesRes].filter(
+          (result) => result.status === 'rejected'
+        ).length;
 
         const dashboardUsers =
           usersRes.status === 'fulfilled'
@@ -361,16 +371,14 @@ const Dashboard: React.FC = () => {
         ]);
 
         let chartProducts = extractProducts(chartProductsPayload);
-        let productPageProducts = extractProducts(productsPayload);
 
-        if (chartProducts.length === 0 && productPageProducts.length === 0) {
+        if (chartProducts.length === 0) {
           try {
             const publicProductsResponse = await apiClient.get('/products', {
-              params: { page: 1, limit: 500 },
+              params: { page: 1, limit: PRODUCT_CHART_LIMIT },
             });
             chartProductsPayload = publicProductsResponse.data;
             chartProducts = extractProducts(chartProductsPayload);
-            productPageProducts = chartProducts;
           } catch {
             // Keep the admin endpoint result as the dashboard source when public fallback is unavailable.
           }
@@ -383,7 +391,7 @@ const Dashboard: React.FC = () => {
           products: chartProducts.length > 0
             ? chartProducts.length
             : productsRes.status === 'fulfilled'
-              ? productPageProducts.length
+              ? findCount(productsPayload) ?? lastKnownCounts.current.products
             : lastKnownCounts.current.products,
           coupons: couponsRes.status === 'fulfilled'
             ? findCount(couponsPayload) ?? lastKnownCounts.current.coupons
@@ -460,7 +468,7 @@ const Dashboard: React.FC = () => {
             datasets: [
               {
                 data: counts,
-                backgroundColor: labels.map((_, index) => CHART_COLORS[index % CHART_COLORS.length]),
+                backgroundColor: createChartColors(labels),
                 borderWidth: 0,
               },
             ],
@@ -491,7 +499,7 @@ const Dashboard: React.FC = () => {
             datasets: [
               {
                 data: values,
-                backgroundColor: labels.map((_, index) => CHART_COLORS[index % CHART_COLORS.length]),
+                backgroundColor: createChartColors(labels),
                 borderWidth: 0,
               },
             ],
@@ -531,7 +539,7 @@ const Dashboard: React.FC = () => {
             datasets: [
               {
                 data: couponRows.map((coupon) => coupon.discountValue),
-                backgroundColor: '#F97316',
+                backgroundColor: createChartColors(couponRows.map((coupon) => coupon.code)),
                 borderRadius: 8,
                 borderSkipped: false,
               },
@@ -569,6 +577,11 @@ const Dashboard: React.FC = () => {
       clearInterval(intervalId);
     };
   }, []);
+
+  const chartFallback = useMemo(
+    () => <div className="skeleton" style={{ width: '100%', height: '100%' }} />,
+    []
+  );
 
   const statCards = [
     {
@@ -664,7 +677,7 @@ const Dashboard: React.FC = () => {
                 No data available
               </p>
             ) : (
-              <Suspense fallback={<div className="skeleton" style={{ width: '100%', height: '100%' }} />}>
+              <Suspense fallback={chartFallback}>
                 <DashboardCharts
                   chart="products"
                   chartTheme={chartTheme}
@@ -693,7 +706,7 @@ const Dashboard: React.FC = () => {
                 No data available
               </p>
             ) : (
-              <Suspense fallback={<div className="skeleton" style={{ width: '100%', height: '100%' }} />}>
+              <Suspense fallback={chartFallback}>
                 <DashboardCharts
                   chart="coupons"
                   chartTheme={chartTheme}

@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, Plus, Trash2, X, Upload, Loader2 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { m, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { createProduct } from '../services/productService';
+import { createProduct, updateProduct } from '../services/productService';
 import apiClient from '../lib/apiClient';
 import {
   formatProductImageBytes,
@@ -14,7 +14,6 @@ import { setUniqueProductSlug } from '../lib/productSlugs';
 import type { QuantityPricingTier } from '../types';
 
 interface CreateProductModalProps {
-  isOpen: boolean;
   onClose: () => void;
   onSuccess: (createdProductPayload?: unknown) => void;
 }
@@ -28,6 +27,7 @@ interface FormErrors {
   basePrice?: string;
   stock?: string;
   quantityPricing?: string;
+  variants?: string;
 }
 
 interface CategoryLookupItem {
@@ -38,6 +38,111 @@ interface CategoryLookupItem {
 
 type QuantityPricingTierForm = QuantityPricingTier & {
   id: string;
+};
+
+type VariantSizeForm = {
+  id: string;
+  size: string;
+  stock: number;
+};
+
+type ProductVariantForm = {
+  id: string;
+  colorName: string;
+  hexCode: string;
+  colorFront: File | null;
+  colorBack: File | null;
+  colorFrontPreview: string;
+  colorBackPreview: string;
+  sizes: VariantSizeForm[];
+};
+
+const createVariantSize = (): VariantSizeForm => ({
+  id: `size-${crypto.randomUUID()}`,
+  size: '',
+  stock: 0,
+});
+
+const createProductVariant = (): ProductVariantForm => ({
+  id: `variant-${crypto.randomUUID()}`,
+  colorName: '',
+  hexCode: '#000000',
+  colorFront: null,
+  colorBack: null,
+  colorFrontPreview: '',
+  colorBackPreview: '',
+  sizes: [createVariantSize()],
+});
+
+const isSupportedProductImage = (file: File) =>
+  PRODUCT_IMAGE_TYPES.includes(file.type as (typeof PRODUCT_IMAGE_TYPES)[number]);
+
+const normalizeHexCode = (value: string) => {
+  const normalized = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(normalized)) return normalized.toUpperCase();
+  if (/^[0-9a-fA-F]{6}$/.test(normalized)) return `#${normalized.toUpperCase()}`;
+  return null;
+};
+
+const validateVariants = (variants: ProductVariantForm[]): string | null => {
+  const colorNames = new Set<string>();
+  const hexCodes = new Set<string>();
+
+  for (let index = 0; index < variants.length; index += 1) {
+    const variant = variants[index];
+    const label = `Color ${index + 1}`;
+    const colorName = variant.colorName.trim();
+    const hexCode = normalizeHexCode(variant.hexCode);
+
+    if (!colorName) return `${label}: color name is required`;
+    if (!hexCode) return `${label}: enter a valid 6-digit hex code`;
+    if (!variant.colorFront || !variant.colorBack) {
+      return `${label}: upload both front and back mockup images`;
+    }
+    if (!isSupportedProductImage(variant.colorFront) || !isSupportedProductImage(variant.colorBack)) {
+      return `${label}: mockups must be JPG, PNG, or WebP images`;
+    }
+    if (colorNames.has(colorName.toLowerCase())) return `${label}: color names must be unique`;
+    if (hexCodes.has(hexCode)) return `${label}: hex codes must be unique`;
+    colorNames.add(colorName.toLowerCase());
+    hexCodes.add(hexCode);
+
+    if (variant.sizes.length === 0) return `${label}: add at least one size`;
+    const sizes = new Set<string>();
+    for (const sizeEntry of variant.sizes) {
+      const size = sizeEntry.size.trim();
+      if (!size) return `${label}: every size needs a name`;
+      if (!Number.isInteger(sizeEntry.stock) || sizeEntry.stock < 0) {
+        return `${label}: stock must be a non-negative whole number`;
+      }
+      if (sizes.has(size.toLowerCase())) return `${label}: sizes must be unique`;
+      sizes.add(size.toLowerCase());
+    }
+  }
+
+  return null;
+};
+
+const getCreatedProductId = (payload: unknown): string | null => {
+  if (!payload || typeof payload !== 'object') return null;
+
+  const record = payload as Record<string, unknown>;
+  const directId = record._id ?? record.id;
+  if (
+    typeof directId === 'string' &&
+    (typeof record.name === 'string' ||
+      typeof record.description === 'string' ||
+      Array.isArray(record.images))
+  ) {
+    return directId;
+  }
+
+  for (const key of ['product', 'data', 'result']) {
+    const productId = getCreatedProductId(record[key]);
+    if (productId) return productId;
+  }
+
+  return null;
 };
 
 type CreateProductFormState = {
@@ -117,7 +222,7 @@ const getCreateProductErrorMessage = (error: any): string => {
     return 'Could not create this product because the server rejected it as a duplicate.';
   }
 
-  return message || 'Failed to create product';
+  return message || error?.message || 'Failed to create product';
 };
 
 const isObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value.trim());
@@ -165,7 +270,7 @@ const validateQuantityPricing = (tiers: QuantityPricingTier[]): string | null =>
   return null;
 };
 
-const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose, onSuccess }) => {
+const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSuccess }) => {
   const navigate = useNavigate();
   const [state, dispatch] = useReducer(
     createProductFormReducer,
@@ -187,12 +292,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   } = state;
   const [images, setImages] = useState<File[]>([]);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
+  const [variants, setVariants] = useState<ProductVariantForm[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const handleCloseRef = useRef<() => void>(() => {});
-  const isOpenRef = useRef(isOpen);
   const categoryListId = 'known-category-names';
 
   const extractCategoriesFromPayload = useCallback((payload: any): CategoryLookupItem[] => {
@@ -241,15 +346,23 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     const categoryEndpoints = ['/admin/categories', '/categories'];
     try {
       let aggregated: CategoryLookupItem[] = [];
+      const categoryResults = await Promise.allSettled(
+        categoryEndpoints.map((endpoint) => apiClient.get(endpoint))
+      );
+      const successfulResult = categoryResults.find(
+        (result) =>
+          result.status === 'fulfilled' &&
+          extractCategoriesFromPayload(result.value.data).length > 0
+      );
 
-      for (const endpoint of categoryEndpoints) {
-        try {
-          const response = await apiClient.get(endpoint);
-          aggregated = extractCategoriesFromPayload(response.data);
-          if (aggregated.length > 0) break;
-        } catch (error: any) {
-          if (error?.response?.status !== 404) throw error;
-        }
+      if (successfulResult?.status === 'fulfilled') {
+        aggregated = extractCategoriesFromPayload(successfulResult.value.data);
+      } else {
+        const blockingFailure = categoryResults.find(
+          (result) =>
+            result.status === 'rejected' && result.reason?.response?.status !== 404
+        );
+        if (blockingFailure?.status === 'rejected') throw blockingFailure.reason;
       }
 
       if (aggregated.length === 0) {
@@ -287,10 +400,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   };
 
   useEffect(() => {
-    if (isOpen) {
-      fetchKnownCategories();
-    }
-  }, [fetchKnownCategories, isOpen]);
+    void fetchKnownCategories();
+  }, [fetchKnownCategories]);
 
   const validate = (): QuantityPricingTier[] | null => {
     const newErrors: FormErrors = {};
@@ -315,6 +426,11 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     }
     if (images.length === 0) {
       newErrors.images = 'At least one product image is required';
+    }
+
+    const variantsError = validateVariants(variants);
+    if (variantsError) {
+      newErrors.variants = variantsError;
     }
 
     const pricingTiers = quantityPricing.map(({ minQty, pricePerUnit }) => ({
@@ -433,12 +549,115 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     setImagePreview(newPreviews);
   };
 
+  const clearVariantError = () => {
+    if (!errors.variants) return;
+    dispatch({
+      type: 'SET_ERRORS',
+      payload: (previous) => ({ ...previous, variants: undefined }),
+    });
+  };
+
+  const updateVariant = (variantId: string, patch: Partial<ProductVariantForm>) => {
+    setVariants((current) =>
+      current.map((variant) => (variant.id === variantId ? { ...variant, ...patch } : variant))
+    );
+    clearVariantError();
+  };
+
+  const addVariant = () => {
+    setVariants((current) => [...current, createProductVariant()]);
+    clearVariantError();
+  };
+
+  const removeVariant = (variantId: string) => {
+    setVariants((current) => {
+      const removed = current.find((variant) => variant.id === variantId);
+      if (removed?.colorFrontPreview) URL.revokeObjectURL(removed.colorFrontPreview);
+      if (removed?.colorBackPreview) URL.revokeObjectURL(removed.colorBackPreview);
+      return current.filter((variant) => variant.id !== variantId);
+    });
+    clearVariantError();
+  };
+
+  const handleVariantImageChange = (
+    variantId: string,
+    side: 'colorFront' | 'colorBack',
+    file: File | undefined
+  ) => {
+    if (!file) return;
+    if (!isSupportedProductImage(file)) {
+      toast.error(`${file.name} must be a JPG, PNG, or WebP image`);
+      return;
+    }
+
+    const previewKey = side === 'colorFront' ? 'colorFrontPreview' : 'colorBackPreview';
+    setVariants((current) =>
+      current.map((variant) => {
+        if (variant.id !== variantId) return variant;
+        if (variant[previewKey]) URL.revokeObjectURL(variant[previewKey]);
+        return {
+          ...variant,
+          [side]: file,
+          [previewKey]: URL.createObjectURL(file),
+        };
+      })
+    );
+    clearVariantError();
+  };
+
+  const updateVariantSize = (
+    variantId: string,
+    sizeId: string,
+    patch: Partial<VariantSizeForm>
+  ) => {
+    setVariants((current) =>
+      current.map((variant) =>
+        variant.id === variantId
+          ? {
+              ...variant,
+              sizes: variant.sizes.map((size) =>
+                size.id === sizeId ? { ...size, ...patch } : size
+              ),
+            }
+          : variant
+      )
+    );
+    clearVariantError();
+  };
+
+  const addVariantSize = (variantId: string) => {
+    setVariants((current) =>
+      current.map((variant) =>
+        variant.id === variantId
+          ? { ...variant, sizes: [...variant.sizes, createVariantSize()] }
+          : variant
+      )
+    );
+    clearVariantError();
+  };
+
+  const removeVariantSize = (variantId: string, sizeId: string) => {
+    setVariants((current) =>
+      current.map((variant) =>
+        variant.id === variantId && variant.sizes.length > 1
+          ? { ...variant, sizes: variant.sizes.filter((size) => size.id !== sizeId) }
+          : variant
+      )
+    );
+    clearVariantError();
+  };
+
   const resetForm = useCallback(() => {
     dispatch({ type: 'RESET_FORM' });
     setImages([]);
     imagePreview.forEach((preview) => URL.revokeObjectURL(preview));
     setImagePreview([]);
-  }, [imagePreview]);
+    variants.forEach((variant) => {
+      if (variant.colorFrontPreview) URL.revokeObjectURL(variant.colorFrontPreview);
+      if (variant.colorBackPreview) URL.revokeObjectURL(variant.colorBackPreview);
+    });
+    setVariants([]);
+  }, [imagePreview, variants]);
 
   const handleClose = useCallback(() => {
     if (isSubmitting) return;
@@ -451,12 +670,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
   }, [handleClose]);
 
   useEffect(() => {
-    isOpenRef.current = isOpen;
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
     previousFocusRef.current = document.activeElement as HTMLElement;
     const focusable = contentRef.current ? getFocusableElements(contentRef.current) : [];
     focusable[0]?.focus();
@@ -464,25 +677,22 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     return () => {
       previousFocusRef.current?.focus();
     };
-  }, [isOpen]);
+  }, []);
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (!isOpenRef.current) return;
       if (event.key === 'Escape') {
         handleCloseRef.current();
       }
     };
 
     const handleOverlayMouseDown = (event: MouseEvent) => {
-      if (!isOpenRef.current) return;
       if (overlayRef.current && event.target === overlayRef.current) {
         handleCloseRef.current();
       }
     };
 
     const handleTab = (event: KeyboardEvent) => {
-      if (!isOpenRef.current) return;
       if (event.key !== 'Tab' || !contentRef.current) return;
 
       const focusableElements = getFocusableElements(contentRef.current);
@@ -535,7 +745,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
     dispatch({ type: 'SET_SUBMITTING', payload: true });
 
     try {
-      const optimizedImages = await optimizeProductImages(images);
+      const variantImageFiles = variants.flatMap((variant) => [
+        variant.colorFront as File,
+        variant.colorBack as File,
+      ]);
+      const optimizedFiles = await optimizeProductImages([...images, ...variantImageFiles]);
+      const optimizedImages = optimizedFiles.slice(0, images.length);
+      const optimizedVariantImages = optimizedFiles.slice(images.length);
       const formData = new FormData();
       formData.append('name', name.trim());
       setUniqueProductSlug(formData, name);
@@ -543,20 +759,76 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
       formData.append('description', description);
       formData.append('category', resolvedCategoryId);
       formData.append('productType', productType);
-      formData.append('stock', String(stock));
+      const variantStock = variants.reduce(
+        (total, variant) =>
+          total + variant.sizes.reduce((variantTotal, size) => variantTotal + size.stock, 0),
+        0
+      );
+      formData.append('stock', String(variants.length > 0 ? variantStock : stock));
       formData.append('isCustomizable', String(isCustomizable));
       formData.append('isActive', 'true');
-      optimizedImages.forEach((image) => {
-        formData.append('images', image);
-      });
+      // The live POST middleware rejects both `images` and `image`. Create the record
+      // with text fields first, then attach all files through the documented PATCH route.
       formData.append('basePrice', String(basePrice));
       formData.append('quantityPricing', JSON.stringify(sortedPricingTiers));
 
       const response = await createProduct(formData);
+      let createdProductPayload = response.data;
+
+      if (optimizedImages.length > 0) {
+        const productId = getCreatedProductId(response.data);
+        if (!productId) {
+          toast.error(
+            'The product was created, but its ID was missing from the response, so gallery images and color variants could not be attached.'
+          );
+          resetForm();
+          onClose();
+          onSuccess(response.data);
+          return;
+        }
+
+        const updateFormData = new FormData();
+        // PATCH /admin/products/:id accepts the gallery under `productImages`.
+        optimizedImages.forEach((image) => updateFormData.append('productImages', image));
+
+        if (variants.length > 0) {
+          // Documented API contract: metadata is JSON and mockups use indexed field names.
+          const variantPayload = variants.map((variant) => ({
+            colorName: variant.colorName.trim(),
+            hexCode: normalizeHexCode(variant.hexCode),
+            sizes: variant.sizes.map((size) => ({
+              size: size.size.trim(),
+              stock: size.stock,
+            })),
+          }));
+          updateFormData.append('variants', JSON.stringify(variantPayload));
+          updateFormData.append('stock', String(variantStock));
+          variants.forEach((_, index) => {
+            updateFormData.append(`colorFront_${index}`, optimizedVariantImages[index * 2]);
+            updateFormData.append(`colorBack_${index}`, optimizedVariantImages[index * 2 + 1]);
+          });
+        }
+
+        try {
+          const updateResponse = await updateProduct(productId, updateFormData);
+          createdProductPayload = updateResponse.data;
+        } catch (variantError) {
+          toast.error(
+            `The base product was created, but its gallery or color variants could not be attached. ${getCreateProductErrorMessage(
+              variantError
+            )}`
+          );
+          resetForm();
+          onClose();
+          onSuccess(response.data);
+          return;
+        }
+      }
+
       toast.success('Product created successfully!');
       resetForm();
       onClose();
-      onSuccess(response.data);
+      onSuccess(createdProductPayload);
     } catch (error: any) {
       if (error.response?.status === 401) {
         navigate('/login');
@@ -578,9 +850,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
 
   return (
     <AnimatePresence>
-      {isOpen ? (
-        <div ref={overlayRef} className="modal-backdrop" role="presentation">
-          <motion.div
+      <div ref={overlayRef} className="modal-backdrop" role="presentation">
+          <m.div
             ref={contentRef}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -771,9 +1042,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                       flexWrap: 'wrap',
                     }}
                   >
-                    <label className="form-label" style={{ margin: 0 }}>
+                    <span className="form-label" style={{ margin: 0 }}>
                       Pricing Tiers
-                    </label>
+                    </span>
                     <button
                       type="button"
                       className="btn-ghost"
@@ -1020,6 +1291,339 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                   </div>
                 </div>
 
+                <section
+                  aria-labelledby="create-product-variants-title"
+                  style={{
+                    display: 'grid',
+                    gap: '14px',
+                    padding: '16px',
+                    border: `1px solid ${errors.variants ? 'var(--danger)' : 'var(--border)'}`,
+                    borderRadius: 'var(--radius-md)',
+                    background: 'var(--bg-surface)',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      flexWrap: 'wrap',
+                    }}
+                  >
+                    <div>
+                      <h3
+                        id="create-product-variants-title"
+                        style={{ margin: 0, fontSize: '14px', color: 'var(--text-primary)' }}
+                      >
+                        Color variants
+                      </h3>
+                      <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '12px' }}>
+                        Optional. Add front/back mockups and size stock for every color.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={addVariant}
+                      disabled={isSubmitting}
+                    >
+                      <Plus size={15} />
+                      Add color
+                    </button>
+                  </div>
+
+                  {variants.length === 0 ? (
+                    <p
+                      style={{
+                        margin: 0,
+                        padding: '14px',
+                        border: '1px dashed var(--border-active)',
+                        borderRadius: 'var(--radius-md)',
+                        color: 'var(--text-muted)',
+                        fontSize: '13px',
+                        textAlign: 'center',
+                      }}
+                    >
+                      No color variants. This product will use the standard image and stock flow.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '14px' }}>
+                      {variants.map((variant, variantIndex) => {
+                        const colorStock = variant.sizes.reduce(
+                          (total, size) => total + size.stock,
+                          0
+                        );
+                        return (
+                          <fieldset
+                            key={variant.id}
+                            disabled={isSubmitting}
+                            style={{
+                              display: 'grid',
+                              gap: '14px',
+                              margin: 0,
+                              padding: '14px',
+                              border: '1px solid var(--border)',
+                              borderRadius: 'var(--radius-md)',
+                              minWidth: 0,
+                            }}
+                          >
+                            <legend
+                              style={{
+                                padding: '0 6px',
+                                color: 'var(--text-secondary)',
+                                fontSize: '12px',
+                                fontWeight: 600,
+                              }}
+                            >
+                              Color {variantIndex + 1} · {colorStock} in stock
+                            </legend>
+
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                                gap: '10px',
+                                alignItems: 'end',
+                              }}
+                            >
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label" htmlFor={`variant-name-${variant.id}`}>
+                                  Color name
+                                </label>
+                                <input
+                                  id={`variant-name-${variant.id}`}
+                                  className="input-field"
+                                  value={variant.colorName}
+                                  placeholder="Black"
+                                  onChange={(event) =>
+                                    updateVariant(variant.id, { colorName: event.target.value })
+                                  }
+                                />
+                              </div>
+                              <div className="form-group" style={{ marginBottom: 0 }}>
+                                <label className="form-label" htmlFor={`variant-hex-${variant.id}`}>
+                                  Hex color
+                                </label>
+                                <div style={{ display: 'grid', gridTemplateColumns: '44px 1fr', gap: '8px' }}>
+                                  <input
+                                    id={`variant-color-picker-${variant.id}`}
+                                    type="color"
+                                    aria-label={`Choose ${variant.colorName || `color ${variantIndex + 1}`}`}
+                                    value={normalizeHexCode(variant.hexCode) || '#000000'}
+                                    onChange={(event) =>
+                                      updateVariant(variant.id, { hexCode: event.target.value.toUpperCase() })
+                                    }
+                                    style={{
+                                      width: '44px',
+                                      height: '42px',
+                                      padding: '3px',
+                                      border: '1px solid var(--border)',
+                                      borderRadius: 'var(--radius-md)',
+                                      background: 'var(--bg-primary)',
+                                      cursor: 'pointer',
+                                    }}
+                                  />
+                                  <input
+                                    id={`variant-hex-${variant.id}`}
+                                    className="input-field"
+                                    value={variant.hexCode}
+                                    placeholder="#000000"
+                                    maxLength={7}
+                                    onChange={(event) =>
+                                      updateVariant(variant.id, { hexCode: event.target.value })
+                                    }
+                                    onBlur={() => {
+                                      const normalized = normalizeHexCode(variant.hexCode);
+                                      if (normalized) updateVariant(variant.id, { hexCode: normalized });
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className="action-icon-button danger"
+                                onClick={() => removeVariant(variant.id)}
+                                aria-label={`Remove ${variant.colorName || `color ${variantIndex + 1}`}`}
+                                title="Remove color"
+                                style={{ justifySelf: 'end' }}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
+                                gap: '10px',
+                              }}
+                            >
+                              {(['colorFront', 'colorBack'] as const).map((side) => {
+                                const isFront = side === 'colorFront';
+                                const preview = isFront
+                                  ? variant.colorFrontPreview
+                                  : variant.colorBackPreview;
+                                const inputId = `${side}-${variant.id}`;
+                                return (
+                                  <div key={side} className="form-group" style={{ marginBottom: 0 }}>
+                                    <label className="form-label" htmlFor={inputId}>
+                                      {isFront ? 'Front mockup' : 'Back mockup'}
+                                    </label>
+                                    <input
+                                      id={inputId}
+                                      type="file"
+                                      className="hidden"
+                                      accept="image/jpeg,image/png,image/webp"
+                                      onChange={(event) => {
+                                        handleVariantImageChange(
+                                          variant.id,
+                                          side,
+                                          event.target.files?.[0]
+                                        );
+                                        event.target.value = '';
+                                      }}
+                                    />
+                                    <label
+                                      htmlFor={inputId}
+                                      style={{
+                                        display: 'grid',
+                                        placeItems: 'center',
+                                        minHeight: '142px',
+                                        overflow: 'hidden',
+                                        border: '1px dashed var(--border-active)',
+                                        borderRadius: 'var(--radius-md)',
+                                        background: 'var(--bg-primary)',
+                                        cursor: 'pointer',
+                                      }}
+                                    >
+                                      {preview ? (
+                                        <img
+                                          src={preview}
+                                          alt={`${variant.colorName || `Color ${variantIndex + 1}`} ${
+                                            isFront ? 'front' : 'back'
+                                          } preview`}
+                                          style={{ width: '100%', height: '142px', objectFit: 'contain' }}
+                                        />
+                                      ) : (
+                                        <span
+                                          style={{
+                                            display: 'grid',
+                                            gap: '6px',
+                                            justifyItems: 'center',
+                                            color: 'var(--text-muted)',
+                                            fontSize: '12px',
+                                          }}
+                                        >
+                                          <Upload size={20} />
+                                          Choose {isFront ? 'front' : 'back'} image
+                                        </span>
+                                      )}
+                                    </label>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            <div style={{ display: 'grid', gap: '9px' }}>
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: '10px',
+                                }}
+                              >
+                                <span className="form-label" style={{ margin: 0 }}>Sizes and stock</span>
+                                <button
+                                  type="button"
+                                  className="btn-ghost"
+                                  onClick={() => addVariantSize(variant.id)}
+                                >
+                                  <Plus size={14} /> Add size
+                                </button>
+                              </div>
+                              {variant.sizes.map((sizeEntry, sizeIndex) => (
+                                <div
+                                  key={sizeEntry.id}
+                                  style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+                                    gap: '8px',
+                                    alignItems: 'end',
+                                  }}
+                                >
+                                  <div>
+                                    <label
+                                      className="form-label"
+                                      htmlFor={`variant-size-${sizeEntry.id}`}
+                                    >
+                                      Size {sizeIndex + 1}
+                                    </label>
+                                    <input
+                                      id={`variant-size-${sizeEntry.id}`}
+                                      className="input-field"
+                                      value={sizeEntry.size}
+                                      placeholder="S, M, L..."
+                                      onChange={(event) =>
+                                        updateVariantSize(variant.id, sizeEntry.id, {
+                                          size: event.target.value,
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <div>
+                                    <label
+                                      className="form-label"
+                                      htmlFor={`variant-stock-${sizeEntry.id}`}
+                                    >
+                                      Stock
+                                    </label>
+                                    <input
+                                      id={`variant-stock-${sizeEntry.id}`}
+                                      type="number"
+                                      min="0"
+                                      step="1"
+                                      className="input-field"
+                                      value={sizeEntry.stock}
+                                      onChange={(event) =>
+                                        updateVariantSize(variant.id, sizeEntry.id, {
+                                          stock: Number.parseInt(event.target.value, 10) || 0,
+                                        })
+                                      }
+                                    />
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="action-icon-button danger"
+                                    disabled={variant.sizes.length <= 1}
+                                    onClick={() => removeVariantSize(variant.id, sizeEntry.id)}
+                                    aria-label={`Remove size ${sizeEntry.size || sizeIndex + 1}`}
+                                    title="Remove size"
+                                    style={{ justifySelf: 'end' }}
+                                  >
+                                    <Trash2 size={15} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          </fieldset>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {errors.variants ? (
+                    <p role="alert" style={{ color: 'var(--danger)', fontSize: '12px', margin: 0 }}>
+                      {errors.variants}
+                    </p>
+                  ) : variants.length > 0 ? (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0 }}>
+                      Initial stock will be calculated from all variant sizes when the product is created.
+                    </p>
+                  ) : null}
+                </section>
+
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label" htmlFor="create-product-images">Product images ({images.length}/5)</label>
                   <div
@@ -1172,10 +1776,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ isOpen, onClose
                 </button>
               </div>
             </form>
-          </motion.div>
-        </div>
-      ) : null}
-    </AnimatePresence>
+          </m.div>
+      </div>
+      </AnimatePresence>
   );
 };
 

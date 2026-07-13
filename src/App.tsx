@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'sonner';
+import { LazyMotion, domAnimation } from 'motion/react';
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
 import Layout from './components/Layout';
@@ -22,7 +23,8 @@ const FullScreenLoader = () => (
 
 export default function App() {
   return (
-    <AuthProvider>
+    <LazyMotion features={domAnimation}>
+      <AuthProvider>
       <Router basename="/admin">
         <Routes>
           <Route path="/login" element={<Login />} />
@@ -45,6 +47,7 @@ export default function App() {
       </Router>
 
       <Toaster position="top-right" richColors closeButton />
-    </AuthProvider>
+      </AuthProvider>
+    </LazyMotion>
   );
 }

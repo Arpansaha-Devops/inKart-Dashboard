@@ -19,9 +19,24 @@ export interface Product {
   isCustomizable?: boolean;
   basePrice: number;
   quantityPricing?: QuantityPricingTier[];
+  variants?: ProductVariant[];
   image?: string;
   images?: Array<string | { url?: string; secure_url?: string; path?: string; image?: string; src?: string }>;
   createdAt: string;
+}
+
+export interface ProductVariantSize {
+  size: string;
+  stock: number;
+}
+
+export interface ProductVariant {
+  _id?: string;
+  colorName: string;
+  hexCode: string;
+  colorFront?: string;
+  colorBack?: string;
+  sizes: ProductVariantSize[];
 }
 
 export interface QuantityPricingTier {
@@ -39,6 +54,7 @@ export interface CreateProductPayload {
   isCustomizable?: boolean;
   basePrice: number;
   quantityPricing?: QuantityPricingTier[];
+  variants?: Omit<ProductVariant, '_id' | 'colorFront' | 'colorBack'>[];
 }
 
 export type UpdateProductPayload = Partial<CreateProductPayload>;

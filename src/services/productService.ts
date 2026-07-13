@@ -1,6 +1,4 @@
-import type { StockUpdatePayload } from '../types';
 import apiClient from '../lib/apiClient';
-import { extractCategories } from './categoryService';
 
 const PRODUCT_DELETE_VERIFY_LIMIT = 200;
 
@@ -41,43 +39,8 @@ export const createProduct = async (formData: ProductFormDataPayload) => {
   return apiClient.post('/admin/products', formData);
 };
 
-export const getProducts = async (page = 1, limit = 10) => {
-  return apiClient.get('/admin/products', {
-    params: { page, limit, _ts: Date.now() },
-  });
-};
-
 export const updateProduct = async (productId: string, formData: ProductFormDataPayload) => {
   return apiClient.patch(`/admin/products/${productId}`, formData);
-};
-
-export const updateStock = async (productId: string, data: StockUpdatePayload) => {
-  return apiClient.patch(`/admin/products/${productId}/stock`, data);
-};
-
-export const fetchCategories = async () => {
-  const endpoints = ['/admin/categories', '/categories'];
-
-  let lastError: unknown = null;
-
-  for (const endpoint of endpoints) {
-    try {
-      const response = await apiClient.get(endpoint);
-      if (extractCategories(response.data).length > 0) {
-        return response.data;
-      }
-    } catch (error: any) {
-      lastError = error;
-      if (error?.response?.status !== 404) {
-        throw error;
-      }
-    }
-  }
-
-  if (lastError) {
-    return null;
-  }
-  return null;
 };
 
 export const deleteProduct = async (productId: string): Promise<DeleteProductResult> => {

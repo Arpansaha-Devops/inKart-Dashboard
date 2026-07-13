@@ -12,19 +12,15 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AUTH_STORAGE_KEYS = {
-  user: 'user:v1',
-  token: 'token:v1',
-  refreshToken: 'refreshToken:v1',
-} as const;
-
 const clearAuthStorage = () => {
   Cookies.remove('user');
   Cookies.remove('token');
   Cookies.remove('refreshToken');
-  Object.values(AUTH_STORAGE_KEYS).forEach((key) => localStorage.removeItem(key));
 
-  // Remove values written by versions of the app that used unversioned keys.
+  // Remove credentials written by older frontend versions.
+  localStorage.removeItem('user:v1');
+  localStorage.removeItem('token:v1');
+  localStorage.removeItem('refreshToken:v1');
   localStorage.removeItem('user');
   localStorage.removeItem('token');
   localStorage.removeItem('refreshToken');
@@ -46,8 +42,8 @@ function isTokenExpired(token: string): boolean {
 
 const readStoredAuth = (): { user: User | null; token: string | null } => {
   try {
-    const storedUser = Cookies.get('user') || localStorage.getItem(AUTH_STORAGE_KEYS.user);
-    const storedToken = Cookies.get('token') || localStorage.getItem(AUTH_STORAGE_KEYS.token);
+    const storedUser = Cookies.get('user');
+    const storedToken = Cookies.get('token');
 
     if (!storedUser || !storedToken || isTokenExpired(storedToken)) {
       clearAuthStorage();
@@ -66,27 +62,24 @@ const readStoredAuth = (): { user: User | null; token: string | null } => {
 };
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const initialAuth = useMemo(readStoredAuth, []);
-  const [user, setUser] = useState<User | null>(() => initialAuth.user);
-  const [token, setToken] = useState<string | null>(() => initialAuth.token);
+  const [{ user, token }, setAuth] = useState(readStoredAuth);
   const isLoading = false;
 
   const login = useCallback((userData: User, authToken: string, refreshToken: string) => {
-    setUser(userData);
-    setToken(authToken);
+    setAuth({ user: userData, token: authToken });
 
-    // Set cookies to expire in 7 days
-    Cookies.set('user', JSON.stringify(userData), { expires: 7 });
-    Cookies.set('token', authToken, { expires: 7 });
-    Cookies.set('refreshToken', refreshToken, { expires: 7 });
-    localStorage.setItem(AUTH_STORAGE_KEYS.user, JSON.stringify(userData));
-    localStorage.setItem(AUTH_STORAGE_KEYS.token, authToken);
-    localStorage.setItem(AUTH_STORAGE_KEYS.refreshToken, refreshToken);
+    const cookieOptions = {
+      expires: 7,
+      sameSite: 'strict' as const,
+      secure: window.location.protocol === 'https:',
+    };
+    Cookies.set('user', JSON.stringify(userData), cookieOptions);
+    Cookies.set('token', authToken, cookieOptions);
+    Cookies.set('refreshToken', refreshToken, cookieOptions);
   }, []);
 
   const logout = useCallback(() => {
-    setUser(null);
-    setToken(null);
+    setAuth({ user: null, token: null });
     clearAuthStorage();
   }, []);
 

@@ -363,7 +363,7 @@ const NotificationPanel: React.FC = () => {
                   <span
                     style={{
                       color: 'var(--text-muted)',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       whiteSpace: 'nowrap',
                       alignSelf: 'flex-start',
                     }}
@@ -476,7 +476,7 @@ const NotificationPanel: React.FC = () => {
                   <span
                     style={{
                       color: 'var(--text-muted)',
-                      fontSize: '11px',
+                      fontSize: '12px',
                       whiteSpace: 'nowrap',
                       alignSelf: 'flex-start',
                     }}

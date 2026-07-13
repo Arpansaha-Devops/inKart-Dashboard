@@ -125,12 +125,17 @@ const optimizeProductImage = async (file: File): Promise<File> => {
 };
 
 export const optimizeProductImages = async (files: File[]): Promise<File[]> => {
-  const optimizedFiles: File[] = [];
-
   // Process sequentially so several large camera images are not decoded into memory together.
-  for (const file of files) {
-    optimizedFiles.push(await optimizeProductImage(file));
-  }
+  const optimizedFiles = await files.reduce<Promise<File[]>>(
+    (optimizationChain, file) =>
+      optimizationChain.then((currentFiles) =>
+        optimizeProductImage(file).then((optimizedFile) => {
+          currentFiles.push(optimizedFile);
+          return currentFiles;
+        })
+      ),
+    Promise.resolve([])
+  );
 
   const totalBytes = optimizedFiles.reduce((total, file) => total + file.size, 0);
   if (totalBytes > MAX_PRODUCT_IMAGE_UPLOAD_BYTES) {
