@@ -61,12 +61,6 @@ VITE_API_BASE_URL="/api"
 - Lucide React
 - Motion
 - js-cookie
-- clsx + tailwind-merge
-
-Present in dependencies but not used by current visible app features:
-
-- `@google/genai`
-- `date-fns`
 
 ## Scripts
 

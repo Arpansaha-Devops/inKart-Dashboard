@@ -12,7 +12,6 @@
     "doctor": "npx react-doctor@latest"
   },
   "dependencies": {
-    "@google/genai": "^1.29.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "axios": "^1.14.0",
@@ -27,7 +26,6 @@
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.13.2",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^3.5.0",
     "vite": "^6.2.0"
   },
   "devDependencies": {

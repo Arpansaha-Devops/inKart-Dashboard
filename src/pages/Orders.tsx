@@ -161,10 +161,10 @@ const paymentStatusLabels: Record<PaymentStatusFilter, string> = {
 };
 
 const orderStatusStyles: Record<OrderStatus, { color: string; background: string }> = {
-  placed: { color: 'var(--warning)', background: 'var(--warning-muted)' },
-  confirmed: { color: 'var(--warning)', background: 'var(--warning-muted)' },
-  processing: { color: 'var(--info)', background: 'var(--info-muted)' },
-  shipped: { color: '#a855f7', background: 'rgba(168, 85, 247, 0.15)' },
+  placed: { color: '#ca8a04', background: 'rgba(234, 179, 8, 0.16)' },
+  confirmed: { color: 'var(--info)', background: 'var(--info-muted)' },
+  processing: { color: '#9333ea', background: 'rgba(147, 51, 234, 0.15)' },
+  shipped: { color: '#0891b2', background: 'rgba(8, 145, 178, 0.15)' },
   delivered: { color: 'var(--success)', background: 'var(--success-muted)' },
   cancelled: { color: 'var(--danger)', background: 'var(--danger-muted)' },
   return_requested: { color: '#d97706', background: 'rgba(217, 119, 6, 0.16)' },
@@ -172,7 +172,7 @@ const orderStatusStyles: Record<OrderStatus, { color: string; background: string
 };
 
 const paymentStatusStyles: Record<PaymentStatus, { color: string; background: string }> = {
-  pending: { color: 'var(--warning)', background: 'var(--warning-muted)' },
+  pending: { color: '#ea580c', background: 'rgba(249, 115, 22, 0.16)' },
   paid: { color: 'var(--success)', background: 'var(--success-muted)' },
   failed: { color: 'var(--danger)', background: 'var(--danger-muted)' },
   refunded: { color: '#f97316', background: 'rgba(249, 115, 22, 0.15)' },

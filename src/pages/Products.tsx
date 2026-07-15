@@ -19,6 +19,11 @@ import { m, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
 import { deleteProduct, updateProduct } from '../services/productService';
 import { getVisibleProductName } from '../lib/productNames';
+import {
+  getProductDescriptionError,
+  normalizeProductDescription,
+  PRODUCT_DESCRIPTION_MAX_LENGTH,
+} from '../lib/productValidation';
 
 const isProductLike = (item: any): item is Product => {
   return Boolean(
@@ -222,6 +227,7 @@ type QuantityPricingTierForm = QuantityPricingTier & {
 };
 
 type ProductFormErrors = {
+  description?: string;
   quantityPricing?: string;
 };
 
@@ -762,13 +768,20 @@ const Products: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const descriptionError = getProductDescriptionError(formData.description);
     const pricingTiers = formData.quantityPricing.map(({ minQty, pricePerUnit }) => ({
       minQty,
       pricePerUnit,
     }));
     const quantityPricingError = validateQuantityPricing(pricingTiers);
-    if (quantityPricingError) {
-      dispatch({ type: 'SET_FORM_ERRORS', payload: { quantityPricing: quantityPricingError } });
+    if (descriptionError || quantityPricingError) {
+      dispatch({
+        type: 'SET_FORM_ERRORS',
+        payload: {
+          description: descriptionError ?? undefined,
+          quantityPricing: quantityPricingError ?? undefined,
+        },
+      });
       return;
     }
     dispatch({ type: 'SET_FORM_ERRORS', payload: {} });
@@ -792,6 +805,7 @@ const Products: React.FC = () => {
       }
     });
     data.set('name', formData.name.trim());
+    data.set('description', normalizeProductDescription(formData.description));
     data.set('category', resolvedCategoryId);
     data.set('quantityPricing', JSON.stringify(sortedPricingTiers));
 
@@ -1160,15 +1174,32 @@ const Products: React.FC = () => {
                       id="edit-product-description"
                       required
                       rows={3}
+                      maxLength={PRODUCT_DESCRIPTION_MAX_LENGTH}
                       className="input-field"
+                      style={formErrors.description ? { borderColor: 'var(--danger)' } : undefined}
                       value={formData.description}
-                      onChange={(event) =>
+                      onChange={(event) => {
                         dispatch({
                           type: 'SET_FORM_DATA',
                           payload: { ...formData, description: event.target.value },
-                        })
-                      }
+                        });
+                        if (formErrors.description) {
+                          dispatch({
+                            type: 'SET_FORM_ERRORS',
+                            payload: (previous) => ({ ...previous, description: undefined }),
+                          });
+                        }
+                      }}
                     />
+                    {formErrors.description ? (
+                      <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                        {formErrors.description}
+                      </p>
+                    ) : (
+                      <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: '6px 0 0', textAlign: 'right' }}>
+                        {formData.description.length.toLocaleString()} / {PRODUCT_DESCRIPTION_MAX_LENGTH.toLocaleString()}
+                      </p>
+                    )}
                   </div>
 
                   <div className="form-group">

@@ -11,6 +11,11 @@ import {
   PRODUCT_IMAGE_TYPES,
 } from '../lib/productImages';
 import { setUniqueProductSlug } from '../lib/productSlugs';
+import {
+  getProductDescriptionError,
+  normalizeProductDescription,
+  PRODUCT_DESCRIPTION_MAX_LENGTH,
+} from '../lib/productValidation';
 import type { QuantityPricingTier } from '../types';
 
 interface CreateProductModalProps {
@@ -209,7 +214,13 @@ function createProductFormReducer(
 }
 
 const getCreateProductErrorMessage = (error: any): string => {
-  const message = error?.response?.data?.message || '';
+  const responseData = error?.response?.data;
+  const message =
+    (typeof responseData === 'string' ? responseData : '') ||
+    responseData?.message ||
+    responseData?.error?.message ||
+    responseData?.error ||
+    '';
 
   if (error?.response?.status === 413) {
     return 'The product images are too large for the server. Please remove an image or choose smaller files.';
@@ -220,6 +231,10 @@ const getCreateProductErrorMessage = (error: any): string => {
     /duplicate key|E11000|name_1|slug_1/i.test(message)
   ) {
     return 'Could not create this product because the server rejected it as a duplicate.';
+  }
+
+  if (/description[\s\S]*longer than the maximum allowed length|description[\s\S]*5000/i.test(message)) {
+    return `Description must be ${PRODUCT_DESCRIPTION_MAX_LENGTH.toLocaleString()} characters or fewer.`;
   }
 
   return message || error?.message || 'Failed to create product';
@@ -343,26 +358,24 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
   }, []);
 
   const fetchKnownCategories = useCallback(async () => {
-    const categoryEndpoints = ['/admin/categories', '/categories'];
     try {
       let aggregated: CategoryLookupItem[] = [];
-      const categoryResults = await Promise.allSettled(
-        categoryEndpoints.map((endpoint) => apiClient.get(endpoint))
-      );
-      const successfulResult = categoryResults.find(
-        (result) =>
-          result.status === 'fulfilled' &&
-          extractCategoriesFromPayload(result.value.data).length > 0
-      );
+      try {
+        const response = await apiClient.get('/admin/categories');
+        aggregated = extractCategoriesFromPayload(response.data);
+      } catch (error: any) {
+        if (error?.response?.status !== 404) throw error;
+      }
 
-      if (successfulResult?.status === 'fulfilled') {
-        aggregated = extractCategoriesFromPayload(successfulResult.value.data);
-      } else {
-        const blockingFailure = categoryResults.find(
-          (result) =>
-            result.status === 'rejected' && result.reason?.response?.status !== 404
-        );
-        if (blockingFailure?.status === 'rejected') throw blockingFailure.reason;
+      // Older API deployments exposed only the public route. Avoid requesting it
+      // when the canonical admin endpoint has already supplied the categories.
+      if (aggregated.length === 0) {
+        try {
+          const response = await apiClient.get('/categories');
+          aggregated = extractCategoriesFromPayload(response.data);
+        } catch (error: any) {
+          if (error?.response?.status !== 404) throw error;
+        }
       }
 
       if (aggregated.length === 0) {
@@ -412,9 +425,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     if (!price || price <= 0) {
       newErrors.price = 'Price must be greater than 0';
     }
-    if (!description.trim()) {
-      newErrors.description = 'Description is required';
-    }
+    const descriptionError = getProductDescriptionError(description);
+    if (descriptionError) newErrors.description = descriptionError;
     if (!category.trim()) {
       newErrors.category = 'Category is required';
     }
@@ -756,7 +768,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
       formData.append('name', name.trim());
       setUniqueProductSlug(formData, name);
       formData.append('price', String(price));
-      formData.append('description', description);
+      formData.append('description', normalizeProductDescription(description));
       formData.append('category', resolvedCategoryId);
       formData.append('productType', productType);
       const variantStock = variants.reduce(
@@ -1159,6 +1171,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                   <textarea
                     id="create-product-description"
                     rows={3}
+                    maxLength={PRODUCT_DESCRIPTION_MAX_LENGTH}
                     disabled={isSubmitting}
                     className="input-field"
                     style={errors.description ? { borderColor: 'var(--danger)' } : undefined}
@@ -1178,7 +1191,11 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                     <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
                       {errors.description}
                     </p>
-                  ) : null}
+                  ) : (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: '6px 0 0', textAlign: 'right' }}>
+                      {description.length.toLocaleString()} / {PRODUCT_DESCRIPTION_MAX_LENGTH.toLocaleString()}
+                    </p>
+                  )}
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
