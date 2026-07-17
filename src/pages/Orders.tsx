@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import {
   AlertTriangle,
   ArchiveRestore,
+  Bell,
   Box,
   Calendar,
   CheckCircle,
@@ -15,10 +16,14 @@ import {
   ImageIcon,
   Loader2,
   Mail,
+  MapPin,
+  Package,
   PackageCheck,
   Palette,
+  Radio,
   RefreshCw,
   Search,
+  ShieldCheck,
   ShoppingBag,
   Truck,
   X,
@@ -57,6 +62,7 @@ interface Layer {
 interface OrderCustomization {
   _id: string;
   previewImageUrl?: string;
+  backPreviewImageUrl?: string;
   canvasWidth: number;
   canvasHeight: number;
   layers: Layer[];
@@ -256,6 +262,55 @@ const getImageUrl = (source: Record<string, unknown>): string => {
   return '';
 };
 
+const toImageUrl = (value: unknown): string => {
+  if (typeof value === 'string' && value.trim()) return value.trim();
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const url = toImageUrl(item);
+      if (url) return url;
+    }
+    return '';
+  }
+
+  if (!isRecord(value)) return '';
+
+  return getString(value, ['url', 'secure_url', 'src', 'imageUrl', 'path']);
+};
+
+const getCustomizationPreviewUrl = (source: Record<string, unknown>): string => {
+  const directUrl = getString(source, [
+    'previewImageUrl',
+    'previewUrl',
+    'thumbnailUrl',
+    'imageUrl',
+  ]);
+  if (directUrl) return directUrl;
+
+  for (const key of ['previewImage', 'preview', 'thumbnail', 'image']) {
+    const url = toImageUrl(source[key]);
+    if (url) return url;
+  }
+
+  return '';
+};
+
+const getCustomizationBackPreviewUrl = (source: Record<string, unknown>): string => {
+  const directUrl = getString(source, [
+    'backPreviewImageUrl',
+    'backPreviewUrl',
+    'backThumbnailUrl',
+  ]);
+  if (directUrl) return directUrl;
+
+  for (const key of ['backPreviewImage', 'backPreview', 'backThumbnail']) {
+    const url = toImageUrl(source[key]);
+    if (url) return url;
+  }
+
+  return '';
+};
+
 const normalizeOrderStatus = (value: unknown): OrderStatus => {
   const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (status === 'pending') return 'placed';
@@ -305,8 +360,8 @@ const normalizeCustomization = (
   fallbackId = ''
 ): OrderCustomization => ({
   _id: getString(value, ['_id', 'id'], fallbackId),
-  previewImageUrl:
-    getString(value, ['previewImageUrl', 'previewUrl', 'imageUrl']) || undefined,
+  previewImageUrl: getCustomizationPreviewUrl(value) || undefined,
+  backPreviewImageUrl: getCustomizationBackPreviewUrl(value) || undefined,
   canvasWidth: getNumber(value, ['canvasWidth', 'width']),
   canvasHeight: getNumber(value, ['canvasHeight', 'height']),
   layers: normalizeLayers(getArray(value, ['layers', 'frontLayers', 'objects'])),
@@ -487,8 +542,11 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
         ? {
             _id: customizationId,
             previewImageUrl:
-              getString(customizationSource, ['previewImageUrl', 'previewUrl', 'imageUrl']) ||
-              getString(value, ['previewImageUrl']),
+              getCustomizationPreviewUrl(customizationSource) ||
+              getCustomizationPreviewUrl(value),
+            backPreviewImageUrl:
+              getCustomizationBackPreviewUrl(customizationSource) ||
+              getCustomizationBackPreviewUrl(value),
             canvasWidth: getNumber(
               customizationSource,
               ['canvasWidth', 'width'],
@@ -783,6 +841,89 @@ const OrderTypeBadge: React.FC<{ source: OrderSource }> = ({ source }) => (
   </Badge>
 );
 
+type IntegrationState = 'live' | 'api-pending' | 'webhook-pending';
+
+const integrationStateLabels: Record<IntegrationState, string> = {
+  live: 'Live now',
+  'api-pending': 'API pending',
+  'webhook-pending': 'Webhook pending',
+};
+
+const IntegrationBadge: React.FC<{ state: IntegrationState }> = ({ state }) => (
+  <span className={`orders-integration-badge is-${state}`}>
+    <span aria-hidden="true" />
+    {integrationStateLabels[state]}
+  </span>
+);
+
+const fulfillmentCapabilities: Array<{
+  title: string;
+  description: string;
+  state: IntegrationState;
+  icon: React.ComponentType<{ size?: number }>;
+}> = [
+  {
+    title: 'Order intake',
+    description: 'Orders, payments and customer details',
+    state: 'live',
+    icon: ShoppingBag,
+  },
+  {
+    title: 'Admin approval',
+    description: 'Approval and confirmation email actions',
+    state: 'live',
+    icon: ShieldCheck,
+  },
+  {
+    title: 'Courier & AWB',
+    description: 'Courier assignment and shipment booking',
+    state: 'api-pending',
+    icon: Truck,
+  },
+  {
+    title: 'Live tracking',
+    description: 'Pickup, transit and delivery events',
+    state: 'webhook-pending',
+    icon: Radio,
+  },
+  {
+    title: 'Notifications',
+    description: 'Admin and customer delivery updates',
+    state: 'api-pending',
+    icon: Bell,
+  },
+];
+
+const FulfillmentReadiness: React.FC = () => (
+  <section className="orders-fulfillment-overview" aria-labelledby="fulfillment-overview-title">
+    <div className="orders-section-heading">
+      <div>
+        <p className="orders-eyebrow">Fulfillment workspace</p>
+        <h2 id="fulfillment-overview-title">Order-to-delivery operations</h2>
+        <p>Current controls remain active while Shiprocket capabilities are ready to connect.</p>
+      </div>
+      <IntegrationBadge state="api-pending" />
+    </div>
+
+    <div className="orders-capability-grid">
+      {fulfillmentCapabilities.map((capability) => (
+        <article key={capability.title} className="orders-capability-card">
+          <div className={`orders-capability-icon is-${capability.state}`}>
+            <capability.icon size={18} />
+          </div>
+          <div>
+            <div className="orders-capability-title-row">
+              <h3>{capability.title}</h3>
+              <IntegrationBadge state={capability.state} />
+            </div>
+            <p>{capability.description}</p>
+          </div>
+        </article>
+      ))}
+    </div>
+  </section>
+);
+
 const PreviewImage: React.FC<{ src?: string; alt: string; size?: number }> = ({ src, alt, size = 48 }) => {
   const [hasError, setHasError] = useState(false);
   if (!src || hasError) {
@@ -820,7 +961,7 @@ const TableSkeleton: React.FC = () => (
   <>
     {Array.from({ length: 5 }).map((_, index) => (
       <tr key={index}>
-        <td colSpan={10}>
+        <td colSpan={11}>
           <div className="skeleton" style={{ height: 54 }}>
             <span className="sr-only">Loading order row</span>
           </div>
@@ -1185,15 +1326,19 @@ const Orders: React.FC = () => {
   return (
     <div className="page-wrapper orders-page">
       <div className="orders-page-content" style={{ display: 'grid', gap: 24 }}>
-        <div className="toolbar-row" style={{ marginBottom: 0, alignItems: 'flex-start' }}>
-          <div style={{ display: 'grid', gap: 6 }}>
-            <h1 className="page-title">Orders</h1>
-            <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: 14 }}>
-              All standard and customized InkArt orders
-            </p>
+        <header className="orders-page-hero">
+          <div className="orders-page-heading">
+            <div className="orders-page-heading-icon">
+              <Package size={22} />
+            </div>
+            <div>
+              <p className="orders-eyebrow">Operations center</p>
+              <h1 className="page-title">Orders & fulfillment</h1>
+              <p>Manage every InkArt order from payment review through customer delivery.</p>
+            </div>
           </div>
 
-          <div className="orders-toolbar-actions" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div className="orders-toolbar-actions">
             <button
               type="button"
               className="btn-ghost"
@@ -1208,7 +1353,9 @@ const Orders: React.FC = () => {
               <span>Export CSV</span>
             </button>
           </div>
-        </div>
+        </header>
+
+        <FulfillmentReadiness />
 
         <div className="orders-stat-grid">
           {isLoading
@@ -1243,7 +1390,17 @@ const Orders: React.FC = () => {
               ))}
         </div>
 
-        <div className="card" style={{ display: 'grid', gap: 14 }}>
+        <section className="card orders-filter-card">
+          <div className="orders-section-heading orders-filter-heading">
+            <div>
+              <p className="orders-eyebrow">Order queue</p>
+              <h2>Find and filter orders</h2>
+              <p>Search the current order feed or narrow it by fulfillment and payment state.</p>
+            </div>
+            <span className="orders-result-count">
+              {isLoading ? 'Loading orders…' : `${totalCount} order${totalCount === 1 ? '' : 's'}`}
+            </span>
+          </div>
           <div
             className="orders-filter-grid"
             style={{
@@ -1352,7 +1509,7 @@ const Orders: React.FC = () => {
               Clear
             </button>
           </div>
-        </div>
+        </section>
 
         {error ? (
           <div className="card" style={{ padding: 28, textAlign: 'center' }}>
@@ -1386,6 +1543,7 @@ const Orders: React.FC = () => {
                       <th>Amount</th>
                       <th>Payment</th>
                       <th>Order Status</th>
+                      <th>Shipping</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
@@ -1394,7 +1552,7 @@ const Orders: React.FC = () => {
                       <TableSkeleton />
                     ) : orders.length === 0 ? (
                       <tr>
-                        <td colSpan={10}>
+                        <td colSpan={11}>
                           <EmptyState />
                         </td>
                       </tr>
@@ -1463,6 +1621,9 @@ const Orders: React.FC = () => {
                               ) : null}
                             </div>
                           </td>
+                          <td>
+                            <IntegrationBadge state="api-pending" />
+                          </td>
                           <td style={{ textAlign: 'right' }}>
                             <button
                               type="button"
@@ -1505,6 +1666,10 @@ const Orders: React.FC = () => {
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                         <OrderTypeBadge source={order.source} />
                         <PaymentStatusBadge status={order.paymentStatus} />
+                      </div>
+                      <div className="orders-mobile-shipping-row">
+                        <span>Shiprocket fulfillment</span>
+                        <IntegrationBadge state="api-pending" />
                       </div>
                       <div>
                         <p style={{ margin: '0 0 2px', fontWeight: 600 }}>{order.customer.name}</p>
@@ -1764,6 +1929,159 @@ const orderDetailReducer = (
   }
 };
 
+const ShipmentWorkspace: React.FC<{ order: Order }> = ({ order }) => {
+  const isCancelled = order.orderStatus === 'cancelled';
+  const isApproved = !['placed', 'cancelled'].includes(order.orderStatus);
+  const shipmentSteps = [
+    {
+      label: 'Order received',
+      description: formatDateTime(order.createdAt),
+      state: 'complete',
+    },
+    {
+      label: 'Admin approval',
+      description: isCancelled
+        ? 'Order cancelled before fulfillment'
+        : isApproved
+          ? 'Order confirmed in InkArt'
+          : 'Waiting for admin approval',
+      state: isApproved ? 'complete' : isCancelled ? 'pending' : 'current',
+    },
+    {
+      label: 'Courier & AWB',
+      description: 'Connect the shipment creation response',
+      state: 'pending',
+    },
+    {
+      label: 'Pickup & transit',
+      description: 'Connect Shiprocket tracking webhooks',
+      state: 'pending',
+    },
+    {
+      label: 'Delivered',
+      description: 'Awaiting verified delivery event',
+      state: 'pending',
+    },
+  ];
+
+  return (
+    <section className="orders-shipment-workspace" aria-labelledby="shipment-workspace-title">
+      <div className="orders-section-heading">
+        <div>
+          <p className="orders-eyebrow">Shipment workspace</p>
+          <h2 id="shipment-workspace-title">Shiprocket fulfillment</h2>
+          <p>Prepared for courier booking, pickup, tracking and delivery confirmation data.</p>
+        </div>
+        <IntegrationBadge state="api-pending" />
+      </div>
+
+      <div className="orders-shipment-summary-grid">
+        <article>
+          <span className="orders-shipment-summary-icon"><Truck size={17} /></span>
+          <div>
+            <p>Assigned courier</p>
+            <strong>Awaiting selection</strong>
+            <small>Courier ID and service name</small>
+          </div>
+        </article>
+        <article>
+          <span className="orders-shipment-summary-icon"><Package size={17} /></span>
+          <div>
+            <p>Shipment reference</p>
+            <strong>Not created</strong>
+            <small>Shiprocket order and shipment IDs</small>
+          </div>
+        </article>
+        <article>
+          <span className="orders-shipment-summary-icon"><Radio size={17} /></span>
+          <div>
+            <p>AWB / tracking</p>
+            <strong>Not assigned</strong>
+            <small>AWB code and tracking URL</small>
+          </div>
+        </article>
+        <article>
+          <span className="orders-shipment-summary-icon"><MapPin size={17} /></span>
+          <div>
+            <p>Current location</p>
+            <strong>Tracking unavailable</strong>
+            <small>Last scan and synchronization time</small>
+          </div>
+        </article>
+      </div>
+
+      <div className="orders-shipment-layout">
+        <div className="orders-shipment-panel">
+          <div className="orders-subsection-heading">
+            <div>
+              <h3>Fulfillment progress</h3>
+              <p>Live order milestones and future shipment events.</p>
+            </div>
+            <IntegrationBadge state="webhook-pending" />
+          </div>
+          <ol className="orders-shipment-timeline">
+            {shipmentSteps.map((step) => (
+              <li key={step.label} className={`is-${step.state}`}>
+                <span className="orders-timeline-marker">
+                  {step.state === 'complete' ? <CheckCircle2 size={14} /> : null}
+                </span>
+                <div>
+                  <strong>{step.label}</strong>
+                  <p>{step.description}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <div className="orders-shipment-panel">
+          <div className="orders-subsection-heading">
+            <div>
+              <h3>Communication status</h3>
+              <p>Customer and admin fulfillment updates.</p>
+            </div>
+          </div>
+          <div className="orders-communication-list">
+            <div>
+              <span className="orders-communication-icon is-live"><Mail size={16} /></span>
+              <div>
+                <strong>Order confirmation</strong>
+                <p>Manual resend action is available below.</p>
+              </div>
+              <IntegrationBadge state="live" />
+            </div>
+            <div>
+              <span className="orders-communication-icon"><Bell size={16} /></span>
+              <div>
+                <strong>Admin shipment alerts</strong>
+                <p>Connect persistent fulfillment notifications.</p>
+              </div>
+              <IntegrationBadge state="api-pending" />
+            </div>
+            <div>
+              <span className="orders-communication-icon"><Truck size={16} /></span>
+              <div>
+                <strong>Customer tracking updates</strong>
+                <p>Connect dispatch and delivery notifications.</p>
+              </div>
+              <IntegrationBadge state="webhook-pending" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="orders-integration-note">
+        <AlertTriangle size={17} />
+        <p>
+          Placeholder shipment values are intentionally marked as unavailable. They must be replaced
+          with saved Shiprocket order, shipment, courier, AWB and tracking responses before fulfillment
+          can be verified.
+        </p>
+      </div>
+    </section>
+  );
+};
+
 const OrderDetailModal: React.FC<{
   order: Order;
   onOrderUpdated: (order: Order) => void;
@@ -1782,8 +2100,8 @@ const OrderDetailModal: React.FC<{
     order,
     getInitialOrderDetailState
   );
-  const [isDesignPreviewOpen, setIsDesignPreviewOpen] = useState(false);
-  const [hasDesignPreviewError, setHasDesignPreviewError] = useState(false);
+  const [openDesignPreviewSide, setOpenDesignPreviewSide] = useState<'front' | 'back' | null>(null);
+  const [designPreviewErrors, setDesignPreviewErrors] = useState({ front: false, back: false });
   const [fetchedCustomization, setFetchedCustomization] = useState<OrderCustomization | null>(null);
   const [isDesignPreviewLoading, setIsDesignPreviewLoading] = useState(false);
   const {
@@ -1810,6 +2128,8 @@ const OrderDetailModal: React.FC<{
         ...fetchedCustomizationForOrder,
         previewImageUrl:
           order.customization?.previewImageUrl || fetchedCustomizationForOrder.previewImageUrl,
+        backPreviewImageUrl:
+          order.customization?.backPreviewImageUrl || fetchedCustomizationForOrder.backPreviewImageUrl,
         canvasWidth:
           order.customization?.canvasWidth || fetchedCustomizationForOrder.canvasWidth,
         canvasHeight:
@@ -1823,12 +2143,23 @@ const OrderDetailModal: React.FC<{
           : fetchedCustomizationForOrder.backLayers,
       }
     : order.customization;
-  const designPreviewUrl = resolvedCustomization?.previewImageUrl;
-  const hasDesignPreview = Boolean(designPreviewUrl) && !hasDesignPreviewError;
+  const frontDesignPreviewUrl = resolvedCustomization?.previewImageUrl;
+  const backDesignPreviewUrl = resolvedCustomization?.backPreviewImageUrl;
+  const hasFrontDesignPreview = Boolean(frontDesignPreviewUrl) && !designPreviewErrors.front;
+  const hasBackDesignPreview = Boolean(backDesignPreviewUrl) && !designPreviewErrors.back;
+  const activeDesignPreviewUrl =
+    openDesignPreviewSide === 'front' ? frontDesignPreviewUrl : backDesignPreviewUrl;
+  const hasActiveDesignPreview =
+    openDesignPreviewSide === 'front' ? hasFrontDesignPreview : hasBackDesignPreview;
 
-  const handleDesignPreviewError = () => {
-    setHasDesignPreviewError(true);
-    setIsDesignPreviewOpen(false);
+  const closeDesignPreview = () => {
+    previewDialogRef.current?.close();
+    setOpenDesignPreviewSide(null);
+  };
+
+  const handleDesignPreviewError = (side: 'front' | 'back') => {
+    setDesignPreviewErrors((current) => ({ ...current, [side]: true }));
+    closeDesignPreview();
   };
 
   useEffect(() => {
@@ -1844,12 +2175,12 @@ const OrderDetailModal: React.FC<{
     const previewDialog = previewDialogRef.current;
     if (!previewDialog) return;
 
-    if (isDesignPreviewOpen && hasDesignPreview && !previewDialog.open) {
+    if (openDesignPreviewSide && hasActiveDesignPreview && !previewDialog.open) {
       previewDialog.showModal();
-    } else if ((!isDesignPreviewOpen || !hasDesignPreview) && previewDialog.open) {
+    } else if ((!openDesignPreviewSide || !hasActiveDesignPreview) && previewDialog.open) {
       previewDialog.close();
     }
-  }, [hasDesignPreview, isDesignPreviewOpen]);
+  }, [hasActiveDesignPreview, openDesignPreviewSide]);
 
   useEffect(() => {
     const customizationId = order.customization?._id;
@@ -1873,7 +2204,7 @@ const OrderDetailModal: React.FC<{
         if (!customization || controller.signal.aborted) return;
 
         setFetchedCustomization(customization);
-        setHasDesignPreviewError(false);
+        setDesignPreviewErrors({ front: false, back: false });
       })
       .catch((error: unknown) => {
         if (!controller.signal.aborted) {
@@ -2074,9 +2405,9 @@ const OrderDetailModal: React.FC<{
       className="modal-backdrop orders-modal-backdrop"
       aria-labelledby="order-detail-title"
       onCancel={(event) => {
-        if (isDesignPreviewOpen) {
+        if (openDesignPreviewSide) {
           event.preventDefault();
-          setIsDesignPreviewOpen(false);
+          closeDesignPreview();
           return;
         }
         onClose();
@@ -2095,61 +2426,96 @@ const OrderDetailModal: React.FC<{
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 20 }}
         className="modal-box modal-box-lg orders-detail-modal"
-        style={{ maxWidth: 980 }}
+        style={{ maxWidth: 1180 }}
       >
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 12,
-            marginBottom: 22,
-          }}
-        >
-          <h2 id="order-detail-title" style={{ margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text-primary)' }}>
-            Order details
-          </h2>
-          <button type="button" className="action-icon-button" onClick={onClose} aria-label="Close order details">
-            <X size={20} />
-          </button>
+        <div className="orders-detail-header">
+          <div>
+            <p className="orders-eyebrow">Order workspace</p>
+            <h2 id="order-detail-title">Order details</h2>
+            <button type="button" className="orders-detail-order-id" onClick={onCopy}>
+              {order.orderNumber}
+              <Clipboard size={13} />
+            </button>
+          </div>
+          <div className="orders-detail-header-actions">
+            <PaymentStatusBadge status={order.paymentStatus} />
+            <OrderStatusBadge status={order.orderStatus} />
+            <button type="button" className="action-icon-button" onClick={onClose} aria-label="Close order details">
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         <div className="orders-detail-grid">
           <div style={{ display: 'grid', gap: 16 }}>
             {order.source === 'customized' ? (
               <>
-                <section
-                  className="card orders-design-preview-card"
-                  aria-labelledby="design-preview-title"
-                >
-                  <h3 id="design-preview-title" className="section-title">
-                    Design Preview
-                  </h3>
+                <section className="card orders-design-preview-card" aria-labelledby="front-design-preview-title">
+                  <div className="orders-design-preview-heading">
+                    <div>
+                      <p className="orders-eyebrow">Customer artwork</p>
+                      <h3 id="front-design-preview-title" className="section-title">Front Design</h3>
+                    </div>
+                    <span className="orders-design-side-badge">Front</span>
+                  </div>
 
                   {isDesignPreviewLoading ? (
                     <div className="orders-design-preview-placeholder" aria-live="polite">
                       <Loader2 className="animate-spin" size={32} />
-                      <span>Loading design preview...</span>
+                      <span>Loading front preview...</span>
                     </div>
-                  ) : hasDesignPreview ? (
+                  ) : hasFrontDesignPreview ? (
                     <button
                       type="button"
                       className="orders-design-preview-trigger"
-                      onClick={() => setIsDesignPreviewOpen(true)}
+                      onClick={() => setOpenDesignPreviewSide('front')}
                       aria-haspopup="dialog"
                     >
                       <img
-                        src={designPreviewUrl}
-                        alt={`${productLabel(order)} design preview`}
+                        src={frontDesignPreviewUrl}
+                        alt={`${productLabel(order)} front design preview`}
                         referrerPolicy="no-referrer"
-                        onError={handleDesignPreviewError}
+                        onError={() => handleDesignPreviewError('front')}
                       />
                       <span>Click image to enlarge</span>
                     </button>
                   ) : (
                     <div className="orders-design-preview-placeholder">
                       <ImageIcon size={36} />
-                      <span>Preview not available</span>
+                      <span>Front preview not available</span>
+                    </div>
+                  )}
+                </section>
+
+                <section className="card orders-design-preview-card" aria-labelledby="back-design-preview-title">
+                  <div className="orders-design-preview-heading">
+                    <div>
+                      <p className="orders-eyebrow">Customer artwork</p>
+                      <h3 id="back-design-preview-title" className="section-title">Back Design</h3>
+                    </div>
+                    <span className="orders-design-side-badge is-muted">Back</span>
+                  </div>
+
+                  {hasBackDesignPreview ? (
+                    <button
+                      type="button"
+                      className="orders-design-preview-trigger"
+                      onClick={() => setOpenDesignPreviewSide('back')}
+                      aria-haspopup="dialog"
+                    >
+                      <img
+                        src={backDesignPreviewUrl}
+                        alt={`${productLabel(order)} back design preview`}
+                        referrerPolicy="no-referrer"
+                        onError={() => handleDesignPreviewError('back')}
+                      />
+                      <span>Click image to enlarge</span>
+                    </button>
+                  ) : (
+                    <div className="orders-design-preview-placeholder is-compact">
+                      <ImageIcon size={36} />
+                      <span>Back preview not available</span>
+                      <small>It will appear here when the backend provides a back preview image.</small>
                     </div>
                   )}
                 </section>
@@ -2338,6 +2704,8 @@ const OrderDetailModal: React.FC<{
           </div>
         </div>
 
+        <ShipmentWorkspace order={order} />
+
         <div className="orders-actions-section">
           <div className="orders-actions-heading">
             <h3 className="section-title" style={{ margin: 0 }}>Order Actions</h3>
@@ -2473,21 +2841,22 @@ const OrderDetailModal: React.FC<{
           </button>
         </div>
 
-        {hasDesignPreview ? (
+        {openDesignPreviewSide && hasActiveDesignPreview ? (
           <dialog
             ref={previewDialogRef}
             className="orders-preview-lightbox"
             aria-labelledby="design-preview-lightbox-title"
             onCancel={(event) => {
+              event.preventDefault();
               event.stopPropagation();
-              setIsDesignPreviewOpen(false);
+              closeDesignPreview();
             }}
-            onClose={() => setIsDesignPreviewOpen(false)}
+            onClose={() => setOpenDesignPreviewSide(null)}
           >
             <button
               type="button"
               className="orders-preview-lightbox-dismiss"
-              onClick={() => setIsDesignPreviewOpen(false)}
+              onClick={closeDesignPreview}
               aria-label="Close enlarged design preview"
             />
             <div
@@ -2495,12 +2864,12 @@ const OrderDetailModal: React.FC<{
             >
               <div className="orders-preview-lightbox-header">
                 <h3 id="design-preview-lightbox-title" className="section-title">
-                  Design Preview
+                  {openDesignPreviewSide === 'front' ? 'Front Design Preview' : 'Back Design Preview'}
                 </h3>
                 <button
                   type="button"
                   className="action-icon-button"
-                  onClick={() => setIsDesignPreviewOpen(false)}
+                  onClick={closeDesignPreview}
                   aria-label="Close enlarged design preview"
                   autoFocus
                 >
@@ -2510,10 +2879,10 @@ const OrderDetailModal: React.FC<{
 
               <img
                 className="orders-preview-lightbox-image"
-                src={designPreviewUrl}
-                alt={`${productLabel(order)} enlarged design preview`}
+                src={activeDesignPreviewUrl}
+                alt={`${productLabel(order)} enlarged ${openDesignPreviewSide} design preview`}
                 referrerPolicy="no-referrer"
-                onError={handleDesignPreviewError}
+                onError={() => handleDesignPreviewError(openDesignPreviewSide)}
               />
             </div>
           </dialog>
