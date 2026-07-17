@@ -11,7 +11,7 @@ Current functionality:
 - Admin login with password flow and optional OTP verification flow
 - Protected admin-only routes
 - Dashboard summary cards, product/category charts, coupon discount chart, recent users, and quick actions
-- Orders listing with server filters, search, date range filtering, pagination, CSV export, detail modal, order approval, delivery estimate updates, and confirmation email resend
+- Orders listing with server filters, search, date range filtering, pagination, CSV export, detailed front/back customization previews, purchased quantity summaries, order approval, delivery estimate updates, confirmation email resend, and a server-backed order-history delete workflow
 - Order analytics KPI cards and revenue-over-time chart
 - Customer listing, debounced search, pagination, customer details, and user deletion
 - Product listing, create, edit, stock adjustment, quantity pricing tiers, image upload, and verified delete
@@ -188,9 +188,13 @@ All backend endpoints referenced by current source:
 | `GET` | `/users/all` | Dashboard, Customers |
 | `DELETE` | `/admin/users/:id` | Customers |
 | `GET` | `/admin/orders` | Orders |
+| `GET` | `/admin/orders/:id/status` | Order detail status refresh |
 | `PATCH` | `/admin/orders/:id/approve` | Order detail actions |
 | `PATCH` | `/admin/orders/:id/delivery-estimate` | Order detail actions |
 | `POST` | `/admin/orders/:id/resend-confirmation` | Order detail actions |
+| `DELETE` | `/orders/:id/history` | Order-history delete workflow; currently not usable for admin-owned deletion of customer orders |
+| `GET` | `/customization/:id` | Order detail customization/preview fallback |
+| `POST` | `/shipments/check-delivery` | Order detail pincode delivery estimate |
 | `GET` | `/admin/products` | Dashboard, Products, CreateProductModal, productService |
 | `GET` | `/products` | Dashboard/Products fallback, product delete fallback |
 | `POST` | `/admin/products` | Products, CreateProductModal, productService |
@@ -265,20 +269,27 @@ Lists orders with summary metrics, search, status filters, payment filters, date
 API calls:
 
 - `GET /admin/orders?page={page}&limit=10&status={optional}&paymentStatus={optional}&search={optional}`
+- `GET /admin/orders/:id/status`
 - `PATCH /admin/orders/:id/approve`
 - `PATCH /admin/orders/:id/delivery-estimate`
 - `POST /admin/orders/:id/resend-confirmation`
+- `DELETE /orders/:id/history`
+- `GET /customization/:id` when an embedded customization has no preview URL
+- `POST /shipments/check-delivery`
 
 Implementation notes:
 
 - Normalizes flexible order payload shapes into a local `Order` model.
-- Handles both standard and customized order payloads, including preview images, canvas dimensions, front/back layers, product images, coupons, address fields, and timeline/history rows.
+- Handles both standard and customized order payloads, including nested Cloudinary preview images, future back-preview fields, canvas dimensions, front/back layers, product images, purchased numeric quantities, selected item options when supplied, coupons, address fields, and timeline/history rows.
 - Recognizes order statuses: placed, confirmed, processing, shipped, delivered, cancelled, return requested, and returned.
 - Recognizes payment statuses: pending, paid, failed, and refunded.
 - Applies date range filtering client-side after the paged API response is loaded.
 - Exports the currently loaded/filtered page of orders as CSV.
 - Detail modal can copy the order number.
-- Admin actions can approve eligible orders, set/update future delivery estimates with an optional note, and resend the confirmation email.
+- Admin actions can approve eligible orders, set/update future delivery estimates with an optional note, resend the confirmation email, and request order-history deletion after confirmation.
+- Front and back artwork have separate preview cards. The back card remains an explicit API-pending placeholder until a back-preview URL is returned.
+- The Shiprocket fulfillment workspace is intentionally static and marked API/webhook pending; it does not invent shipment, courier, AWB, or tracking values.
+- `DELETE /orders/:id/history` is documented by the backend but live testing shows it is user-scoped: an admin deleting a customer-owned order receives `404`. A dedicated admin endpoint is still required.
 
 ### Customers
 
@@ -468,6 +479,9 @@ All category modals implement keyboard/click-outside behavior and use `categoryS
 - `approveOrder(orderId)` -> `PATCH /admin/orders/:id/approve`
 - `setDeliveryEstimate(orderId, data)` -> `PATCH /admin/orders/:id/delivery-estimate`
 - `resendConfirmation(orderId)` -> `POST /admin/orders/:id/resend-confirmation`
+- `deleteOrderHistory(orderId)` -> `DELETE /orders/:id/history`
+- `getOrderStatus(orderId)` -> `GET /admin/orders/:id/status`
+- `getDeliveryEstimateForPincode(pincode)` -> `POST /shipments/check-delivery`
 
 [src/services/categoryService.ts](src/services/categoryService.ts):
 
@@ -579,11 +593,64 @@ http://localhost:8000/admin/login
 
 - This admin and the e-commerce storefront share the same backend data. Product/category/coupon/order mutations in admin should be tested against storefront behavior.
 - The `/api` proxy exists in Vite config, but the API client only uses it when `VITE_API_BASE_URL` is set to `/api`.
+- The documented public fallback `GET /categories` currently returns `404`; authenticated admin category loading works through `GET /admin/categories`.
+- The documented `GET /admin/orders/customized` currently returns `500`. The Orders page does not depend on it and instead reads standard and customized orders from the working `GET /admin/orders` feed.
+- `DELETE /orders/:id/history` responds for authenticated users but returns `404` when an admin tries to remove a customer-owned order. Do not treat the dashboard delete control as operational until the backend exposes an admin-authorized delete-history endpoint.
+- A fake-id call to `POST /admin/orders/:id/resend-confirmation` returned `500` instead of a not-found response. A real order was not used because that would send customer email.
 - The notification panel is UI-only and not connected to backend data yet.
 - `NotificationContext` exists but is not mounted by the current app shell.
 - Several UI strings still contain encoding artifacts such as `â€™`, `â‚¹`, `Â·`, and `Ã—`.
 - `public/favicon_io/site.webmanifest` uses root-relative icon paths even though the files live under `public/favicon_io/`.
 - `package.json` is still named `react-example`, even though metadata identifies this as the InkArt Admin Panel.
+
+## Live API Audit — 17 July 2026
+
+The live backend at `https://inkart-virid.vercel.app/api/v1` was audited with an admin OTP session. Reversible mutation tests used records prefixed `CODEX_API_AUDIT_`; the temporary product, coupon, and category were deleted at the end of the audit.
+
+Status meanings:
+
+- **Passed**: received a successful live response. Mutation endpoints completed against temporary data.
+- **Route only**: the authenticated route responded to a guaranteed fake id, but no real user/order was mutated.
+- **Backend issue**: the live endpoint returned an unexpected `404` or `500`.
+- **Not exercised**: testing would affect a real account/order, send email, or invalidate a session.
+
+| Endpoint or flow | Live status | Notes |
+|---|---|---|
+| `POST /auth/login` | Passed | Password step sent an OTP. |
+| `POST /auth/verify-login-otp` | Passed | Returned admin access and refresh tokens. |
+| `POST /auth/refresh-token` | Not exercised | Interceptor implementation was reviewed; live rotation was not required for the audit. |
+| `POST /auth/logout` | Not exercised | Avoided invalidating an active admin session. |
+| `GET /users/all` | Passed | Admin user listing returned `2xx`. |
+| `DELETE /admin/users/:id` | Route only | Fake id returned not found. No real user was deleted. |
+| `GET /admin/orders` | Passed | Canonical combined order feed returned `2xx`. |
+| `GET /admin/orders/customized` | **Backend issue** | Returned `500`; the dashboard does not call this endpoint. |
+| `GET /admin/orders/:id/status` | Passed | Existing order status returned `2xx`. |
+| `PATCH /admin/orders/:id/approve` | Route only | Fake id returned not found; no real order was changed. |
+| `PATCH /admin/orders/:id/delivery-estimate` | Route only | Fake id returned not found; no real order was changed. |
+| `POST /admin/orders/:id/resend-confirmation` | **Backend issue for invalid ids** | Fake id returned `500`; real-order testing would send email. |
+| `DELETE /orders/:id/history` | **Backend issue for admin use** | Route exists, but an actual customer-owned order returned `404` under an admin token. |
+| `GET /customization/:id` | Passed | Existing customization and preview metadata returned `2xx`. |
+| `POST /shipments/check-delivery` | Passed | Pincode `700129` returned `2xx`. |
+| `GET /admin/products` | Passed | Admin product listing returned `2xx`. |
+| `GET /products` | Passed | Public product listing returned `2xx`. |
+| `POST /admin/products` | Passed | Temporary base product created successfully. |
+| `PATCH /admin/products/:id` | Passed | Temporary product updated successfully. |
+| `PATCH /admin/products/:id/stock` | Passed | Temporary product stock updated successfully. |
+| `DELETE /admin/products/:id` | Passed | Temporary product deleted successfully. |
+| fallback `DELETE /products/:id` | Not exercised | Canonical admin delete succeeded, so fallback was unnecessary. |
+| `GET /admin/categories` | Passed | Admin categories returned `2xx`. |
+| fallback `GET /categories` | **Backend issue** | Returned `404`; admin fallback remains sufficient while authenticated. |
+| `POST /admin/categories` | Passed | Temporary category created successfully. |
+| `PATCH /admin/categories/:id` | Passed | Temporary category updated successfully. |
+| `DELETE /admin/categories/:id` | Passed | Temporary category deleted successfully. |
+| `GET /admin/coupons` | Passed | Coupon listing returned `2xx`. |
+| `POST /admin/coupons` | Passed | Temporary coupon created successfully. |
+| `PATCH /admin/coupons/:id` | Passed | Temporary coupon updated successfully. |
+| `DELETE /admin/coupons/:id` | Passed | Temporary coupon deleted successfully. |
+| `GET /admin/analytics/dashboard-stats` | Passed | Returned `2xx`. |
+| `GET /admin/analytics/revenue-over-time` | Passed | Returned `2xx`. |
+
+The audit verifies transport, authorization, and basic CRUD behavior. It does not prove every validation rule, every response-field combination, or side effects that would require modifying real customer/order data.
 
 ## Verification Performed For This README
 
@@ -598,3 +665,6 @@ This README was updated after reviewing:
 - Shared layout, header, sidebar, notification panel, chart, and modal components
 - Shared utilities and type definitions
 - Endpoint usage via source search
+- Live read checks for all safe dashboard endpoints
+- Reversible category, coupon, product, and stock CRUD using temporary records
+- Safe fake-id route checks for destructive user/order operations

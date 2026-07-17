@@ -25,6 +25,7 @@ import {
   Search,
   ShieldCheck,
   ShoppingBag,
+  Trash2,
   Truck,
   X,
 } from 'lucide-react';
@@ -33,6 +34,7 @@ import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
 import {
   approveOrder,
+  deleteOrderHistory,
   getDeliveryEstimateForPincode,
   getOrderStatus,
   resendConfirmation,
@@ -79,6 +81,7 @@ interface OrderItem {
   };
   quantity: number;
   price: number;
+  options?: Record<string, string>;
 }
 
 interface Order {
@@ -390,6 +393,23 @@ const normalizeCustomizationResponse = (
   return customization ? normalizeCustomization(customization, fallbackId) : null;
 };
 
+const normalizeItemOptions = (value: unknown): Record<string, string> | undefined => {
+  if (!isRecord(value)) return undefined;
+
+  const options = Object.entries(value).reduce<Record<string, string>>((result, [key, optionValue]) => {
+    if (typeof optionValue === 'string' && optionValue.trim()) {
+      result[key] = optionValue.trim();
+    } else if (typeof optionValue === 'number' && Number.isFinite(optionValue)) {
+      result[key] = String(optionValue);
+    } else if (typeof optionValue === 'boolean') {
+      result[key] = optionValue ? 'Yes' : 'No';
+    }
+    return result;
+  }, {});
+
+  return Object.keys(options).length > 0 ? options : undefined;
+};
+
 const normalizeItem = (value: unknown): OrderItem | null => {
   if (!isRecord(value)) return null;
   const productValue = value.product;
@@ -415,6 +435,7 @@ const normalizeItem = (value: unknown): OrderItem | null => {
     },
     quantity: getNumber(value, ['quantity', 'qty'], 1),
     price,
+    options: normalizeItemOptions(value.options ?? value.selectedOptions),
   };
 };
 
@@ -773,7 +794,6 @@ const isPastDeliveryDate = (value: string) => {
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (isRecord(error)) {
-    if (typeof error.message === 'string' && error.message.trim()) return error.message;
     if (
       isRecord(error.response) &&
       isRecord(error.response.data) &&
@@ -782,6 +802,7 @@ const getErrorMessage = (error: unknown, fallback: string) => {
     ) {
       return error.response.data.message;
     }
+    if (typeof error.message === 'string' && error.message.trim()) return error.message;
   }
   return fallback;
 };
@@ -1132,6 +1153,8 @@ function ordersReducer(state: OrdersState, action: OrdersAction): OrdersState {
 
 const Orders: React.FC = () => {
   const [state, dispatch] = useReducer(ordersReducer, ordersInitialState);
+  const [orderPendingDeletion, setOrderPendingDeletion] = useState<Order | null>(null);
+  const [isDeletingOrder, setIsDeletingOrder] = useState(false);
   const {
     orders,
     totalCount,
@@ -1202,12 +1225,16 @@ const Orders: React.FC = () => {
   }, [debouncedSearch, fromDate, orderStatus, paymentStatus, toDate]);
 
   useEffect(() => {
-    if (!selectedOrder) return;
+    if (!selectedOrder && !orderPendingDeletion) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key !== 'Escape') return;
+
+      if (orderPendingDeletion && !isDeletingOrder) {
+        setOrderPendingDeletion(null);
+      } else if (!orderPendingDeletion) {
         dispatch({ type: 'SET_SELECTED_ORDER', payload: null });
       }
     };
@@ -1216,7 +1243,7 @@ const Orders: React.FC = () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [selectedOrder]);
+  }, [isDeletingOrder, orderPendingDeletion, selectedOrder]);
 
   const stats = useMemo(() => {
     const totalRevenue = orders
@@ -1285,6 +1312,35 @@ const Orders: React.FC = () => {
   const handleOrderStatusUpdated = useCallback((orderId: string, status: OrderStatus) => {
     dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { orderId, status } });
   }, []);
+
+  const requestOrderDeletion = useCallback((order: Order) => {
+    dispatch({ type: 'SET_SELECTED_ORDER', payload: null });
+    setOrderPendingDeletion(order);
+  }, []);
+
+  const handleDeleteOrderHistory = useCallback(async () => {
+    if (!orderPendingDeletion || isDeletingOrder) return;
+
+    const orderToDelete = orderPendingDeletion;
+    setIsDeletingOrder(true);
+
+    try {
+      await deleteOrderHistory(orderToDelete._id);
+      setOrderPendingDeletion(null);
+      toast.success(`${orderToDelete.orderNumber} removed from order history`);
+
+      if (orders.length === 1 && page > 1) {
+        dispatch({ type: 'SET_PAGE', payload: page - 1 });
+      } else {
+        await loadOrders(true);
+      }
+    } catch (deleteError: unknown) {
+      console.error('Failed to delete order history', deleteError);
+      toast.error(getErrorMessage(deleteError, 'Failed to delete order history'));
+    } finally {
+      setIsDeletingOrder(false);
+    }
+  }, [isDeletingOrder, loadOrders, orderPendingDeletion, orders.length, page]);
 
   const exportCsv = () => {
     const headers = [
@@ -1625,14 +1681,25 @@ const Orders: React.FC = () => {
                             <IntegrationBadge state="api-pending" />
                           </td>
                           <td style={{ textAlign: 'right' }}>
-                            <button
-                              type="button"
-                              className="btn-ghost"
-                              onClick={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: order })}
-                            >
-                              <Eye size={15} />
-                              View Details
-                            </button>
+                            <div className="orders-row-actions">
+                              <button
+                                type="button"
+                                className="btn-ghost"
+                                onClick={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: order })}
+                              >
+                                <Eye size={15} />
+                                View
+                              </button>
+                              <button
+                                type="button"
+                                className="orders-delete-icon-button"
+                                onClick={() => requestOrderDeletion(order)}
+                                aria-label={`Delete ${order.orderNumber} from order history`}
+                                title="Delete from order history"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))
@@ -1703,14 +1770,24 @@ const Orders: React.FC = () => {
                         <span>{formatDateTime(order.createdAt)}</span>
                         <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(order.totalAmount)}</strong>
                       </div>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: order })}
-                      >
-                        <Eye size={15} />
-                        View Details
-                      </button>
+                      <div className="orders-mobile-card-actions">
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          onClick={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: order })}
+                        >
+                          <Eye size={15} />
+                          View Details
+                        </button>
+                        <button
+                          type="button"
+                          className="orders-delete-button"
+                          onClick={() => requestOrderDeletion(order)}
+                        >
+                          <Trash2 size={15} />
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   ))}
               {!isLoading && orders.length === 0 ? (
@@ -1742,8 +1819,18 @@ const Orders: React.FC = () => {
               order={selectedOrder}
               onOrderUpdated={handleOrderUpdated}
               onOrderStatusUpdated={handleOrderStatusUpdated}
+              onDelete={() => requestOrderDeletion(selectedOrder)}
               onClose={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: null })}
               onCopy={() => void copyText(selectedOrder.orderNumber)}
+            />
+          ) : null}
+          {orderPendingDeletion ? (
+            <DeleteOrderHistoryDialog
+              key={`delete-${orderPendingDeletion._id}`}
+              order={orderPendingDeletion}
+              isDeleting={isDeletingOrder}
+              onCancel={() => setOrderPendingDeletion(null)}
+              onConfirm={() => void handleDeleteOrderHistory()}
             />
           ) : null}
         </AnimatePresence>
@@ -1830,6 +1917,125 @@ const Pagination: React.FC<{
     </div>
   </div>
 );
+
+const DeleteOrderHistoryDialog: React.FC<{
+  order: Order;
+  isDeleting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}> = ({ order, isDeleting, onCancel, onConfirm }) => (
+  <m.div
+    className="modal-backdrop orders-delete-modal-backdrop"
+    initial={{ opacity: 0 }}
+    animate={{ opacity: 1 }}
+    exit={{ opacity: 0 }}
+    role="presentation"
+  >
+    <button
+      type="button"
+      className="modal-backdrop-dismiss"
+      onClick={onCancel}
+      disabled={isDeleting}
+      aria-label="Cancel deleting order history"
+    />
+    <m.section
+      className="modal-box orders-delete-dialog"
+      initial={{ opacity: 0, scale: 0.96, y: 12 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.96, y: 12 }}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="delete-order-history-title"
+      aria-describedby="delete-order-history-description"
+    >
+      <div className="orders-delete-dialog-icon">
+        <Trash2 size={22} />
+      </div>
+      <div>
+        <p className="orders-eyebrow">Order history</p>
+        <h2 id="delete-order-history-title">Delete this order?</h2>
+        <p id="delete-order-history-description">
+          This sends a deletion request to the InkArt server, so the order is removed from history
+          consistently across every device.
+        </p>
+      </div>
+      <div className="orders-delete-dialog-order">
+        <span>Order</span>
+        <strong>{order.orderNumber}</strong>
+        <small>{order.customer.name} · {formatCurrency(order.totalAmount)}</small>
+      </div>
+      <div className="orders-delete-dialog-warning">
+        <AlertTriangle size={16} />
+        <span>This action cannot be undone from the dashboard.</span>
+      </div>
+      <div className="orders-delete-dialog-actions">
+        <button type="button" className="btn-ghost" onClick={onCancel} disabled={isDeleting}>
+          Keep order
+        </button>
+        <button
+          type="button"
+          className="orders-delete-button"
+          onClick={onConfirm}
+          disabled={isDeleting}
+          autoFocus
+        >
+          {isDeleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+          {isDeleting ? 'Deleting…' : 'Delete history'}
+        </button>
+      </div>
+    </m.section>
+  </m.div>
+);
+
+const PurchasedItemsSummary: React.FC<{ items: OrderItem[] }> = ({ items }) => {
+  const totalQuantity = items.reduce((total, item) => total + item.quantity, 0);
+
+  return (
+    <section className="card orders-purchased-items" aria-labelledby="purchased-items-title">
+      <div className="orders-purchased-items-heading">
+        <div>
+          <p className="orders-eyebrow">Purchase details</p>
+          <h3 id="purchased-items-title" className="section-title">Ordered Quantity</h3>
+        </div>
+        <span className="orders-quantity-total">
+          {totalQuantity} {totalQuantity === 1 ? 'unit' : 'units'}
+        </span>
+      </div>
+
+      {items.length === 0 ? (
+        <div className="orders-purchased-items-empty">No purchased items were returned by the API.</div>
+      ) : (
+        <div className="orders-purchased-items-list">
+          {items.map((item) => (
+            <article key={item._id} className="orders-purchased-item">
+              {item.product.image ? (
+                <PreviewImage src={item.product.image} alt={`${item.product.name} image`} size={54} />
+              ) : (
+                <span className="orders-purchased-item-icon"><Package size={18} /></span>
+              )}
+              <div className="orders-purchased-item-content">
+                <strong>{item.product.name}</strong>
+                <span>{formatCurrency(item.price)} per unit</span>
+                {item.options ? (
+                  <div className="orders-item-options" aria-label="Selected product options">
+                    {Object.entries(item.options).map(([key, value]) => (
+                      <span key={key}><b>{key}:</b> {value}</span>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="orders-purchased-item-quantity">
+                <span>Quantity</span>
+                <strong>{item.quantity}</strong>
+                <small>{formatCurrency(item.quantity * item.price)}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+};
 
 type OrderDetailState = {
   deliveryDate: string;
@@ -2086,9 +2292,10 @@ const OrderDetailModal: React.FC<{
   order: Order;
   onOrderUpdated: (order: Order) => void;
   onOrderStatusUpdated: (orderId: string, status: OrderStatus) => void;
+  onDelete: () => void;
   onClose: () => void;
   onCopy: () => void;
-}> = ({ order, onOrderUpdated, onOrderStatusUpdated, onClose, onCopy }) => {
+}> = ({ order, onOrderUpdated, onOrderStatusUpdated, onDelete, onClose, onCopy }) => {
   const terminalLabel = terminalStatusLabel(order.orderStatus);
   const mountedRef = useRef(true);
   const dialogRef = useRef<HTMLDialogElement>(null);
@@ -2519,6 +2726,7 @@ const OrderDetailModal: React.FC<{
                     </div>
                   )}
                 </section>
+                <PurchasedItemsSummary items={order.items} />
                 <div className="detail-row">
                   <span className="form-label" style={{ margin: 0 }}>Canvas</span>
                   <span>
@@ -2828,14 +3036,12 @@ const OrderDetailModal: React.FC<{
         </div>
 
         <div
-          style={{
-            display: 'flex',
-            justifyContent: 'flex-end',
-            gap: 10,
-            flexWrap: 'wrap',
-            marginTop: 18,
-          }}
+          className="orders-detail-footer-actions"
         >
+          <button type="button" className="orders-delete-button" onClick={onDelete} disabled={isAnyRequestInFlight}>
+            <Trash2 size={16} />
+            Delete from history
+          </button>
           <button type="button" className="btn-ghost" onClick={onClose} disabled={isAnyRequestInFlight}>
             Close
           </button>

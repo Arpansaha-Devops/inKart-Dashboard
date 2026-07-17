@@ -206,6 +206,10 @@ export async function resendConfirmation(orderId: string): Promise<void> {
   await apiClient.post(`/admin/orders/${orderId}/resend-confirmation`);
 }
 
+export async function deleteOrderHistory(orderId: string): Promise<void> {
+  await apiClient.delete(`/orders/${encodeURIComponent(orderId)}/history`);
+}
+
 export async function getOrderStatus(orderId: string): Promise<OrderStatusResult> {
   const response = await apiClient.get(`/admin/orders/${orderId}/status`);
 
