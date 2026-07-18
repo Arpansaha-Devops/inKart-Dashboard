@@ -1155,6 +1155,8 @@ const Orders: React.FC = () => {
   const [state, dispatch] = useReducer(ordersReducer, ordersInitialState);
   const [orderPendingDeletion, setOrderPendingDeletion] = useState<Order | null>(null);
   const [isDeletingOrder, setIsDeletingOrder] = useState(false);
+  const deleteTriggerElementRef = useRef<HTMLElement | null>(null);
+  const orderDetailsTriggerElementRef = useRef<HTMLElement | null>(null);
   const {
     orders,
     totalCount,
@@ -1232,9 +1234,7 @@ const Orders: React.FC = () => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
 
-      if (orderPendingDeletion && !isDeletingOrder) {
-        setOrderPendingDeletion(null);
-      } else if (!orderPendingDeletion) {
+      if (!orderPendingDeletion) {
         dispatch({ type: 'SET_SELECTED_ORDER', payload: null });
       }
     };
@@ -1313,9 +1313,26 @@ const Orders: React.FC = () => {
     dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { orderId, status } });
   }, []);
 
+  const openOrderDetails = useCallback((order: Order) => {
+    orderDetailsTriggerElementRef.current = document.activeElement as HTMLElement | null;
+    dispatch({ type: 'SET_SELECTED_ORDER', payload: order });
+  }, []);
+
   const requestOrderDeletion = useCallback((order: Order) => {
+    deleteTriggerElementRef.current = selectedOrder
+      ? orderDetailsTriggerElementRef.current
+      : document.activeElement as HTMLElement | null;
     dispatch({ type: 'SET_SELECTED_ORDER', payload: null });
     setOrderPendingDeletion(order);
+  }, [selectedOrder]);
+
+  const closeOrderDeletionDialog = useCallback(() => {
+    setOrderPendingDeletion(null);
+    window.requestAnimationFrame(() => {
+      const trigger = deleteTriggerElementRef.current;
+      if (trigger?.isConnected) trigger.focus();
+      deleteTriggerElementRef.current = null;
+    });
   }, []);
 
   const handleDeleteOrderHistory = useCallback(async () => {
@@ -1326,7 +1343,7 @@ const Orders: React.FC = () => {
 
     try {
       await deleteOrderHistory(orderToDelete._id);
-      setOrderPendingDeletion(null);
+      closeOrderDeletionDialog();
       toast.success(`${orderToDelete.orderNumber} removed from order history`);
 
       if (orders.length === 1 && page > 1) {
@@ -1340,7 +1357,7 @@ const Orders: React.FC = () => {
     } finally {
       setIsDeletingOrder(false);
     }
-  }, [isDeletingOrder, loadOrders, orderPendingDeletion, orders.length, page]);
+  }, [closeOrderDeletionDialog, isDeletingOrder, loadOrders, orderPendingDeletion, orders.length, page]);
 
   const exportCsv = () => {
     const headers = [
@@ -1685,7 +1702,7 @@ const Orders: React.FC = () => {
                               <button
                                 type="button"
                                 className="btn-ghost"
-                                onClick={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: order })}
+                                onClick={() => openOrderDetails(order)}
                               >
                                 <Eye size={15} />
                                 View
@@ -1774,7 +1791,7 @@ const Orders: React.FC = () => {
                         <button
                           type="button"
                           className="btn-ghost"
-                          onClick={() => dispatch({ type: 'SET_SELECTED_ORDER', payload: order })}
+                          onClick={() => openOrderDetails(order)}
                         >
                           <Eye size={15} />
                           View Details
@@ -1829,7 +1846,7 @@ const Orders: React.FC = () => {
               key={`delete-${orderPendingDeletion._id}`}
               order={orderPendingDeletion}
               isDeleting={isDeletingOrder}
-              onCancel={() => setOrderPendingDeletion(null)}
+              onCancel={closeOrderDeletionDialog}
               onConfirm={() => void handleDeleteOrderHistory()}
             />
           ) : null}
@@ -1923,13 +1940,27 @@ const DeleteOrderHistoryDialog: React.FC<{
   isDeleting: boolean;
   onCancel: () => void;
   onConfirm: () => void;
-}> = ({ order, isDeleting, onCancel, onConfirm }) => (
-  <m.div
+}> = ({ order, isDeleting, onCancel, onConfirm }) => {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => {
+      if (dialog?.open) dialog.close();
+    };
+  }, []);
+
+  return (
+  <dialog
+    ref={dialogRef}
     className="modal-backdrop orders-delete-modal-backdrop"
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    role="presentation"
+    aria-labelledby="delete-order-history-title"
+    aria-describedby="delete-order-history-description"
+    onCancel={(event) => {
+      event.preventDefault();
+      if (!isDeleting) onCancel();
+    }}
   >
     <button
       type="button"
@@ -1943,10 +1974,6 @@ const DeleteOrderHistoryDialog: React.FC<{
       initial={{ opacity: 0, scale: 0.96, y: 12 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
       exit={{ opacity: 0, scale: 0.96, y: 12 }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="delete-order-history-title"
-      aria-describedby="delete-order-history-description"
     >
       <div className="orders-delete-dialog-icon">
         <Trash2 size={22} />
@@ -1969,7 +1996,7 @@ const DeleteOrderHistoryDialog: React.FC<{
         <span>This action cannot be undone from the dashboard.</span>
       </div>
       <div className="orders-delete-dialog-actions">
-        <button type="button" className="btn-ghost" onClick={onCancel} disabled={isDeleting}>
+        <button type="button" className="btn-ghost" onClick={onCancel} disabled={isDeleting} autoFocus>
           Keep order
         </button>
         <button
@@ -1977,15 +2004,15 @@ const DeleteOrderHistoryDialog: React.FC<{
           className="orders-delete-button"
           onClick={onConfirm}
           disabled={isDeleting}
-          autoFocus
         >
           {isDeleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
           {isDeleting ? 'Deleting…' : 'Delete history'}
         </button>
       </div>
     </m.section>
-  </m.div>
-);
+  </dialog>
+  );
+};
 
 const PurchasedItemsSummary: React.FC<{ items: OrderItem[] }> = ({ items }) => {
   const totalQuantity = items.reduce((total, item) => total + item.quantity, 0);
@@ -3263,6 +3290,11 @@ const InfoRow: React.FC<{ label: string; value: string; mono?: boolean }> = ({ l
   </div>
 );
 
+const getLayerKey = (layer: Layer) =>
+  layer._id ||
+  layer.id ||
+  [layer.type, layer.text ?? '', layer.x ?? layer.left ?? '', layer.y ?? layer.top ?? ''].join(':');
+
 const LayerList: React.FC<{ title: string; layers: Layer[] }> = ({ title, layers }) => (
   <div>
     <p className="form-label">{title}</p>
@@ -3270,8 +3302,8 @@ const LayerList: React.FC<{ title: string; layers: Layer[] }> = ({ title, layers
       {layers.length === 0 ? (
         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 13 }}>No layers available</p>
       ) : (
-        layers.map((layer, index) => (
-          <div key={layer._id || layer.id || `${layer.type}-${index}`} className="orders-layer-card">
+        layers.map((layer) => (
+          <div key={getLayerKey(layer)} className="orders-layer-card">
             <span style={{ color: 'var(--text-primary)', textTransform: 'capitalize' }}>
               {layer.type}
               {layer.text ? `: ${layer.text}` : ''}

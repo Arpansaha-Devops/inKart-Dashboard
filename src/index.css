@@ -1909,6 +1909,16 @@ table.data-table tbody td {
 
 .orders-delete-modal-backdrop {
   z-index: 90;
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border: 0;
+}
+
+.orders-delete-modal-backdrop::backdrop {
+  background: transparent;
 }
 
 .orders-delete-dialog {
