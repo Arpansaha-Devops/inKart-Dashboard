@@ -79,6 +79,17 @@ const DashboardCharts: React.FC<DashboardChartsProps> = ({
             padding: 16,
           },
         },
+        tooltip: {
+          callbacks: {
+            label: (context: any) => {
+              const idx = context.dataIndex;
+              const dataset = context.dataset || {};
+              const fullLabel = (dataset as any).fullLabels?.[idx] ?? context.label;
+              const value = context.parsed ?? context.raw ?? '';
+              return `${fullLabel}: ${value}`;
+            },
+          },
+        },
         title: { display: false },
       },
     }),

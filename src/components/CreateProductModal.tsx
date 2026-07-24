@@ -101,10 +101,13 @@ const validateVariants = (variants: ProductVariantForm[]): string | null => {
 
     if (!colorName) return `${label}: color name is required`;
     if (!hexCode) return `${label}: enter a valid 6-digit hex code`;
-    if (!variant.colorFront || !variant.colorBack) {
-      return `${label}: upload both front and back mockup images`;
+    if (!variant.colorFront) {
+      return `${label}: upload a front mockup image`;
     }
-    if (!isSupportedProductImage(variant.colorFront) || !isSupportedProductImage(variant.colorBack)) {
+    if (
+      !isSupportedProductImage(variant.colorFront) ||
+      (variant.colorBack && !isSupportedProductImage(variant.colorBack))
+    ) {
       return `${label}: mockups must be JPG, PNG, or WebP images`;
     }
     if (colorNames.has(colorName.toLowerCase())) return `${label}: color names must be unique`;
@@ -759,7 +762,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     try {
       const variantImageFiles = variants.flatMap((variant) => [
         variant.colorFront as File,
-        variant.colorBack as File,
+        ...(variant.colorBack ? [variant.colorBack] : []),
       ]);
       const optimizedFiles = await optimizeProductImages([...images, ...variantImageFiles]);
       const optimizedImages = optimizedFiles.slice(0, images.length);
@@ -815,9 +818,15 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
           }));
           updateFormData.append('variants', JSON.stringify(variantPayload));
           updateFormData.append('stock', String(variantStock));
-          variants.forEach((_, index) => {
-            updateFormData.append(`colorFront_${index}`, optimizedVariantImages[index * 2]);
-            updateFormData.append(`colorBack_${index}`, optimizedVariantImages[index * 2 + 1]);
+          let mockupImageIndex = 0;
+          variants.forEach((variant, index) => {
+            updateFormData.append(`colorFront_${index}`, optimizedVariantImages[mockupImageIndex]);
+            mockupImageIndex += 1;
+
+            if (variant.colorBack) {
+              updateFormData.append(`colorBack_${index}`, optimizedVariantImages[mockupImageIndex]);
+              mockupImageIndex += 1;
+            }
           });
         }
 
@@ -1336,7 +1345,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                         Color variants
                       </h3>
                       <p style={{ margin: '4px 0 0', color: 'var(--text-muted)', fontSize: '12px' }}>
-                        Optional. Add front/back mockups and size stock for every color.
+                        Optional. Add a front mockup and size stock for every color. Back mockups are optional.
                       </p>
                     </div>
                     <button
@@ -1485,7 +1494,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                                 return (
                                   <div key={side} className="form-group" style={{ marginBottom: 0 }}>
                                     <label className="form-label" htmlFor={inputId}>
-                                      {isFront ? 'Front mockup' : 'Back mockup'}
+                                      {isFront ? 'Front mockup' : 'Back mockup (optional)'}
                                     </label>
                                     <input
                                       id={inputId}

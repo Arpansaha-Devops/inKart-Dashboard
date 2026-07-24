@@ -433,6 +433,8 @@ const Coupons: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    let isActive = true;
+
     const fetchCoupons = async () => {
       dispatch({ type: 'SET_LOADING', payload: true });
       try {
@@ -440,18 +442,27 @@ const Coupons: React.FC = () => {
           params: { page, limit },
         });
 
+        if (!isActive) return;
+
         const couponsList = extractCoupons(response.data);
         const count = extractTotalCoupons(response.data, couponsList.length);
 
         dispatch({ type: 'SET_LIST', payload: { coupons: couponsList, totalCount: count } });
       } catch (error: any) {
+        if (!isActive) return;
         console.error('Error fetching coupons:', error.response?.status, error.message);
       } finally {
-        dispatch({ type: 'SET_LOADING', payload: false });
+        if (isActive) {
+          dispatch({ type: 'SET_LOADING', payload: false });
+        }
       }
     };
 
     fetchCoupons();
+
+    return () => {
+      isActive = false;
+    };
   }, [page, limit]);
 
   const validateForm = (): boolean => {

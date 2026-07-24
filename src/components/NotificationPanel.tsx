@@ -204,7 +204,7 @@ const NotificationPanel: React.FC = () => {
           cursor: 'pointer',
           zIndex: 60,
           transition:
-            'right 180ms ease, background 180ms ease, border-color 180ms ease, color 180ms ease, transform 120ms ease',
+            'background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease',
           boxShadow: isOpen ? '0 10px 24px rgba(249, 115, 22, 0.14)' : 'var(--shadow-card)',
         }}
       >

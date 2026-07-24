@@ -198,17 +198,20 @@ const hashString = (value: string): number => {
   return Math.abs(hash);
 };
 
-const createChartColor = (label: string, index: number): string => {
-  const seed = hashString(label || `chart-item-${index}`);
-  const hue = (seed + index * 137.508) % 360;
-  const saturation = 68 + (seed % 12);
-  const lightness = 47 + ((seed >> 3) % 10);
+const createChartColors = (labels: string[]): string[] => {
+  const n = Math.max(1, labels.length);
+  return labels.map((label, index) => {
+    const seed = hashString(label || `chart-item-${index}`);
+    // base hue from hash to vary per-label, then spread hues by index to avoid collisions
+    const baseHue = seed % 360;
+    const spread = Math.floor(360 / n) || 1;
+    const hue = Math.round((baseHue + index * spread) % 360);
+    const saturation = 60 + (seed % 16); // 60-75%
+    const lightness = 44 + ((seed >> 3) % 12); // 44-55%
 
-  return `hsl(${Math.round(hue)}, ${saturation}%, ${lightness}%)`;
+    return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+  });
 };
-
-const createChartColors = (labels: string[]): string[] =>
-  labels.map((label, index) => createChartColor(label, index));
 
 const isCategoryLike = (item: any): boolean =>
   Boolean(item && typeof item === 'object' && typeof item._id === 'string' && typeof item.name === 'string');
@@ -423,7 +426,9 @@ const Dashboard: React.FC = () => {
         });
 
         if (categories.length > 0 && chartProducts.length > 0) {
-          const labels = categories.map((category: any) => category?.name || 'Unnamed');
+          const fullLabels = categories.map((category: any) => category?.name || 'Unnamed');
+          const shortenLabel = (s: string, max = 24) =>
+            typeof s === 'string' && s.length > max ? `${s.slice(0, max - 3)}...` : s;
           const counts = categories.map((category: any) => {
             const categoryId = normalizeValue(category?._id);
             const categoryName = normalizeValue(category?.name);
@@ -461,19 +466,41 @@ const Dashboard: React.FC = () => {
             }, 0);
           });
 
-          dispatch({
-            type: 'SET_DOUGHNUT_DATA',
-            payload: {
-            labels,
-            datasets: [
-              {
-                data: counts,
-                backgroundColor: createChartColors(labels),
-                borderWidth: 0,
+          // Pair full labels with counts and filter out zero-count categories
+          const paired = fullLabels.map((full, i) => ({ full, count: counts[i] || 0 }));
+          const filtered = paired.filter((p) => p.count > 0);
+
+          if (filtered.length === 0) {
+            dispatch({
+              type: 'SET_DOUGHNUT_DATA',
+              payload: {
+                labels: [],
+                datasets: [
+                  { data: [], backgroundColor: [], borderWidth: 0 },
+                ],
               },
-            ],
-            },
-          });
+            });
+          } else {
+            const shortLabels = filtered.map((p) => shortenLabel(p.full));
+            const dataCounts = filtered.map((p) => p.count);
+            const bgColors = createChartColors(filtered.map((p) => p.full));
+
+            dispatch({
+              type: 'SET_DOUGHNUT_DATA',
+              payload: {
+                labels: shortLabels,
+                datasets: [
+                  {
+                    data: dataCounts,
+                    backgroundColor: bgColors,
+                    borderWidth: 0,
+                    // @ts-ignore - store full labels for tooltip
+                    fullLabels: filtered.map((p) => p.full),
+                  },
+                ],
+              },
+            });
+          }
         } else if (chartProducts.length > 0) {
           const fallbackMap = new Map<string, number>();
 
@@ -491,20 +518,38 @@ const Dashboard: React.FC = () => {
 
           const labels = Array.from(fallbackMap.keys());
           const values = Array.from(fallbackMap.values());
+          const shortenLabel = (s: string, max = 24) =>
+            typeof s === 'string' && s.length > max ? `${s.slice(0, max - 3)}...` : s;
 
-          dispatch({
-            type: 'SET_DOUGHNUT_DATA',
-            payload: {
-            labels,
-            datasets: [
-              {
-                data: values,
-                backgroundColor: createChartColors(labels),
-                borderWidth: 0,
+          const paired = labels.map((l, i) => ({ full: l, count: values[i] || 0 }));
+          const filtered = paired.filter((p) => p.count > 0);
+
+          if (filtered.length === 0) {
+            dispatch({
+              type: 'SET_DOUGHNUT_DATA',
+              payload: { labels: [], datasets: [{ data: [], backgroundColor: [], borderWidth: 0 }] },
+            });
+          } else {
+            const shortLabels = filtered.map((p) => shortenLabel(p.full));
+            const dataCounts = filtered.map((p) => p.count);
+            const bgColors = createChartColors(filtered.map((p) => p.full));
+
+            dispatch({
+              type: 'SET_DOUGHNUT_DATA',
+              payload: {
+                labels: shortLabels,
+                datasets: [
+                  {
+                    data: dataCounts,
+                    backgroundColor: bgColors,
+                    borderWidth: 0,
+                    // @ts-ignore
+                    fullLabels: filtered.map((p) => p.full),
+                  },
+                ],
               },
-            ],
-            },
-          });
+            });
+          }
         } else {
           dispatch({
             type: 'SET_DOUGHNUT_DATA',

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -35,8 +35,15 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
   const { logout } = useAuth();
   const navigate = useNavigate();
   const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const isLoggingOutRef = useRef(false);
 
   const handleLogout = async () => {
+    if (isLoggingOutRef.current) return;
+
+    isLoggingOutRef.current = true;
+    setIsLoggingOut(true);
+
     try {
       await apiClient.post('/auth/logout');
       logout();
@@ -48,6 +55,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
       navigate('/login');
     } finally {
       setIsLogoutModalOpen(false);
+      setIsLoggingOut(false);
+      isLoggingOutRef.current = false;
     }
   };
 
@@ -298,6 +307,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
                 className="btn-ghost"
                 style={{ flex: 1 }}
                 onClick={() => setIsLogoutModalOpen(false)}
+                disabled={isLoggingOut}
               >
                 Cancel
               </button>
@@ -306,8 +316,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
                 className="btn-danger"
                 style={{ flex: 1 }}
                 onClick={handleLogout}
+                disabled={isLoggingOut}
+                aria-busy={isLoggingOut}
               >
-                Log Out
+                {isLoggingOut ? 'Logging Out...' : 'Log Out'}
               </button>
             </div>
           </div>

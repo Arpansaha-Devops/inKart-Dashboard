@@ -48,7 +48,6 @@ type OrderStatus = OrderStatusValue;
 type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
 type OrderSource = 'customized' | 'standard';
 type OrderStatusFilter = 'all' | OrderStatus;
-type PaymentStatusFilter = 'all' | PaymentStatus;
 
 interface Layer {
   _id?: string;
@@ -147,8 +146,6 @@ const ORDER_STATUS_OPTIONS: OrderStatusFilter[] = [
   'return_requested',
   'returned',
 ];
-const PAYMENT_STATUS_OPTIONS: PaymentStatusFilter[] = ['all', 'pending', 'paid', 'failed', 'refunded'];
-
 const orderStatusLabels: Record<OrderStatusFilter, string> = {
   all: 'All',
   placed: 'Placed',
@@ -161,8 +158,7 @@ const orderStatusLabels: Record<OrderStatusFilter, string> = {
   returned: 'Returned',
 };
 
-const paymentStatusLabels: Record<PaymentStatusFilter, string> = {
-  all: 'All',
+const paymentStatusLabels: Record<PaymentStatus, string> = {
   pending: 'Pending',
   paid: 'Paid',
   failed: 'Failed',
@@ -333,12 +329,16 @@ const normalizeOrderStatus = (value: unknown): OrderStatus => {
   return 'placed';
 };
 
-const normalizePaymentStatus = (value: unknown, source: OrderSource): PaymentStatus => {
+const normalizePaymentStatus = (value: unknown): PaymentStatus => {
   const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (status === 'pending' || status === 'paid' || status === 'failed' || status === 'refunded') {
     return status;
   }
-  return source === 'customized' ? 'paid' : 'pending';
+  if (status === 'success' || status === 'successful' || status === 'captured' || status === 'completed') {
+    return 'paid';
+  }
+  if (status === 'cancelled' || status === 'canceled') return 'failed';
+  return 'pending';
 };
 
 const normalizeLayer = (value: unknown): Layer | null => {
@@ -485,6 +485,7 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
   const shippingAddress = getRecord(value, 'shippingAddress');
   const coupon = getRecord(value, 'coupon');
   const appliedCoupon = getRecord(value, 'appliedCoupon');
+  const payment = getRecord(value, 'payment');
   const customerSource = Object.keys(customer).length ? customer : user;
   const addressSource = Object.keys(address).length
     ? address
@@ -584,7 +585,9 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
         : undefined,
     totalAmount: getNumber(value, ['totalAmount', 'amount', 'total', 'paidAmount']),
     orderStatus: normalizeOrderStatus(value.status ?? value.orderStatus),
-    paymentStatus: normalizePaymentStatus(value.paymentStatus, effectiveSource),
+    paymentStatus: normalizePaymentStatus(
+      value.paymentStatus ?? value.payment_status ?? payment.status
+    ),
     paymentId: getString(value, ['paymentId', 'razorpayPaymentId', 'razorpay_payment_id']) || undefined,
     address: {
       fullName: getString(addressSource, ['fullName', 'name'], getString(customerSource, ['name'])),
@@ -694,9 +697,9 @@ const fetchAllOrders = async (
   const standardParams: OrdersQueryParams = {
     page: params.page,
     limit: params.limit,
+    paymentStatus: 'paid',
   };
   if (params.status) standardParams.status = params.status;
-  if (params.paymentStatus) standardParams.paymentStatus = params.paymentStatus;
   if (params.search?.trim()) standardParams.search = params.search.trim();
 
   const response = await apiClient.get('/admin/orders', { params: standardParams });
@@ -704,7 +707,9 @@ const fetchAllOrders = async (
 
   return {
     ...normalized,
-    orders: dedupeAndSortOrders(normalized.orders),
+    orders: dedupeAndSortOrders(normalized.orders).filter(
+      (order) => order.paymentStatus === 'paid'
+    ),
   };
 };
 
@@ -1023,7 +1028,6 @@ type OrdersState = {
   searchInput: string;
   debouncedSearch: string;
   orderStatus: OrderStatusFilter;
-  paymentStatus: PaymentStatusFilter;
   fromDate: string;
   toDate: string;
   page: number;
@@ -1038,7 +1042,6 @@ type OrdersAction =
   | { type: 'SET_PAGE'; payload: number | ((previous: number) => number) }
   | { type: 'SET_SEARCH_INPUT'; payload: string }
   | { type: 'SET_ORDER_STATUS'; payload: OrderStatusFilter }
-  | { type: 'SET_PAYMENT_STATUS'; payload: PaymentStatusFilter }
   | { type: 'SET_FROM_DATE'; payload: string }
   | { type: 'SET_TO_DATE'; payload: string }
   | { type: 'CLEAR_FILTERS' }
@@ -1056,7 +1059,6 @@ const ordersInitialState: OrdersState = {
   searchInput: '',
   debouncedSearch: '',
   orderStatus: 'all',
-  paymentStatus: 'all',
   fromDate: '',
   toDate: '',
   page: 1,
@@ -1097,8 +1099,6 @@ function ordersReducer(state: OrdersState, action: OrdersAction): OrdersState {
       return { ...state, searchInput: action.payload, page: 1 };
     case 'SET_ORDER_STATUS':
       return { ...state, orderStatus: action.payload, page: 1 };
-    case 'SET_PAYMENT_STATUS':
-      return { ...state, paymentStatus: action.payload, page: 1 };
     case 'SET_FROM_DATE':
       return { ...state, fromDate: action.payload, page: 1 };
     case 'SET_TO_DATE':
@@ -1109,7 +1109,6 @@ function ordersReducer(state: OrdersState, action: OrdersAction): OrdersState {
         searchInput: '',
         debouncedSearch: '',
         orderStatus: 'all',
-        paymentStatus: 'all',
         fromDate: '',
         toDate: '',
         page: 1,
@@ -1167,7 +1166,6 @@ const Orders: React.FC = () => {
     searchInput,
     debouncedSearch,
     orderStatus,
-    paymentStatus,
     fromDate,
     toDate,
     page,
@@ -1190,7 +1188,6 @@ const Orders: React.FC = () => {
           page,
           limit: ORDERS_PER_PAGE,
           status: orderStatus === 'all' ? undefined : orderStatus,
-          paymentStatus: paymentStatus === 'all' ? undefined : paymentStatus,
           search: debouncedSearch || undefined,
         });
         const dateFiltered = response.orders.filter((order) => matchesDateRange(order, fromDate, toDate));
@@ -1215,7 +1212,7 @@ const Orders: React.FC = () => {
         toast.error(message);
       }
     },
-    [debouncedSearch, fromDate, orderStatus, page, paymentStatus, toDate]
+    [debouncedSearch, fromDate, orderStatus, page, toDate]
   );
 
   useEffect(() => {
@@ -1224,7 +1221,7 @@ const Orders: React.FC = () => {
 
   useEffect(() => {
     dispatch({ type: 'SET_PAGE', payload: 1 });
-  }, [debouncedSearch, fromDate, orderStatus, paymentStatus, toDate]);
+  }, [debouncedSearch, fromDate, orderStatus, toDate]);
 
   useEffect(() => {
     if (!selectedOrder && !orderPendingDeletion) return;
@@ -1468,7 +1465,7 @@ const Orders: React.FC = () => {
             <div>
               <p className="orders-eyebrow">Order queue</p>
               <h2>Find and filter orders</h2>
-              <p>Search the current order feed or narrow it by fulfillment and payment state.</p>
+              <p>Only successfully paid purchases appear here. Narrow them by fulfillment state or date.</p>
             </div>
             <span className="orders-result-count">
               {isLoading ? 'Loading orders…' : `${totalCount} order${totalCount === 1 ? '' : 's'}`}
@@ -1478,7 +1475,7 @@ const Orders: React.FC = () => {
             className="orders-filter-grid"
             style={{
               display: 'grid',
-              gridTemplateColumns: 'minmax(240px, 2fr) repeat(4, minmax(140px, 1fr)) auto',
+              gridTemplateColumns: 'minmax(240px, 2fr) repeat(3, minmax(140px, 1fr)) auto',
               gap: 12,
               alignItems: 'end',
             }}
@@ -1526,27 +1523,6 @@ const Orders: React.FC = () => {
                 {ORDER_STATUS_OPTIONS.map((status) => (
                   <option key={status} value={status}>
                     {orderStatusLabels[status]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="form-label" htmlFor="orders-payment-filter">Payment Status</label>
-              <select
-                id="orders-payment-filter"
-                className="input-field"
-                value={paymentStatus}
-                onChange={(event) => {
-                  dispatch({
-                    type: 'SET_PAYMENT_STATUS',
-                    payload: event.target.value as PaymentStatusFilter,
-                  });
-                }}
-              >
-                {PAYMENT_STATUS_OPTIONS.map((status) => (
-                  <option key={status} value={status}>
-                    {paymentStatusLabels[status]}
                   </option>
                 ))}
               </select>
