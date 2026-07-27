@@ -9,7 +9,7 @@ type DeleteCategoryModalProps = {
   isOpen: boolean;
   category: Category | null;
   onClose: () => void;
-  onSuccess: () => void;
+  onDeleted: (categoryId: string) => void;
 };
 
 const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
@@ -23,7 +23,7 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
   isOpen,
   category,
   onClose,
-  onSuccess,
+  onDeleted,
 }) => {
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -31,7 +31,7 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
   const contentRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const onCloseRef = useRef(onClose);
-  const onSuccessRef = useRef(onSuccess);
+  const onDeletedRef = useRef(onDeleted);
   const isOpenRef = useRef(isOpen);
 
   useEffect(() => {
@@ -43,8 +43,8 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
   }, [isOpen]);
 
   useEffect(() => {
-    onSuccessRef.current = onSuccess;
-  }, [onSuccess]);
+    onDeletedRef.current = onDeleted;
+  }, [onDeleted]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -114,8 +114,8 @@ const DeleteCategoryModal: React.FC<DeleteCategoryModalProps> = ({
     try {
       await deleteCategory(category._id);
       toast.success('Category deleted');
+      onDeletedRef.current(category._id);
       onCloseRef.current();
-      onSuccessRef.current();
     } catch (error: any) {
       toast.error(error?.response?.data?.message || 'Failed to delete category');
     } finally {

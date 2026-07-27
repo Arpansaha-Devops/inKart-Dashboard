@@ -19,6 +19,7 @@ type CategoriesState = {
 
 type CategoriesAction =
   | { type: 'SET_CATEGORIES'; payload: Category[] }
+  | { type: 'REMOVE_CATEGORY'; payload: string }
   | { type: 'SET_PAGE'; payload: number | ((previous: number) => number) }
   | { type: 'SET_LOADING'; payload: boolean }
   | { type: 'OPEN_CREATE_MODAL' }
@@ -39,6 +40,11 @@ function categoriesReducer(state: CategoriesState, action: CategoriesAction): Ca
   switch (action.type) {
     case 'SET_CATEGORIES':
       return { ...state, categories: action.payload };
+    case 'REMOVE_CATEGORY':
+      return {
+        ...state,
+        categories: state.categories.filter((category) => category._id !== action.payload),
+      };
     case 'SET_PAGE':
       return {
         ...state,
@@ -117,11 +123,14 @@ const Categories: React.FC = () => {
   const handleEditClose = useCallback(() => {
     dispatch({ type: 'SET_EDITING_CATEGORY', payload: null });
   }, []);
-
   const handleDeleteClose = useCallback(() => {
     dispatch({ type: 'SET_DELETING_CATEGORY', payload: null });
   }, []);
 
+
+  const handleCategoryDeleted = useCallback((categoryId: string) => {
+    dispatch({ type: 'REMOVE_CATEGORY', payload: categoryId });
+  }, []);
   return (
     <div className="page-wrapper">
       <div style={{ display: 'grid', gap: '24px' }}>
@@ -302,7 +311,7 @@ const Categories: React.FC = () => {
         isOpen={Boolean(deletingCategory)}
         category={deletingCategory}
         onClose={handleDeleteClose}
-        onSuccess={fetchCategoriesData}
+        onDeleted={handleCategoryDeleted}
       />
     </div>
   );
