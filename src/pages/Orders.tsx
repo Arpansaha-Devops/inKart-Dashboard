@@ -2303,7 +2303,11 @@ const OrderDetailModal: React.FC<{
   const mountedRef = useRef(true);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previewDialogRef = useRef<HTMLDialogElement>(null);
-  const computedEstimateCacheRef = useRef(new Map<string, ComputedDeliveryEstimateState>());
+  const computedEstimateCacheRef = useRef<Map<string, ComputedDeliveryEstimateState> | null>(null);
+  if (computedEstimateCacheRef.current === null) {
+    computedEstimateCacheRef.current = new Map<string, ComputedDeliveryEstimateState>();
+  }
+  const computedEstimateCache = computedEstimateCacheRef.current;
   const isStatusRequestInFlightRef = useRef(false);
   const [detailState, dispatchDetail] = useReducer(
     orderDetailReducer,
@@ -2481,8 +2485,12 @@ const OrderDetailModal: React.FC<{
       return;
     }
 
+    if (computedEstimateCacheRef.current === null) {
+      computedEstimateCacheRef.current = new Map<string, ComputedDeliveryEstimateState>();
+    }
+    const computedEstimateCache = computedEstimateCacheRef.current;
     const cacheKey = `${order._id}:${pincode}`;
-    const cachedEstimate = computedEstimateCacheRef.current.get(cacheKey);
+    const cachedEstimate = computedEstimateCache.get(cacheKey);
     if (cachedEstimate) {
       dispatchDetail({ type: 'setComputedEstimate', value: cachedEstimate });
       return;
@@ -2498,7 +2506,7 @@ const OrderDetailModal: React.FC<{
       .then((result) => {
         if (!isCurrentRequest || !mountedRef.current) return;
         const nextState = createComputedEstimateState('success', pincode, result);
-        computedEstimateCacheRef.current.set(cacheKey, nextState);
+        computedEstimateCache.set(cacheKey, nextState);
         dispatchDetail({ type: 'setComputedEstimate', value: nextState });
       })
       .catch((error: unknown) => {
@@ -2509,7 +2517,7 @@ const OrderDetailModal: React.FC<{
           null,
           getErrorMessage(error, 'Could not load computed delivery estimate.')
         );
-        computedEstimateCacheRef.current.set(cacheKey, nextState);
+        computedEstimateCache.set(cacheKey, nextState);
         dispatchDetail({ type: 'setComputedEstimate', value: nextState });
       });
 
