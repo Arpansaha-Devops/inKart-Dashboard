@@ -218,6 +218,8 @@ type ProductFormData = {
   stock: number;
   isCustomizable: boolean;
   basePrice: number;
+  hsnCode: string;
+  gstPercentage: number;
   quantityPricing: QuantityPricingTierForm[];
   image: File | null;
 };
@@ -333,6 +335,8 @@ const defaultProductFormData = (): ProductFormData => ({
   stock: 0,
   isCustomizable: true,
   basePrice: 0,
+  hsnCode: '',
+  gstPercentage: 5,
   quantityPricing: [emptyPricingTier()],
   image: null,
 });
@@ -684,6 +688,8 @@ const Products: React.FC = () => {
           stock: product.stock || 0,
           isCustomizable: product.isCustomizable ?? true,
           basePrice: product.basePrice || 0,
+          hsnCode: product.hsnCode || '',
+          gstPercentage: product.gstPercentage ?? 5,
           quantityPricing: toPricingTierFormRows(product.quantityPricing),
           image: null,
         },
@@ -1284,7 +1290,7 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label" htmlFor="edit-product-base-price">Base price</label>
+                    <label className="form-label" htmlFor="edit-product-base-price">Base price (incl. GST)</label>
                     <input
                       id="edit-product-base-price"
                       type="number"
@@ -1296,6 +1302,43 @@ const Products: React.FC = () => {
                         dispatch({
                           type: 'SET_FORM_DATA',
                           payload: { ...formData, basePrice: parseFloat(event.target.value) || 0 },
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="edit-product-hsn">HSN Code</label>
+                    <input
+                      id="edit-product-hsn"
+                      type="text"
+                      className="input-field"
+                      placeholder="e.g. 6109"
+                      value={formData.hsnCode}
+                      onChange={(event) =>
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: { ...formData, hsnCode: event.target.value },
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label" htmlFor="edit-product-gst">GST (%)</label>
+                    <input
+                      id="edit-product-gst"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      max="100"
+                      className="input-field"
+                      placeholder="5"
+                      value={formData.gstPercentage ?? 5}
+                      onChange={(event) =>
+                        dispatch({
+                          type: 'SET_FORM_DATA',
+                          payload: { ...formData, gstPercentage: parseFloat(event.target.value) || 0 },
                         })
                       }
                     />

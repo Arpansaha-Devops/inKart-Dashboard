@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, Plus, Trash2, X, Upload, Loader2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Plus, Trash2, X, Upload, Loader2, Calculator } from 'lucide-react';
 import { m, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -30,6 +30,8 @@ interface FormErrors {
   category?: string;
   images?: string;
   basePrice?: string;
+  hsnCode?: string;
+  gstPercentage?: string;
   stock?: string;
   quantityPricing?: string;
   variants?: string;
@@ -159,6 +161,8 @@ type CreateProductFormState = {
   description: string;
   category: string;
   basePrice: number;
+  hsnCode: string;
+  gstPercentage: number;
   productType: 'stocked' | 'on_demand';
   stock: number;
   isCustomizable: boolean;
@@ -181,6 +185,8 @@ const createProductFormInitialState: CreateProductFormState = {
   description: '',
   category: '',
   basePrice: 0,
+  hsnCode: '',
+  gstPercentage: 5,
   productType: 'on_demand',
   stock: 0,
   isCustomizable: true,
@@ -300,6 +306,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     description,
     category,
     basePrice,
+    hsnCode,
+    gstPercentage,
     productType,
     stock,
     isCustomizable,
@@ -785,6 +793,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
       // The live POST middleware rejects both `images` and `image`. Create the record
       // with text fields first, then attach all files through the documented PATCH route.
       formData.append('basePrice', String(basePrice));
+      if (hsnCode.trim()) {
+        formData.append('hsnCode', hsnCode.trim());
+      }
+      formData.append('gstPercentage', String(gstPercentage ?? 5));
       formData.append('quantityPricing', JSON.stringify(sortedPricingTiers));
 
       const response = await createProduct(formData);
@@ -945,12 +957,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                 <div
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
                     gap: '16px',
                   }}
                 >
                   <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" htmlFor="create-product-price">Price</label>
+                    <label className="form-label" htmlFor="create-product-price">Price (incl. GST)</label>
                     <div style={{ position: 'relative' }}>
                       <span
                         style={{
@@ -1040,7 +1052,100 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                       </p>
                     ) : null}
                   </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" htmlFor="create-product-hsn">HSN Code</label>
+                    <input
+                      id="create-product-hsn"
+                      type="text"
+                      disabled={isSubmitting}
+                      className="input-field"
+                      placeholder="e.g. 6109"
+                      value={hsnCode}
+                      onChange={(e) => {
+                        dispatch({
+                          type: 'SET_FIELD',
+                          payload: { hsnCode: e.target.value },
+                        });
+                      }}
+                    />
+                  </div>
+
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label className="form-label" htmlFor="create-product-gst">GST (%)</label>
+                    <div style={{ position: 'relative' }}>
+                      <input
+                        id="create-product-gst"
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="100"
+                        disabled={isSubmitting}
+                        className="input-field"
+                        style={{ paddingRight: 30 }}
+                        placeholder="5"
+                        value={gstPercentage ?? 5}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value);
+                          dispatch({
+                            type: 'SET_FIELD',
+                            payload: { gstPercentage: isNaN(val) ? 0 : val },
+                          });
+                        }}
+                      />
+                      <span
+                        style={{
+                          position: 'absolute',
+                          right: 14,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          color: 'var(--text-muted)',
+                          fontSize: '14px',
+                        }}
+                      >
+                        %
+                      </span>
+                    </div>
+                  </div>
                 </div>
+
+                {price > 0 && (
+                  <div
+                    style={{
+                      padding: '12px 16px',
+                      borderRadius: 'var(--radius-md)',
+                      background: 'rgba(59, 130, 246, 0.06)',
+                      border: '1px solid rgba(59, 130, 246, 0.2)',
+                      fontSize: '13px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '8px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600, color: 'var(--primary, #3b82f6)' }}>
+                      <Calculator size={16} />
+                      <span>Price & Tax Calculation (Inclusive of GST)</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+                      <div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Selling Price (incl. GST)</span>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '15px' }}>₹{price.toFixed(2)}</span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>Excl. GST (Actual Price)</span>
+                        <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '15px' }}>
+                          ₹{(price / (1 + (gstPercentage || 0) / 100)).toFixed(2)}
+                        </span>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'block' }}>GST Amount ({gstPercentage ?? 5}%)</span>
+                        <span style={{ fontWeight: 600, color: 'var(--primary, #3b82f6)', fontSize: '15px' }}>
+                          ₹{(price - price / (1 + (gstPercentage || 0) / 100)).toFixed(2)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 <div
                   className="form-group"

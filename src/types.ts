@@ -18,6 +18,9 @@ export interface Product {
   stock: number;
   isCustomizable?: boolean;
   basePrice: number;
+  price?: number;
+  hsnCode?: string;
+  gstPercentage?: number;
   quantityPricing?: QuantityPricingTier[];
   variants?: ProductVariant[];
   image?: string;
@@ -53,6 +56,8 @@ export interface CreateProductPayload {
   stock: number;
   isCustomizable?: boolean;
   basePrice: number;
+  hsnCode?: string;
+  gstPercentage?: number;
   quantityPricing?: QuantityPricingTier[];
   variants?: Omit<ProductVariant, '_id' | 'colorFront' | 'colorBack'>[];
 }
