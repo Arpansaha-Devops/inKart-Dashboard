@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   AlertTriangle,
-  ArchiveRestore,
   Bell,
   Box,
   Calendar,
@@ -12,6 +11,7 @@ import {
   Clipboard,
   Download,
   Eye,
+  ExternalLink,
   FileText,
   ImageIcon,
   Loader2,
@@ -34,13 +34,22 @@ import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
 import {
   approveOrder,
-  deleteOrderHistory,
+  cancelShipment,
+  deleteOrder,
   getDeliveryEstimateForPincode,
   getOrderStatus,
+  getShipmentDetails,
+  getShipmentLabel,
+  getShipmentManifest,
+  getShiprocketTracking,
   resendConfirmation,
+  schedulePickup,
+  syncShipment,
   setDeliveryEstimate,
   type OrderStatusValue,
   type PincodeDeliveryEstimate,
+  type ShiprocketData,
+  type ShiprocketTrackingResult,
 } from '../services/orderService';
 
 type OrderStatus = OrderStatusValue;
@@ -118,6 +127,12 @@ interface Order {
   timeline: string[];
   createdAt: string;
   updatedAt: string;
+  shiprocket?: {
+    shiprocketOrderId?: string | null; shipmentId?: string | null; awbCode?: string | null;
+    courierName?: string | null; shipmentStatus?: string | null; trackingUrl?: string | null;
+    currentLocation?: string | null; etd?: string | null; pickupScheduledDate?: string | null; pickupScheduled?: boolean | null;
+    pickupToken?: string | null; lastShiprocketError?: string | null; labelUrl?: string | null; manifestUrl?: string | null; lastSyncedAt?: string | null;
+  };
 }
 
 interface OrdersQueryParams {
@@ -291,7 +306,7 @@ const getCustomizationPreviewUrl = (source: Record<string, unknown>): string => 
     if (url) return url;
   }
 
-  return '';
+  return getDesignSidePreviewUrl(source, 'front');
 };
 
 const getCustomizationBackPreviewUrl = (source: Record<string, unknown>): string => {
@@ -307,7 +322,7 @@ const getCustomizationBackPreviewUrl = (source: Record<string, unknown>): string
     if (url) return url;
   }
 
-  return '';
+  return getDesignSidePreviewUrl(source, 'back');
 };
 
 const normalizeOrderStatus = (value: unknown): OrderStatus => {
@@ -467,8 +482,14 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
   const id = getString(value, ['_id', 'id']);
   if (!id) return null;
 
+  const hasEmbeddedCustomization = [
+    'customization', 'customizationId', 'design', 'designId', 'designs',
+    'frontDesign', 'backDesign', 'frontPreviewImageUrl', 'backPreviewImageUrl',
+  ].some((key) => value[key] !== undefined && value[key] !== null);
   const effectiveSource =
-    source === 'customized' || value.isCustomizedOrder === true ? 'customized' : 'standard';
+    source === 'customized' || value.isCustomizedOrder === true || hasEmbeddedCustomization
+      ? 'customized'
+      : 'standard';
   const customer = getRecord(value, 'customer');
   const user = getRecord(value, 'user');
   const product = getRecord(value, 'product');
@@ -614,6 +635,29 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
     timeline,
     createdAt: getString(value, ['createdAt', 'placedAt', 'date']),
     updatedAt: getString(value, ['updatedAt']),
+    shiprocket: (() => {
+      const shiprocket = isRecord(value.shiprocket)
+        ? value.shiprocket
+        : isRecord(value.shipment) ? value.shipment : null;
+      if (!shiprocket) return undefined;
+      return {
+        shiprocketOrderId: getString(shiprocket, ['shiprocketOrderId', 'order_id', 'sr_order_id']) || null,
+        shipmentId: getString(shiprocket, ['shipmentId', 'shipment_id']) || null,
+        awbCode: getString(shiprocket, ['awbCode', 'awb_code', 'awb']) || null,
+        courierName: getString(shiprocket, ['courierName', 'courier_name', 'courier']) || null,
+        shipmentStatus: getString(shiprocket, ['shipmentStatus', 'shipment_status', 'status']) || null,
+        trackingUrl: getString(shiprocket, ['trackingUrl', 'tracking_url', 'track_url']) || null,
+        currentLocation: getString(shiprocket, ['currentLocation', 'current_location', 'location']) || null,
+        etd: getString(shiprocket, ['etd', 'estimatedDeliveryDate', 'edd']) || null,
+        pickupScheduledDate: getString(shiprocket, ['pickupScheduledDate', 'pickup_date']) || null,
+        pickupScheduled: shiprocket.pickupScheduled === true || shiprocket.pickupScheduled === 'true',
+        pickupToken: getString(shiprocket, ['pickupToken', 'pickup_token']) || null,
+        lastShiprocketError: getString(shiprocket, ['lastShiprocketError', 'last_error', 'error']) || null,
+        labelUrl: getString(shiprocket, ['labelUrl', 'label_url']) || null,
+        manifestUrl: getString(shiprocket, ['manifestUrl', 'manifest_url']) || null,
+        lastSyncedAt: getString(shiprocket, ['lastSyncedAt', 'lastTrackingUpdate', 'updatedAt']) || null,
+      };
+    })(),
   };
 };
 
@@ -691,7 +735,7 @@ const dedupeAndSortOrders = (orders: Order[]) => {
   });
 };
 
-const fetchAllOrders = async (
+const fetchPaidOrdersPage = async (
   params: OrdersQueryParams
 ): Promise<NormalizedOrdersResponse> => {
   const standardParams: OrdersQueryParams = {
@@ -881,6 +925,21 @@ const IntegrationBadge: React.FC<{ state: IntegrationState }> = ({ state }) => (
     {integrationStateLabels[state]}
   </span>
 );
+const SHIPROCKET_STATUS_STYLES: Record<string, { color: string; background: string }> = {
+  delivered: { color: 'var(--success)', background: 'var(--success-muted)' },
+  'out for delivery': { color: '#7c3aed', background: 'rgba(124,58,237,0.12)' },
+  'in transit': { color: 'var(--info)', background: 'var(--info-muted)' },
+  'picked up': { color: '#0891b2', background: 'rgba(8,145,178,0.12)' },
+  'shipment created': { color: '#ca8a04', background: 'rgba(234,179,8,0.14)' },
+  cancelled: { color: 'var(--danger)', background: 'var(--danger-muted)' },
+};
+
+const ShiprocketStatusBadge: React.FC<{ status: string | null }> = ({ status }) => {
+  if (!status) return <span style={{ color: 'var(--text-muted)', fontSize: 13 }}>—</span>;
+  const displayStatus = /^\d+$/.test(status.trim()) ? `Shiprocket code ${status.trim()}` : status;
+  const style = SHIPROCKET_STATUS_STYLES[displayStatus.toLowerCase().trim()] ?? { color: '#ca8a04', background: 'rgba(234,179,8,0.12)' };
+  return <Badge color={style.color} background={style.background}>{displayStatus}</Badge>;
+};
 
 const fulfillmentCapabilities: Array<{
   title: string;
@@ -903,19 +962,19 @@ const fulfillmentCapabilities: Array<{
   {
     title: 'Courier & AWB',
     description: 'Courier assignment and shipment booking',
-    state: 'api-pending',
+    state: 'live',
     icon: Truck,
   },
   {
     title: 'Live tracking',
-    description: 'Pickup, transit and delivery events',
+    description: 'Polling is available; webhook automation is pending',
     state: 'webhook-pending',
     icon: Radio,
   },
   {
     title: 'Notifications',
-    description: 'Admin and customer delivery updates',
-    state: 'api-pending',
+    description: 'Admin and customer delivery emails are pending',
+    state: 'webhook-pending',
     icon: Bell,
   },
 ];
@@ -926,9 +985,9 @@ const FulfillmentReadiness: React.FC = () => (
       <div>
         <p className="orders-eyebrow">Fulfillment workspace</p>
         <h2 id="fulfillment-overview-title">Order-to-delivery operations</h2>
-        <p>Current controls remain active while Shiprocket capabilities are ready to connect.</p>
+        <p>Shipment tools are connected. Webhook updates and delivery notifications remain pending.</p>
       </div>
-      <IntegrationBadge state="api-pending" />
+      <IntegrationBadge state="live" />
     </div>
 
     <div className="orders-capability-grid">
@@ -1047,6 +1106,7 @@ type OrdersAction =
   | { type: 'CLEAR_FILTERS' }
   | { type: 'SET_SELECTED_ORDER'; payload: Order | null | ((previous: Order | null) => Order | null) }
   | { type: 'UPDATE_ORDER'; payload: Order }
+  | { type: 'REMOVE_ORDER'; payload: { orderId: string } }
   | { type: 'UPDATE_ORDER_STATUS'; payload: { orderId: string; status: OrderStatus } };
 
 const ordersInitialState: OrdersState = {
@@ -1132,6 +1192,17 @@ function ordersReducer(state: OrdersState, action: OrdersAction): OrdersState {
             ? { ...state.selectedOrder, ...action.payload }
             : state.selectedOrder,
       };
+    case 'REMOVE_ORDER': {
+      const nextTotalCount = Math.max(0, state.totalCount - 1);
+      return {
+        ...state,
+        orders: state.orders.filter((order) => order._id !== action.payload.orderId),
+        totalCount: nextTotalCount,
+        totalPages: Math.max(1, Math.ceil(nextTotalCount / ORDERS_PER_PAGE)),
+        selectedOrder:
+          state.selectedOrder?._id === action.payload.orderId ? null : state.selectedOrder,
+      };
+    }
     case 'UPDATE_ORDER_STATUS':
       return {
         ...state,
@@ -1184,7 +1255,7 @@ const Orders: React.FC = () => {
       dispatch({ type: 'START_LOADING', payload: { showRefresh } });
 
       try {
-        const response = await fetchAllOrders({
+        const response = await fetchPaidOrdersPage({
           page,
           limit: ORDERS_PER_PAGE,
           status: orderStatus === 'all' ? undefined : orderStatus,
@@ -1250,43 +1321,34 @@ const Orders: React.FC = () => {
       ['placed', 'confirmed', 'processing'].includes(order.orderStatus)
     ).length;
     const completedOrders = orders.filter((order) => order.orderStatus === 'delivered').length;
-    const failedPayments = orders.filter((order) => order.paymentStatus === 'failed').length;
-
     return [
       {
-        label: 'Total Orders',
+        label: 'Matching Paid Orders',
         value: totalCount,
         icon: ShoppingBag,
         color: 'var(--accent)',
         background: 'var(--accent-muted)',
       },
       {
-        label: 'Total Revenue',
+        label: 'Page Revenue',
         value: formatCurrency(totalRevenue),
         icon: FileText,
         color: 'var(--info)',
         background: 'var(--info-muted)',
       },
       {
-        label: 'Pending Orders',
+        label: 'Page Pending Orders',
         value: pendingOrders,
         icon: AlertTriangle,
         color: 'var(--warning)',
         background: 'var(--warning-muted)',
       },
       {
-        label: 'Completed Orders',
+        label: 'Page Completed Orders',
         value: completedOrders,
         icon: CheckCircle2,
         color: 'var(--success)',
         background: 'var(--success-muted)',
-      },
-      {
-        label: 'Failed Payments',
-        value: failedPayments,
-        icon: ArchiveRestore,
-        color: 'var(--danger)',
-        background: 'var(--danger-muted)',
       },
     ];
   }, [orders, totalCount]);
@@ -1332,16 +1394,17 @@ const Orders: React.FC = () => {
     });
   }, []);
 
-  const handleDeleteOrderHistory = useCallback(async () => {
+  const handleDeleteOrder = useCallback(async () => {
     if (!orderPendingDeletion || isDeletingOrder) return;
 
     const orderToDelete = orderPendingDeletion;
     setIsDeletingOrder(true);
 
     try {
-      await deleteOrderHistory(orderToDelete._id);
+      await deleteOrder(orderToDelete._id);
+      dispatch({ type: 'REMOVE_ORDER', payload: { orderId: orderToDelete._id } });
       closeOrderDeletionDialog();
-      toast.success(`${orderToDelete.orderNumber} removed from order history`);
+      toast.success(`${orderToDelete.orderNumber} deleted successfully`);
 
       if (orders.length === 1 && page > 1) {
         dispatch({ type: 'SET_PAGE', payload: page - 1 });
@@ -1349,8 +1412,8 @@ const Orders: React.FC = () => {
         await loadOrders(true);
       }
     } catch (deleteError: unknown) {
-      console.error('Failed to delete order history', deleteError);
-      toast.error(getErrorMessage(deleteError, 'Failed to delete order history'));
+      console.error('Failed to delete order', deleteError);
+      toast.error(getErrorMessage(deleteError, 'Failed to delete order'));
     } finally {
       setIsDeletingOrder(false);
     }
@@ -1367,6 +1430,8 @@ const Orders: React.FC = () => {
       'Amount',
       'Payment',
       'Order Status',
+      'Shiprocket AWB',
+      'Courier',
     ];
     const rows = orders.map((order) => [
       order.orderNumber,
@@ -1378,6 +1443,8 @@ const Orders: React.FC = () => {
       String(order.totalAmount),
       order.paymentStatus,
       order.orderStatus,
+      order.shiprocket?.awbCode || '',
+      order.shiprocket?.courierName || '',
     ]);
     const csv = [headers, ...rows]
       .map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(','))
@@ -1671,7 +1738,7 @@ const Orders: React.FC = () => {
                             </div>
                           </td>
                           <td>
-                            <IntegrationBadge state="api-pending" />
+                            {order.shiprocket?.awbCode ? <ShiprocketStatusBadge status={order.shiprocket.shipmentStatus ?? null} /> : <IntegrationBadge state={order.shiprocket?.shiprocketOrderId ? 'live' : 'api-pending'} />}
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <div className="orders-row-actions">
@@ -1729,7 +1796,7 @@ const Orders: React.FC = () => {
                       </div>
                       <div className="orders-mobile-shipping-row">
                         <span>Shiprocket fulfillment</span>
-                        <IntegrationBadge state="api-pending" />
+                        {order.shiprocket?.awbCode ? <ShiprocketStatusBadge status={order.shiprocket.shipmentStatus ?? null} /> : <IntegrationBadge state={order.shiprocket?.shiprocketOrderId ? 'live' : 'api-pending'} />}
                       </div>
                       <div>
                         <p style={{ margin: '0 0 2px', fontWeight: 600 }}>{order.customer.name}</p>
@@ -1818,12 +1885,12 @@ const Orders: React.FC = () => {
             />
           ) : null}
           {orderPendingDeletion ? (
-            <DeleteOrderHistoryDialog
+            <DeleteOrderDialog
               key={`delete-${orderPendingDeletion._id}`}
               order={orderPendingDeletion}
               isDeleting={isDeletingOrder}
               onCancel={closeOrderDeletionDialog}
-              onConfirm={() => void handleDeleteOrderHistory()}
+              onConfirm={() => void handleDeleteOrder()}
             />
           ) : null}
         </AnimatePresence>
@@ -1911,7 +1978,7 @@ const Pagination: React.FC<{
   </div>
 );
 
-const DeleteOrderHistoryDialog: React.FC<{
+const DeleteOrderDialog: React.FC<{
   order: Order;
   isDeleting: boolean;
   onCancel: () => void;
@@ -1931,8 +1998,8 @@ const DeleteOrderHistoryDialog: React.FC<{
   <dialog
     ref={dialogRef}
     className="modal-backdrop orders-delete-modal-backdrop"
-    aria-labelledby="delete-order-history-title"
-    aria-describedby="delete-order-history-description"
+    aria-labelledby="delete-order-title"
+    aria-describedby="delete-order-description"
     onCancel={(event) => {
       event.preventDefault();
       if (!isDeleting) onCancel();
@@ -1943,7 +2010,7 @@ const DeleteOrderHistoryDialog: React.FC<{
       className="modal-backdrop-dismiss"
       onClick={onCancel}
       disabled={isDeleting}
-      aria-label="Cancel deleting order history"
+      aria-label="Cancel deleting order"
     />
     <m.section
       className="modal-box orders-delete-dialog"
@@ -1955,11 +2022,11 @@ const DeleteOrderHistoryDialog: React.FC<{
         <Trash2 size={22} />
       </div>
       <div>
-        <p className="orders-eyebrow">Order history</p>
-        <h2 id="delete-order-history-title">Delete this order?</h2>
-        <p id="delete-order-history-description">
-          This sends a deletion request to the InkArt server, so the order is removed from history
-          consistently across every device.
+        <p className="orders-eyebrow">Order management</p>
+        <h2 id="delete-order-title">Delete this order?</h2>
+        <p id="delete-order-description">
+          This permanently deletes the order from the InkArt server and removes it from every
+          admin device.
         </p>
       </div>
       <div className="orders-delete-dialog-order">
@@ -1982,7 +2049,7 @@ const DeleteOrderHistoryDialog: React.FC<{
           disabled={isDeleting}
         >
           {isDeleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
-          {isDeleting ? 'Deleting…' : 'Delete history'}
+          {isDeleting ? 'Deleting…' : 'Delete order'}
         </button>
       </div>
     </m.section>
@@ -2138,40 +2205,261 @@ const orderDetailReducer = (
   }
 };
 
+// Shiprocket workspace state
+
+type SRWorkspaceState = {
+  data: ShiprocketData | null;
+  tracking: ShiprocketTrackingResult | null;
+  loading: boolean;
+  error: string | null;
+  isSchedulingPickup: boolean;
+  isSyncingShipment: boolean;
+  isCancellingShipment: boolean;
+  isDownloadingLabel: boolean;
+  isDownloadingManifest: boolean;
+  lastFetchedAt: Date | null;
+};
+
+type SRWorkspaceAction =
+  | { type: 'start' }
+  | { type: 'success'; data: ShiprocketData; tracking: ShiprocketTrackingResult | null; fetchedAt: Date }
+  | { type: 'error'; message: string }
+  | { type: 'setSchedulingPickup'; value: boolean }
+  | { type: 'setSyncingShipment'; value: boolean }
+  | { type: 'setCancellingShipment'; value: boolean }
+  | { type: 'setDownloadingLabel'; value: boolean }
+  | { type: 'setDownloadingManifest'; value: boolean }
+  | { type: 'updatePickup'; pickupDate: string | null; pickupScheduled: boolean | null };
+
+function srWorkspaceReducer(state: SRWorkspaceState, action: SRWorkspaceAction): SRWorkspaceState {
+  switch (action.type) {
+    case 'start': return { ...state, loading: true, error: null };
+    case 'success': {
+      const trackingUrl = action.tracking?.trackingUrl || action.data.trackingUrl;
+      return {
+        ...state,
+        loading: false,
+        error: null,
+        data: trackingUrl ? { ...action.data, trackingUrl } : action.data,
+        tracking: action.tracking ?? state.tracking,
+        lastFetchedAt: action.fetchedAt,
+      };
+    }
+    case 'error': return { ...state, loading: false, error: action.message };
+    case 'setSchedulingPickup': return { ...state, isSchedulingPickup: action.value };
+    case 'setSyncingShipment': return { ...state, isSyncingShipment: action.value };
+    case 'setCancellingShipment': return { ...state, isCancellingShipment: action.value };
+    case 'setDownloadingLabel': return { ...state, isDownloadingLabel: action.value };
+    case 'setDownloadingManifest': return { ...state, isDownloadingManifest: action.value };
+    case 'updatePickup':
+      return { ...state, data: state.data ? { ...state.data, pickupScheduledDate: action.pickupDate, pickupScheduled: action.pickupScheduled } : state.data };
+    default: return state;
+  }
+}
+
+
+const terminalShipStatuses = new Set(['delivered', 'cancelled', 'canceled', 'returned', 'rto_delivered']);
+
 const ShipmentWorkspace: React.FC<{ order: Order }> = ({ order }) => {
+  const mountedRef = useRef(true);
+  const requestIdRef = useRef(0);
+  const [ws, dispatch] = useReducer(srWorkspaceReducer, {
+    data: null, tracking: null, loading: false, error: null,
+    isSchedulingPickup: false, isSyncingShipment: false, isCancellingShipment: false,
+    isDownloadingLabel: false, isDownloadingManifest: false, lastFetchedAt: null,
+  });
+
   const isCancelled = order.orderStatus === 'cancelled';
   const isApproved = !['placed', 'cancelled'].includes(order.orderStatus);
-  const shipmentSteps = [
-    {
-      label: 'Order received',
-      description: formatDateTime(order.createdAt),
-      state: 'complete',
-    },
-    {
-      label: 'Admin approval',
-      description: isCancelled
-        ? 'Order cancelled before fulfillment'
-        : isApproved
-          ? 'Order confirmed in InkArt'
-          : 'Waiting for admin approval',
-      state: isApproved ? 'complete' : isCancelled ? 'pending' : 'current',
-    },
-    {
-      label: 'Courier & AWB',
-      description: 'Connect the shipment creation response',
-      state: 'pending',
-    },
-    {
-      label: 'Pickup & transit',
-      description: 'Connect Shiprocket tracking webhooks',
-      state: 'pending',
-    },
-    {
-      label: 'Delivered',
-      description: 'Awaiting verified delivery event',
-      state: 'pending',
-    },
-  ];
+
+  // Merge order-level shiprocket fields (already normalized from the API response)
+  // with freshly fetched data. Fresh fetch takes priority.
+  const resolvedSource: ShiprocketData | null = ws.data ?? (order.shiprocket ? {
+    shiprocketOrderId: order.shiprocket.shiprocketOrderId ?? null,
+    shipmentId: order.shiprocket.shipmentId ?? null,
+    awbCode: order.shiprocket.awbCode ?? null,
+    courierName: order.shiprocket.courierName ?? null,
+    courierCompanyId: null,
+    shipmentStatus: order.shiprocket.shipmentStatus ?? null,
+    trackingUrl: order.shiprocket.trackingUrl ?? null,
+    currentLocation: order.shiprocket.currentLocation ?? null,
+    lastShiprocketError: order.shiprocket.lastShiprocketError ?? null,
+    etd: order.shiprocket.etd ?? null,
+    pickupScheduledDate: order.shiprocket.pickupScheduledDate ?? null,
+    pickupScheduled: order.shiprocket.pickupScheduled ?? null,
+    pickupToken: order.shiprocket.pickupToken ?? null,
+    labelUrl: order.shiprocket.labelUrl ?? null,
+    manifestUrl: order.shiprocket.manifestUrl ?? null,
+    lastSyncedAt: order.shiprocket.lastSyncedAt ?? null,
+  } : null);
+  const resolved: ShiprocketData | null = resolvedSource;
+
+  const hasBooking = Boolean(resolved?.awbCode || resolved?.shiprocketOrderId);
+  const isPickupScheduled = Boolean(resolved?.pickupScheduled || resolved?.pickupScheduledDate || ws.tracking?.activities.some((activity) => {
+    const eventStatus = activity.status.toLowerCase().replace(/[\s-]+/g, '_');
+    const eventText = `${activity.status} ${activity.activity}`.toLowerCase().replace(/[\s-]+/g, '_');
+    return eventStatus === 'picked' || eventStatus === 'on_hold' || eventStatus === 'rts' || eventStatus.startsWith('recd_') || eventText.includes('picked_successfully');
+  }));
+  const trackingStatus = ws.tracking?.currentStatus?.trim() || null;
+  const storedStatus = resolved?.shipmentStatus?.trim() || null;
+  const effectiveShipmentStatus = trackingStatus && !/^\d+$/.test(trackingStatus)
+    ? trackingStatus
+    : storedStatus || trackingStatus;
+  const isTerminalShipment = terminalShipStatuses.has(
+    (effectiveShipmentStatus || '').toLowerCase().replace(/[\s-]+/g, '_')
+  );
+
+  const fetchDetails = useCallback(async () => {
+    if (!isApproved || isCancelled) return;
+    const requestId = ++requestIdRef.current;
+    dispatch({ type: 'start' });
+    try {
+      // Tracking requires a Shiprocket shipment reference. Fetch the saved shipment
+      // first so orders that have not been booked never call the tracking endpoint.
+      const shipment = await getShipmentDetails(order._id);
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+
+      let tracking: ShiprocketTrackingResult | null = null;
+      if (shipment.shipmentId || shipment.awbCode) {
+        try {
+          tracking = await getShiprocketTracking(order._id);
+        } catch {
+          // Keep the shipment information available if only live tracking fails.
+        }
+      }
+
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      dispatch({ type: 'success', data: shipment, tracking, fetchedAt: new Date() });
+    } catch (err) {
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        dispatch({ type: 'error', message: getErrorMessage(err, 'Could not load Shiprocket data') });
+      }
+    }
+  }, [isApproved, isCancelled, order._id]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    void fetchDetails();
+    return () => { mountedRef.current = false; };
+  }, [fetchDetails]);
+
+  // Poll every 30 s while order is in-flight and has a Shiprocket booking
+  useEffect(() => {
+    if (!hasBooking || terminalOrderStatuses.has(order.orderStatus) || isTerminalShipment) return undefined;
+    const id = window.setInterval(() => void fetchDetails(), 30_000);
+    return () => window.clearInterval(id);
+  }, [fetchDetails, hasBooking, isTerminalShipment, order.orderStatus]);
+
+  const handleSchedulePickup = async () => {
+    dispatch({ type: 'setSchedulingPickup', value: true });
+    try {
+      const result = await schedulePickup(order._id);
+      if (!mountedRef.current) return;
+      dispatch({ type: 'updatePickup', pickupDate: result.pickupDate, pickupScheduled: result.pickupScheduled });
+      toast.success(result.status ? `Pickup scheduled: ${result.status}` : 'Pickup scheduled');
+      void fetchDetails();
+    } catch (err) {
+      if (mountedRef.current) toast.error(getErrorMessage(err, 'Failed to schedule pickup'));
+    } finally {
+      if (mountedRef.current) dispatch({ type: 'setSchedulingPickup', value: false });
+    }
+  };
+
+  const handleSyncShipment = async () => {
+    dispatch({ type: 'setSyncingShipment', value: true });
+    try {
+      const shipment = await syncShipment(order._id);
+      if (!mountedRef.current) return;
+      dispatch({ type: 'success', data: shipment, tracking: null, fetchedAt: new Date() });
+      toast.success(shipment.awbCode ? `Shipment created — AWB ${shipment.awbCode}` : 'Shipment synced with Shiprocket');
+      void fetchDetails();
+    } catch (err) {
+      if (mountedRef.current) toast.error(getErrorMessage(err, 'Failed to create Shiprocket shipment'));
+    } finally {
+      if (mountedRef.current) dispatch({ type: 'setSyncingShipment', value: false });
+    }
+  };
+
+  const handleCancelShipment = async () => {
+    if (!window.confirm('Cancel this Shiprocket shipment? This cannot be undone.')) return;
+    dispatch({ type: 'setCancellingShipment', value: true });
+    try {
+      await cancelShipment(order._id);
+      if (!mountedRef.current) return;
+      toast.success('Shipment cancelled on Shiprocket');
+      void fetchDetails();
+    } catch (err) {
+      if (mountedRef.current) toast.error(getErrorMessage(err, 'Failed to cancel shipment'));
+    } finally {
+      if (mountedRef.current) dispatch({ type: 'setCancellingShipment', value: false });
+    }
+  };
+
+  const handleDownloadLabel = async () => {
+    dispatch({ type: 'setDownloadingLabel', value: true });
+    try {
+      const url = resolved?.labelUrl || await getShipmentLabel(order._id);
+      if (!mountedRef.current) return;
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      else toast.error('Label not available yet');
+    } catch (err) {
+      if (mountedRef.current) toast.error(getErrorMessage(err, 'Failed to get shipping label'));
+    } finally {
+      if (mountedRef.current) dispatch({ type: 'setDownloadingLabel', value: false });
+    }
+  };
+
+  const handleDownloadManifest = async () => {
+    dispatch({ type: 'setDownloadingManifest', value: true });
+    try {
+      const url = resolved?.manifestUrl || await getShipmentManifest(order._id);
+      if (!mountedRef.current) return;
+      if (url) window.open(url, '_blank', 'noopener,noreferrer');
+      else toast.error('Manifest not available yet');
+    } catch (err) {
+      if (mountedRef.current) toast.error(getErrorMessage(err, 'Failed to get manifest'));
+    } finally {
+      if (mountedRef.current) dispatch({ type: 'setDownloadingManifest', value: false });
+    }
+  };
+
+  // Build timeline: prefer live Shiprocket activity log, fall back to order status steps
+  const timelineSteps: Array<{ key: string; label: string; description: string; date?: string; state: 'complete' | 'current' | 'pending' }> =
+    ws.tracking?.activities && ws.tracking.activities.length > 0
+      ? ws.tracking.activities.map((a, index) => ({
+          key: `${a.date}-${a.activity}-${index}`,
+          label: a.activity || a.status || 'Shipment event',
+          description: a.location || '',
+          date: a.date,
+          state: 'complete' as const,
+        }))
+      : [
+          { key: 'order-received', label: 'Order received', description: 'Payment captured in InkArt', date: order.createdAt, state: 'complete' },
+          {
+            key: 'admin-approval',
+            label: 'Admin approval',
+            description: isCancelled ? 'Order cancelled before fulfillment' : isApproved ? 'Order confirmed in InkArt' : 'Waiting for admin approval',
+            state: (isApproved ? 'complete' : isCancelled ? 'pending' : 'current') as 'complete' | 'current' | 'pending',
+          },
+          {
+            key: 'courier-awb',
+            label: 'Courier & AWB',
+            description: resolved?.awbCode ? `AWB: ${resolved.awbCode}${resolved.courierName ? ` — ${resolved.courierName}` : ''}` : 'Awaiting shipment creation',
+            state: (resolved?.awbCode ? 'complete' : 'pending') as 'complete' | 'current' | 'pending',
+          },
+          {
+            key: 'pickup-transit',
+            label: 'Pickup & transit',
+            description: resolved?.pickupScheduledDate ? `Pickup: ${formatDateTime(resolved.pickupScheduledDate)}` : resolved?.currentLocation ? `Currently: ${resolved.currentLocation}` : 'Awaiting pickup and transit events',
+            state: (resolved?.pickupScheduledDate || resolved?.currentLocation ? 'complete' : 'pending') as 'complete' | 'current' | 'pending',
+          },
+          {
+            key: 'delivered',
+            label: 'Delivered',
+            description: order.orderStatus === 'delivered' ? 'Delivered successfully' : resolved?.etd ? `ETA: ${formatComputedDeliveryDate(resolved.etd)}` : 'Awaiting verified delivery event',
+            state: (order.orderStatus === 'delivered' ? 'complete' : 'pending') as 'complete' | 'current' | 'pending',
+          },
+        ];
 
   return (
     <section className="orders-shipment-workspace" aria-labelledby="shipment-workspace-title">
@@ -2179,70 +2467,113 @@ const ShipmentWorkspace: React.FC<{ order: Order }> = ({ order }) => {
         <div>
           <p className="orders-eyebrow">Shipment workspace</p>
           <h2 id="shipment-workspace-title">Shiprocket fulfillment</h2>
-          <p>Prepared for courier booking, pickup, tracking and delivery confirmation data.</p>
+          <p>Live courier details, AWB, pickup scheduling and delivery tracking.</p>
         </div>
-        <IntegrationBadge state="api-pending" />
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {ws.loading && <Loader2 size={14} className="animate-spin" style={{ color: 'var(--text-muted)' }} />}
+          <IntegrationBadge state={hasBooking ? 'live' : 'api-pending'} />
+          <button
+            type="button"
+            className="action-icon-button"
+            onClick={() => void fetchDetails()}
+            disabled={ws.loading || !isApproved}
+            aria-label="Refresh Shiprocket data"
+            title="Refresh from Shiprocket"
+          >
+            <RefreshCw size={14} />
+          </button>
+        </div>
       </div>
 
+      {ws.error && !hasBooking && (
+        <div style={{ padding: '10px 14px', borderRadius: 8, background: 'var(--danger-muted)', color: 'var(--danger)', fontSize: 13, marginBottom: 16 }}>
+          <AlertTriangle size={14} style={{ display: 'inline', marginRight: 6 }} />
+          {ws.error}
+        </div>
+      )}
+
+      {/* 4 live summary cards */}
       <div className="orders-shipment-summary-grid">
         <article>
           <span className="orders-shipment-summary-icon"><Truck size={17} /></span>
           <div>
             <p>Assigned courier</p>
-            <strong>Awaiting selection</strong>
-            <small>Courier ID and service name</small>
+            <strong>{resolved?.courierName || 'Awaiting selection'}</strong>
+            <small>{resolved?.courierName ? `Courier ID: ${resolved.courierCompanyId ?? '—'}` : 'Courier and service name'}</small>
           </div>
         </article>
         <article>
           <span className="orders-shipment-summary-icon"><Package size={17} /></span>
           <div>
             <p>Shipment reference</p>
-            <strong>Not created</strong>
-            <small>Shiprocket order and shipment IDs</small>
+            <strong>{resolved?.shiprocketOrderId ? `SR-${resolved.shiprocketOrderId}` : 'Not created'}</strong>
+            <small>{resolved?.shipmentId ? `Shipment ID: ${resolved.shipmentId}` : 'Shiprocket order and shipment IDs'}</small>
           </div>
         </article>
         <article>
           <span className="orders-shipment-summary-icon"><Radio size={17} /></span>
           <div>
             <p>AWB / tracking</p>
-            <strong>Not assigned</strong>
-            <small>AWB code and tracking URL</small>
+            <strong>{resolved?.awbCode || 'Not assigned'}</strong>
+            <small>
+              {resolved?.trackingUrl
+                ? <a href={resolved.trackingUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--info)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>Track live <ExternalLink size={11} /></a>
+                : 'AWB code and tracking URL'}
+            </small>
           </div>
         </article>
         <article>
           <span className="orders-shipment-summary-icon"><MapPin size={17} /></span>
           <div>
             <p>Current location</p>
-            <strong>Tracking unavailable</strong>
-            <small>Last scan and synchronization time</small>
+            <strong>{resolved?.currentLocation || ws.tracking?.currentLocation || 'Tracking unavailable'}</strong>
+            <small>{resolved?.lastSyncedAt ? `Last sync: ${formatDateTime(resolved.lastSyncedAt)}` : 'Last scan and synchronization time'}</small>
           </div>
         </article>
       </div>
 
+      {/* ETA banner */}
+      {resolved?.etd && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, background: 'var(--info-muted)', marginBottom: 4 }}>
+          <Calendar size={15} style={{ color: 'var(--info)', flexShrink: 0 }} />
+          <span style={{ fontSize: 13, color: 'var(--info)' }}><strong>Estimated delivery:</strong> {formatComputedDeliveryDate(resolved.etd)}</span>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {resolved?.lastShiprocketError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, background: 'var(--danger-muted)', marginBottom: 4 }}>
+          <AlertTriangle size={14} style={{ color: 'var(--danger)', flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: 'var(--danger)' }}><strong>Last Shiprocket error:</strong> {resolved.lastShiprocketError}</span>
+        </div>
+      )}
+
       <div className="orders-shipment-layout">
+        {/* Left — fulfillment timeline */}
         <div className="orders-shipment-panel">
           <div className="orders-subsection-heading">
             <div>
               <h3>Fulfillment progress</h3>
-              <p>Live order milestones and future shipment events.</p>
+              <p>{ws.tracking?.activities?.length ? `${ws.tracking.activities.length} live events from Shiprocket` : 'Order milestones and shipment events'}</p>
             </div>
-            <IntegrationBadge state="webhook-pending" />
+            <IntegrationBadge state={hasBooking ? 'live' : 'webhook-pending'} />
           </div>
           <ol className="orders-shipment-timeline">
-            {shipmentSteps.map((step) => (
-              <li key={step.label} className={`is-${step.state}`}>
+            {timelineSteps.map((step) => (
+              <li key={step.key} className={`is-${step.state}`}>
                 <span className="orders-timeline-marker">
                   {step.state === 'complete' ? <CheckCircle2 size={14} /> : null}
                 </span>
                 <div>
                   <strong>{step.label}</strong>
                   <p>{step.description}</p>
+                  {step.date && <small style={{ color: 'var(--text-muted)', fontSize: 11 }}>{formatDateTime(step.date)}</small>}
                 </div>
               </li>
             ))}
           </ol>
         </div>
-
+        {/* Right — communication status + action buttons */}
         <div className="orders-shipment-panel">
           <div className="orders-subsection-heading">
             <div>
@@ -2260,33 +2591,83 @@ const ShipmentWorkspace: React.FC<{ order: Order }> = ({ order }) => {
               <IntegrationBadge state="live" />
             </div>
             <div>
-              <span className="orders-communication-icon"><Bell size={16} /></span>
+              <span className={`orders-communication-icon${hasBooking ? ' is-live' : ''}`}><Bell size={16} /></span>
               <div>
                 <strong>Admin shipment alerts</strong>
-                <p>Connect persistent fulfillment notifications.</p>
+                <p>{hasBooking ? `AWB ${resolved?.awbCode || 'assigned'} — tracking active` : 'Book shipment to enable alerts'}</p>
               </div>
-              <IntegrationBadge state="api-pending" />
+              <IntegrationBadge state={hasBooking ? 'live' : 'api-pending'} />
             </div>
             <div>
-              <span className="orders-communication-icon"><Truck size={16} /></span>
+              <span className={`orders-communication-icon${order.orderStatus === 'delivered' || order.orderStatus === 'shipped' ? ' is-live' : ''}`}><Truck size={16} /></span>
               <div>
                 <strong>Customer tracking updates</strong>
-                <p>Connect dispatch and delivery notifications.</p>
+                <p>Delivery email automation requires the Shiprocket webhook integration.</p>
               </div>
-              <IntegrationBadge state="webhook-pending" />
+              <IntegrationBadge state='webhook-pending' />
             </div>
           </div>
+          {/* Action buttons — only show when order is approved and not cancelled */}
+          {isApproved && !isCancelled && (
+            <div style={{ marginTop: 16 }}>
+              <p className="orders-eyebrow" style={{ marginBottom: 8 }}>Shiprocket actions</p>
+              {resolved?.awbCode ? (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    style={{ fontSize: 12 }}
+                    onClick={() => void handleSchedulePickup()}
+                    disabled={ws.isSchedulingPickup || isPickupScheduled}
+                  >
+                    {ws.isSchedulingPickup ? <Loader2 className="animate-spin" size={14} /> : <Package size={14} />}
+                    {isPickupScheduled ? 'Pickup completed' : 'Schedule pickup'}
+                  </button>
+                  <button type="button" className="btn-ghost" style={{ fontSize: 12 }} onClick={() => void handleDownloadLabel()} disabled={ws.isDownloadingLabel}>
+                    {ws.isDownloadingLabel ? <Loader2 className="animate-spin" size={14} /> : <Download size={14} />}
+                    Shipping label
+                  </button>
+                  <button type="button" className="btn-ghost" style={{ fontSize: 12 }} onClick={() => void handleDownloadManifest()} disabled={ws.isDownloadingManifest}>
+                    {ws.isDownloadingManifest ? <Loader2 className="animate-spin" size={14} /> : <FileText size={14} />}
+                    Manifest
+                  </button>
+                  {resolved.trackingUrl && (
+                    <a href={resolved.trackingUrl} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <ExternalLink size={14} />Live tracking
+                    </a>
+                  )}
+                  <button type="button" className="orders-delete-button" style={{ fontSize: 12 }} onClick={() => void handleCancelShipment()} disabled={ws.isCancellingShipment}>
+                    {ws.isCancellingShipment ? <Loader2 className="animate-spin" size={14} /> : <X size={14} />}
+                    Cancel shipment
+                  </button>
+                </div>
+              ) : (
+                <>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ fontSize: 12 }}
+                  onClick={() => void handleSyncShipment()}
+                  disabled={ws.loading || ws.isSyncingShipment}
+                >
+                  {ws.isSyncingShipment ? <Loader2 className="animate-spin" size={14} /> : <Truck size={14} />}
+                  {ws.isSyncingShipment ? 'Creating shipment…' : 'Create shipment & assign courier'}
+                </button>
+                <p style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+                  {ws.loading ? 'Fetching Shiprocket status…' : 'No AWB assigned yet. Use the button above after approving the order.'}
+                </p>
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      <div className="orders-integration-note">
-        <AlertTriangle size={17} />
-        <p>
-          Placeholder shipment values are intentionally marked as unavailable. They must be replaced
-          with saved Shiprocket order, shipment, courier, AWB and tracking responses before fulfillment
-          can be verified.
+      {ws.lastFetchedAt && (
+        <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, textAlign: 'right' }}>
+          Last synced: {formatDateTime(ws.lastFetchedAt.toISOString())}
         </p>
-      </div>
+      )}
     </section>
   );
 };
@@ -3051,7 +3432,7 @@ const OrderDetailModal: React.FC<{
         >
           <button type="button" className="orders-delete-button" onClick={onDelete} disabled={isAnyRequestInFlight}>
             <Trash2 size={16} />
-            Delete from history
+            Delete order
           </button>
           <button type="button" className="btn-ghost" onClick={onClose} disabled={isAnyRequestInFlight}>
             Close
@@ -3303,3 +3684,46 @@ const LayerList: React.FC<{ title: string; layers: Layer[] }> = ({ title, layers
 );
 
 export default Orders;
+const getDesignSidePreviewUrl = (
+  source: Record<string, unknown>,
+  side: 'front' | 'back'
+): string => {
+  const directKeys = side === 'front'
+    ? ['frontPreviewImageUrl', 'frontPreviewUrl', 'frontImageUrl', 'frontPreview', 'frontImage']
+    : ['backPreviewImageUrl', 'backPreviewUrl', 'backImageUrl', 'backPreview', 'backImage'];
+  const directUrl = getString(source, directKeys);
+  if (directUrl) return directUrl;
+
+  const previewFromDesign = (design: unknown): string => {
+    if (typeof design === 'string') return toImageUrl(design);
+    if (!isRecord(design)) return '';
+
+    const designUrl = getString(design, [
+      'previewImageUrl',
+      'previewUrl',
+      'thumbnailUrl',
+      'imageUrl',
+    ]);
+    if (designUrl) return designUrl;
+
+    for (const key of ['previewImage', 'preview', 'thumbnail', 'image']) {
+      const url = toImageUrl(design[key]);
+      if (url) return url;
+    }
+
+    return toImageUrl(design);
+  };
+
+  const nestedKeys = side === 'front'
+    ? ['front', 'frontDesign', 'frontArtwork', 'frontCustomization', 'frontCanvas', 'frontPreview', 'frontImage']
+    : ['back', 'backDesign', 'backArtwork', 'backCustomization', 'backCanvas', 'backPreview', 'backImage'];
+  for (const key of nestedKeys) {
+    const url = previewFromDesign(source[key]);
+    if (url) return url;
+  }
+
+  const design = getArray(source, ['designs']).find(
+    (item) => isRecord(item) && getString(item, ['side', 'view', 'position']).toLowerCase() === side
+  );
+  return previewFromDesign(design);
+};

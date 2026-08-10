@@ -440,9 +440,9 @@ const Dashboard: React.FC = () => {
               if (typeof productCategory === 'string') {
                 const normalized = normalizeValue(productCategory);
                 if (
-                  normalized === categoryId ||
-                  normalized === categoryName ||
-                  normalized === categorySlug
+                  (categoryId && normalized === categoryId) ||
+                  (categoryName && normalized === categoryName) ||
+                  (categorySlug && normalized === categorySlug)
                 ) {
                   return total + 1;
                 }
@@ -454,9 +454,9 @@ const Dashboard: React.FC = () => {
                 const nestedSlug = normalizeValue((productCategory as any)?.slug);
 
                 if (
-                  nestedId === categoryId ||
-                  nestedName === categoryName ||
-                  nestedSlug === categorySlug
+                  (categoryId && nestedId === categoryId) ||
+                  (categoryName && nestedName === categoryName) ||
+                  (categorySlug && nestedSlug === categorySlug)
                 ) {
                   return total + 1;
                 }

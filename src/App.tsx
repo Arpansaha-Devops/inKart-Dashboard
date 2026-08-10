@@ -11,6 +11,7 @@ import Orders from './pages/Orders';
 import Products from './pages/Products';
 import Categories from './pages/Categories';
 import Coupons from './pages/Coupons';
+import ShipmentTracking from './pages/ShipmentTracking';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Analytics = lazy(() => import('./pages/Analytics'));
@@ -33,6 +34,7 @@ export default function App() {
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<Suspense fallback={<FullScreenLoader />}><Dashboard /></Suspense>} />
               <Route path="/orders" element={<Orders />} />
+              <Route path="/shipment-tracking" element={<ShipmentTracking />} />
               <Route path="/analytics" element={<Suspense fallback={<FullScreenLoader />}><Analytics /></Suspense>} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/products" element={<Products />} />
