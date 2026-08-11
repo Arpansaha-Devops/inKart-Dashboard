@@ -1086,10 +1086,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                         placeholder="5"
                         value={gstPercentage ?? 5}
                         onChange={(e) => {
-                          const val = parseFloat(e.target.value);
+                          const rawValue = e.target.value;
+                          const nextGstPercentage = rawValue === '' ? 5 : Number(rawValue);
+                          if (!Number.isFinite(nextGstPercentage)) return;
                           dispatch({
                             type: 'SET_FIELD',
-                            payload: { gstPercentage: isNaN(val) ? 0 : val },
+                            payload: { gstPercentage: nextGstPercentage },
                           });
                         }}
                       />

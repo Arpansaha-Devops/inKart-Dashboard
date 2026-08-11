@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileText, Loader2, MapPin, Package, Radio, RefreshCw, Search, Truck, X } from 'lucide-react';
 import { toast } from 'sonner';
@@ -38,11 +38,19 @@ const openRemoteDocument = async (getUrl: () => Promise<string | null>) => {
   catch (error) { popup.close(); throw error; }
 };
 
+type ShipmentViewState = { shipment: ShiprocketData | null; tracking: ShiprocketTrackingResult | null; detailsLoading: boolean; detailsUnavailable: boolean; loadError: string | null; trackingError: string | null; busy: string | null };
+type ShipmentViewAction =
+  | { type: 'patch'; payload: Partial<ShipmentViewState> }
+  | { type: 'update-shipment'; update: (shipment: ShiprocketData | null) => ShiprocketData | null };
+const shipmentViewReducer = (state: ShipmentViewState, action: ShipmentViewAction): ShipmentViewState =>
+  action.type === 'update-shipment' ? { ...state, shipment: action.update(state.shipment) } : { ...state, ...action.payload };
+const initialShipmentViewState: ShipmentViewState = { shipment: null, tracking: null, detailsLoading: false, detailsUnavailable: false, loadError: null, trackingError: null, busy: null };
+
 export default function ShipmentTracking() {
   const [orders, setOrders] = useState<Order[]>([]); const [selectedId, setSelectedId] = useState(''); const [query, setQuery] = useState('');
-  const [shipment, setShipment] = useState<ShiprocketData | null>(null); const [tracking, setTracking] = useState<ShiprocketTrackingResult | null>(null);
-  const [ordersLoading, setOrdersLoading] = useState(true); const [detailsLoading, setDetailsLoading] = useState(false); const [detailsUnavailable, setDetailsUnavailable] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null); const [trackingError, setTrackingError] = useState<string | null>(null); const [busy, setBusy] = useState<string | null>(null);
+  const [shipmentView, dispatchShipmentView] = useReducer(shipmentViewReducer, initialShipmentViewState);
+  const { shipment, tracking, detailsLoading, detailsUnavailable, loadError, trackingError, busy } = shipmentView;
+  const [ordersLoading, setOrdersLoading] = useState(true);
   const shipmentRequestRef = useRef(0); const ordersRequestRef = useRef(0); const selectedIdRef = useRef('');
   const selected = orders.find((order) => order._id === selectedId);
 
@@ -60,32 +68,46 @@ export default function ShipmentTracking() {
       } while (page <= totalPages);
       if (requestId !== ordersRequestRef.current) return;
       const unique = new Map<string, Order>(); parseOrders(collected).forEach((order) => unique.set(order._id, order)); const nextOrders = Array.from(unique.values()); setOrders(nextOrders);
-      setSelectedId((current) => { if (!current || nextOrders.some((order) => order._id === current)) return current; selectedIdRef.current = ''; return ''; });
+      const currentSelectedId = selectedIdRef.current;
+      if (
+        currentSelectedId &&
+        !nextOrders.some((order) => order._id === currentSelectedId)
+      ) {
+        selectedIdRef.current = '';
+        setSelectedId('');
+      }
     } catch (error) { if (requestId === ordersRequestRef.current) toast.error(getErrorMessage(error, 'Could not load orders')); }
-    finally { if (requestId === ordersRequestRef.current) setOrdersLoading(false); }
+    finally {
+      setOrdersLoading((isLoading) =>
+        requestId === ordersRequestRef.current ? false : isLoading
+      );
+    }
   }, []);
 
   const refresh = useCallback(async () => {
-    const orderId = selectedId; if (!orderId) { setShipment(null); setTracking(null); return; }
+    const orderId = selectedId; if (!orderId) { dispatchShipmentView({ type: 'patch', payload: { shipment: null, tracking: null } }); return; }
     const requestId = ++shipmentRequestRef.current; const snapshot = orders.find((order) => order._id === orderId)?.shipment ?? null;
-    setDetailsLoading(true); setLoadError(null); setTrackingError(null); let nextShipment = snapshot; let detailsFailed = false; let detailsError: string | null = null;
+    dispatchShipmentView({ type: 'patch', payload: { detailsLoading: true, loadError: null, trackingError: null } }); let nextShipment = snapshot; let detailsFailed = false; let detailsError: string | null = null;
+    try {
     try { nextShipment = await getShipmentDetails(orderId); }
     catch (error) {
       const expectedMissing = getHttpStatus(error) === 404 && !hasShipmentReference(snapshot); detailsFailed = !expectedMissing; nextShipment = expectedMissing ? null : snapshot;
       if (detailsFailed) detailsError = getErrorMessage(error, 'Could not load shipment details');
     }
     if (requestId !== shipmentRequestRef.current || selectedIdRef.current !== orderId) return;
-    setShipment(nextShipment); setDetailsUnavailable(detailsFailed); setLoadError(detailsError);
+    dispatchShipmentView({ type: 'patch', payload: { shipment: nextShipment, detailsUnavailable: detailsFailed, loadError: detailsError } });
     if (hasShipmentReference(nextShipment)) {
-      try { const nextTracking = await getShiprocketTracking(orderId); if (requestId !== shipmentRequestRef.current || selectedIdRef.current !== orderId) return; setTracking(nextTracking); }
-      catch (error) { if (requestId !== shipmentRequestRef.current || selectedIdRef.current !== orderId) return; setTracking(null); setTrackingError(getErrorMessage(error, 'Live tracking is currently unavailable')); }
-    } else setTracking(null);
-    if (requestId === shipmentRequestRef.current && selectedIdRef.current === orderId) setDetailsLoading(false);
+      try { const nextTracking = await getShiprocketTracking(orderId); if (requestId !== shipmentRequestRef.current || selectedIdRef.current !== orderId) return; dispatchShipmentView({ type: 'patch', payload: { tracking: nextTracking } }); }
+      catch (error) { if (requestId !== shipmentRequestRef.current || selectedIdRef.current !== orderId) return; dispatchShipmentView({ type: 'patch', payload: { tracking: null, trackingError: getErrorMessage(error, 'Live tracking is currently unavailable') } }); }
+    } else dispatchShipmentView({ type: 'patch', payload: { tracking: null } });
+    } finally {
+      if (requestId === shipmentRequestRef.current && selectedIdRef.current === orderId) dispatchShipmentView({ type: 'patch', payload: { detailsLoading: false } });
+    }
   }, [orders, selectedId]);
 
   useEffect(() => { void loadOrders(); return () => { ordersRequestRef.current += 1; }; }, [loadOrders]);
   useEffect(() => {
-    shipmentRequestRef.current += 1; setShipment(selected?.shipment ?? null); setTracking(null); setLoadError(null); setTrackingError(null); setDetailsUnavailable(false); setDetailsLoading(false);
+    shipmentRequestRef.current += 1; dispatchShipmentView({ type: 'patch', payload: { shipment: selected?.shipment ?? null, tracking: null, loadError: null, trackingError: null, detailsUnavailable: false, detailsLoading: false } });
     if (selectedId) void refresh(); return () => { shipmentRequestRef.current += 1; };
   }, [refresh, selected?.shipment, selectedId]);
 
@@ -102,10 +124,10 @@ export default function ShipmentTracking() {
 
   useEffect(() => { if (!hasBooking || isOrderTerminal || isTerminalShipment(status)) return; const timerId = window.setInterval(() => void refresh(), 30_000); return () => window.clearInterval(timerId); }, [hasBooking, isOrderTerminal, refresh, status]);
   const run = async (name: string, action: (orderId: string) => Promise<void>, refreshAfter = true) => {
-    const orderId = selectedId; if (!orderId || busy) return; setBusy(name);
+    const orderId = selectedId; if (!orderId || busy) return; dispatchShipmentView({ type: 'patch', payload: { busy: name } });
     try { await action(orderId); if (refreshAfter && selectedIdRef.current === orderId) await refresh(); }
     catch (error) { toast.error(getErrorMessage(error, `Could not ${name}`)); }
-    finally { if (selectedIdRef.current === orderId) setBusy(null); }
+    finally { if (selectedIdRef.current === orderId) dispatchShipmentView({ type: 'patch', payload: { busy: null } }); }
   };
   const filtered = useMemo(() => { const text = query.trim().toLowerCase(); return orders.filter((order) => `${order.number} ${order.customer}`.toLowerCase().includes(text)); }, [orders, query]);
   const handleSelectOrder = (orderId: string) => { if (busy) return; selectedIdRef.current = orderId; setSelectedId(orderId); };
@@ -154,12 +176,12 @@ export default function ShipmentTracking() {
               <h3>Shiprocket actions</h3><p className='shipment-muted'>Manage fulfillment without opening the full order detail screen.</p>
               <div className='shipment-actions'>
                 {!awb ? <button type='button' className='btn-primary' disabled={!canSyncShipment || busy !== null || detailsLoading} onClick={() => void run('create shipment', async (orderId) => {
-                  const next = await syncShipment(orderId); if (selectedIdRef.current === orderId) setShipment(next);
+                  const next = await syncShipment(orderId); if (selectedIdRef.current === orderId) dispatchShipmentView({ type: 'patch', payload: { shipment: next } });
                   toast.success(next.awbCode ? `Shipment created — AWB ${next.awbCode}` : 'Shipment synchronized; AWB is still pending');
                 })}>{busy === 'create shipment' ? <Loader2 size={15} className='animate-spin' /> : <Truck size={15} />}{busy === 'create shipment' ? 'Creating…' : hasBooking ? 'Retry AWB assignment' : 'Create shipment'}</button> : <>
                   <button type='button' className='btn-ghost' disabled={!canMutateShipment || busy !== null || pickupHandled} onClick={() => void run('schedule pickup', async (orderId) => {
                     const result = await schedulePickup(orderId);
-                    if (selectedIdRef.current === orderId) setShipment((current) => current ? { ...current, pickupScheduled: result.pickupScheduled, pickupScheduledDate: result.pickupDate } : current);
+                    if (selectedIdRef.current === orderId) dispatchShipmentView({ type: 'update-shipment', update: (current) => current ? { ...current, pickupScheduled: result.pickupScheduled, pickupScheduledDate: result.pickupDate } : current });
                     toast.success(result.status ? `Pickup scheduled: ${result.status}` : 'Pickup scheduled');
                   })}>{busy === 'schedule pickup' ? <Loader2 size={15} className='animate-spin' /> : <Package size={15} />}{pickupHandled ? 'Pickup completed' : 'Schedule pickup'}</button>
                   <button type='button' className='btn-ghost' disabled={busy !== null} onClick={() => void run('download label', (orderId) => openRemoteDocument(async () => shipment?.labelUrl || getShipmentLabel(orderId)), false)}>{busy === 'download label' ? <Loader2 size={15} className='animate-spin' /> : <Download size={15} />}Shipping label</button>
@@ -167,7 +189,7 @@ export default function ShipmentTracking() {
                   {liveTrackingUrl && <a className='btn-ghost' href={liveTrackingUrl} target='_blank' rel='noopener noreferrer'><ExternalLink size={15} />Live tracking</a>}
                   <button type='button' className='btn-danger' disabled={!canMutateShipment || busy !== null} onClick={() => {
                     if (!window.confirm('Cancel this Shiprocket shipment? This cannot be undone.')) return;
-                    void run('cancel shipment', async (orderId) => { await cancelShipment(orderId); if (selectedIdRef.current === orderId) setShipment((current) => current ? { ...current, shipmentStatus: 'cancelled' } : current); toast.success('Shipment cancelled'); });
+                    void run('cancel shipment', async (orderId) => { await cancelShipment(orderId); if (selectedIdRef.current === orderId) dispatchShipmentView({ type: 'update-shipment', update: (current) => current ? { ...current, shipmentStatus: 'cancelled' } : current }); toast.success('Shipment cancelled'); });
                   }}>{busy === 'cancel shipment' ? <Loader2 size={15} className='animate-spin' /> : <X size={15} />}{busy === 'cancel shipment' ? 'Cancelling…' : 'Cancel shipment'}</button>
                 </>}
               </div>
