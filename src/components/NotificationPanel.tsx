@@ -112,7 +112,7 @@ const EmptySection: React.FC<{
 );
 
 const NotificationPanel: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(getViewportWidth);
   const panelRef = useRef<HTMLElement | null>(null);
   const toggleButtonRef = useRef<HTMLButtonElement | null>(null);
