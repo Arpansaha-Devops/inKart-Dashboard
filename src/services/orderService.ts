@@ -217,12 +217,17 @@ const normalizeShiprocketTracking = (payload: unknown): ShiprocketTrackingResult
     (Array.isArray(data.shipment_track_activities) ? data.shipment_track_activities : null) ||
     (Array.isArray(root.activities) ? root.activities : null) ||
     [];
-  const activities = activitiesRaw.filter(isRecord).map((item) => ({
-    date: getStr(item, ['date', 'timestamp', 'created_at']),
-    activity: getStr(item, ['activity', 'description', 'status', 'event']),
-    location: getStr(item, ['location', 'city', 'current_location']),
-    status: getStr(item, ['status', 'sr_status', 'sr-status-label']),
-  }));
+  const activities = activitiesRaw.reduce<ShiprocketTrackingActivity[]>((normalized, item) => {
+    if (isRecord(item)) {
+      normalized.push({
+        date: getStr(item, ['date', 'timestamp', 'created_at']),
+        activity: getStr(item, ['activity', 'description', 'status', 'event']),
+        location: getStr(item, ['location', 'city', 'current_location']),
+        status: getStr(item, ['status', 'sr_status', 'sr-status-label']),
+      });
+    }
+    return normalized;
+  }, []);
 
   return {
     awbCode:

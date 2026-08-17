@@ -1809,6 +1809,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                               />
                               <button
                                 type="button"
+                                aria-label={`Remove product image ${index + 1}`}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeImage(index);

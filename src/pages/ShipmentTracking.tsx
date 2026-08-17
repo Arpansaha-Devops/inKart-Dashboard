@@ -21,15 +21,17 @@ const formatDate = (value?: string | null) => { const date = value ? new Date(va
 const getHttpStatus = (error: unknown) => { const status = record(record(error).response).status; return typeof status === 'number' ? status : Number(status) || null; };
 const getErrorMessage = (error: unknown, fallback: string) => { const source = record(error); const data = record(record(source.response).data); return str(data.message || data.error || source.message) || fallback; };
 
-const parseOrders = (values: unknown[]): Order[] => values.map((raw) => {
+const parseOrders = (values: unknown[]): Order[] => values.reduce<Order[]>((orders, raw) => {
   const value = record(raw); const customer = record(value.customer); const user = record(value.user); const shipment = normalizeShiprocketData(value);
-  return {
+  const order = {
     _id: str(value._id || value.id), number: str(value.orderNumber || value.orderId || value._id),
     customer: str(customer.name || user.name || value.customerName) || 'Customer', createdAt: str(value.createdAt),
     orderStatus: normalizeStatus(str(value.orderStatus || value.status)), paymentStatus: normalizeStatus(str(value.paymentStatus)),
     shipment: hasShipmentData(shipment) ? shipment : null,
   };
-}).filter((order) => order._id && (!order.paymentStatus || order.paymentStatus === 'paid'));
+  if (order._id && (!order.paymentStatus || order.paymentStatus === 'paid')) orders.push(order);
+  return orders;
+}, []);
 
 const openRemoteDocument = async (getUrl: () => Promise<string | null>) => {
   const popup = window.open('about:blank', '_blank');
