@@ -30,6 +30,7 @@ import {
   X,
 } from 'lucide-react';
 import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
 import {
@@ -57,6 +58,7 @@ type OrderStatus = OrderStatusValue;
 type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
 type OrderSource = 'customized' | 'standard';
 type OrderStatusFilter = 'all' | OrderStatus;
+type OrderSummaryModal = 'paid' | 'completed' | null;
 
 interface Layer {
   _id?: string;
@@ -1222,7 +1224,9 @@ function ordersReducer(state: OrdersState, action: OrdersAction): OrdersState {
 }
 
 const Orders: React.FC = () => {
+  const navigate = useNavigate();
   const [state, dispatch] = useReducer(ordersReducer, ordersInitialState);
+  const [summaryModal, setSummaryModal] = useState<OrderSummaryModal>(null);
   const [orderPendingDeletion, setOrderPendingDeletion] = useState<Order | null>(null);
   const [isDeletingOrder, setIsDeletingOrder] = useState(false);
   const deleteTriggerElementRef = useRef<HTMLElement | null>(null);
@@ -1295,14 +1299,16 @@ const Orders: React.FC = () => {
   }, [debouncedSearch, fromDate, orderStatus, toDate]);
 
   useEffect(() => {
-    if (!selectedOrder && !orderPendingDeletion) return;
+    if (!selectedOrder && !orderPendingDeletion && !summaryModal) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
 
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
 
-      if (!orderPendingDeletion) {
+      if (summaryModal) {
+        setSummaryModal(null);
+      } else if (!orderPendingDeletion) {
         dispatch({ type: 'SET_SELECTED_ORDER', payload: null });
       }
     };
@@ -1311,12 +1317,9 @@ const Orders: React.FC = () => {
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [isDeletingOrder, orderPendingDeletion, selectedOrder]);
+  }, [isDeletingOrder, orderPendingDeletion, selectedOrder, summaryModal]);
 
   const stats = useMemo(() => {
-    const totalRevenue = orders
-      .filter((order) => order.paymentStatus === 'paid')
-      .reduce((sum, order) => sum + order.totalAmount, 0);
     const pendingOrders = orders.filter((order) =>
       ['placed', 'confirmed', 'processing'].includes(order.orderStatus)
     ).length;
@@ -1326,32 +1329,56 @@ const Orders: React.FC = () => {
         label: 'Matching Paid Orders',
         value: totalCount,
         icon: ShoppingBag,
+        kind: 'paid' as const,
+        helper: 'View paid purchases',
         color: 'var(--accent)',
         background: 'var(--accent-muted)',
       },
       {
-        label: 'Page Revenue',
-        value: formatCurrency(totalRevenue),
-        icon: FileText,
-        color: 'var(--info)',
-        background: 'var(--info-muted)',
-      },
-      {
-        label: 'Page Pending Orders',
+        label: 'Pending Orders',
         value: pendingOrders,
         icon: AlertTriangle,
-        color: 'var(--warning)',
-        background: 'var(--warning-muted)',
+        kind: 'pending' as const,
+        helper: pendingOrders > 0 ? 'Needs shipment attention' : 'Queue is clear',
+        color: 'var(--danger)',
+        background: 'var(--danger-muted)',
       },
       {
-        label: 'Page Completed Orders',
+        label: 'Completed Orders',
         value: completedOrders,
         icon: CheckCircle2,
+        kind: 'completed' as const,
+        helper: 'View delivered orders',
         color: 'var(--success)',
         background: 'var(--success-muted)',
       },
     ];
   }, [orders, totalCount]);
+
+  const paidOrders = useMemo(
+    () => orders.filter((order) => order.paymentStatus === 'paid'),
+    [orders]
+  );
+  const completedOrders = useMemo(
+    () => paidOrders.filter((order) => order.orderStatus === 'delivered'),
+    [paidOrders]
+  );
+  const firstPendingOrder = useMemo(
+    () => paidOrders.find((order) => ['placed', 'confirmed', 'processing'].includes(order.orderStatus)),
+    [paidOrders]
+  );
+
+  const handleSummaryCardClick = (kind: 'paid' | 'pending' | 'completed') => {
+    if (kind === 'pending') {
+      if (!firstPendingOrder) {
+        toast.success('No pending paid orders need shipment attention.');
+        return;
+      }
+      navigate(`/shipment-tracking?orderId=${encodeURIComponent(firstPendingOrder._id)}`);
+      return;
+    }
+    setSummaryModal(kind);
+  };
 
   const rangeStart = totalCount === 0 ? 0 : (page - 1) * ORDERS_PER_PAGE + 1;
   const rangeEnd = Math.min(page * ORDERS_PER_PAGE, totalCount);
@@ -1496,10 +1523,22 @@ const Orders: React.FC = () => {
 
         <div className="orders-stat-grid">
           {isLoading
-            ? Array.from({ length: 5 }).map((_, index) => <StatSkeleton key={index} />)
+            ? Array.from({ length: 3 }).map((_, index) => <StatSkeleton key={index} />)
             : stats.map((stat) => (
                 <div
                   key={stat.label}
+                  role='button'
+                  aria-label={stat.label + ': ' + stat.value + '. ' + stat.helper}
+                  tabIndex={0}
+                  data-kind={stat.kind}
+                  data-alerting={stat.kind === 'pending' ? Number(stat.value) > 0 : false}
+                  onClick={() => handleSummaryCardClick(stat.kind)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      handleSummaryCardClick(stat.kind);
+                    }
+                  }}
                   className="card card-hover"
                   style={{ display: 'flex', alignItems: 'center', gap: 16 }}
                 >
@@ -1523,6 +1562,8 @@ const Orders: React.FC = () => {
                       {stat.value}
                     </p>
                   </div>
+                  <span className='orders-ticket-stat-helper'>{stat.helper}</span>
+                  <ChevronRight className='orders-ticket-stat-chevron' size={17} aria-hidden='true' />
                 </div>
               ))}
         </div>
@@ -1873,6 +1914,14 @@ const Orders: React.FC = () => {
 
       <LazyMotion features={domAnimation}>
         <AnimatePresence>
+          {summaryModal ? (
+            <OrderSummaryDialog
+              key={`summary-${summaryModal}`}
+              mode={summaryModal}
+              orders={summaryModal === 'paid' ? paidOrders : completedOrders}
+              onClose={() => setSummaryModal(null)}
+            />
+          ) : null}
           {selectedOrder ? (
             <OrderDetailModal
               key={selectedOrder._id}
@@ -1896,6 +1945,88 @@ const Orders: React.FC = () => {
         </AnimatePresence>
       </LazyMotion>
     </div>
+  );
+};
+
+const getSummaryImage = (order: Order) => order.customization?.previewImageUrl || '';
+
+const OrderSummaryDialog: React.FC<{
+  mode: Exclude<OrderSummaryModal, null>;
+  orders: Order[];
+  onClose: () => void;
+}> = ({ mode, orders, onClose }) => {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const completed = mode === 'completed';
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog && !dialog.open) dialog.showModal();
+    return () => { if (dialog?.open) dialog.close(); };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className='modal-backdrop orders-summary-backdrop'
+      aria-labelledby='orders-summary-title'
+      onCancel={(event) => { event.preventDefault(); onClose(); }}
+    >
+      <button type='button' className='modal-backdrop-dismiss' onClick={onClose} aria-label='Close order summary' />
+      <m.section
+        className={`orders-summary-dialog ${completed ? 'is-completed' : 'is-paid'}`}
+        initial={{ opacity: 0, scale: 0.96, y: 14 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 14 }}
+      >
+        <header className='orders-summary-header'>
+          <div>
+            <p className='orders-eyebrow'>{completed ? 'Fulfillment archive' : 'Payment register'}</p>
+            <h2 id='orders-summary-title'>{completed ? 'Successfully delivered' : 'Paid orders'}</h2>
+            <p>{completed ? 'Orders received by customers on this page.' : 'Verified customer payments on this page.'}</p>
+          </div>
+          <span className='orders-summary-count'>{orders.length}</span>
+          <button type='button' className='action-icon-button' onClick={onClose} aria-label='Close' autoFocus>
+            <X size={19} />
+          </button>
+        </header>
+
+        <div className='orders-summary-table'>
+          <div className={`orders-summary-columns ${completed ? 'is-completed' : 'is-paid'}`} aria-hidden='true'>
+            {completed ? <><span>Design</span><span>Customer</span><span>Product</span><span>Received</span></> : <><span>Design</span><span>Order ID</span><span>Qty</span><span>Paid</span></>}
+          </div>
+          <div className='orders-summary-scroll'>
+            {orders.length === 0 ? (
+              <div className='orders-summary-empty'><PackageCheck size={28} /><span>No matching orders on this page.</span></div>
+            ) : orders.map((order) => {
+              const image = getSummaryImage(order);
+              const quantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
+              return (
+                <article key={order._id} className={`orders-summary-row ${completed ? 'is-completed' : 'is-paid'}`}>
+                  <span className='orders-summary-thumb'>
+                    {image ? <img src={image} alt='' referrerPolicy='no-referrer' /> : <ImageIcon size={15} />}
+                  </span>
+                  {completed ? (
+                    <>
+                      <strong title={order.customer.name}>{order.customer.name}</strong>
+                      <span title={productLabel(order)}>{productLabel(order)}</span>
+                      <time dateTime={order.updatedAt}>{formatDateTime(order.updatedAt)}</time>
+                    </>
+                  ) : (
+                    <>
+                      <strong className='orders-summary-order-id' title={order.orderNumber}>
+                        {order.orderNumber}
+                      </strong>
+                      <strong>{quantity}</strong>
+                      <strong>{formatCurrency(order.totalAmount)}</strong>
+                    </>
+                  )}
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </m.section>
+    </dialog>
   );
 };
 

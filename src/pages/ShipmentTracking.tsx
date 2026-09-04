@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Download, ExternalLink, FileText, Loader2, MapPin, Package, Radio, RefreshCw, Search, Truck, X } from 'lucide-react';
 import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
@@ -49,11 +49,13 @@ const shipmentViewReducer = (state: ShipmentViewState, action: ShipmentViewActio
 const initialShipmentViewState: ShipmentViewState = { shipment: null, tracking: null, detailsLoading: false, detailsUnavailable: false, loadError: null, trackingError: null, busy: null };
 
 export default function ShipmentTracking() {
-  const [orders, setOrders] = useState<Order[]>([]); const [selectedId, setSelectedId] = useState(''); const [query, setQuery] = useState('');
+  const [searchParams] = useSearchParams();
+  const requestedOrderId = searchParams.get('orderId')?.trim() || '';
+  const [orders, setOrders] = useState<Order[]>([]); const [selectedId, setSelectedId] = useState(requestedOrderId); const [query, setQuery] = useState('');
   const [shipmentView, dispatchShipmentView] = useReducer(shipmentViewReducer, initialShipmentViewState);
   const { shipment, tracking, detailsLoading, detailsUnavailable, loadError, trackingError, busy } = shipmentView;
   const [ordersLoading, setOrdersLoading] = useState(true);
-  const shipmentRequestRef = useRef(0); const ordersRequestRef = useRef(0); const selectedIdRef = useRef('');
+  const shipmentRequestRef = useRef(0); const ordersRequestRef = useRef(0); const selectedIdRef = useRef(requestedOrderId);
   const selected = orders.find((order) => order._id === selectedId);
 
   const loadOrders = useCallback(async () => {

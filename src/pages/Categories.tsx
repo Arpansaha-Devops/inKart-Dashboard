@@ -103,7 +103,15 @@ const Categories: React.FC = () => {
     fetchCategoriesData();
   }, [fetchCategoriesData]);
 
-  const totalPages = Math.max(1, Math.ceil(categories.length / limit));
+  // The API represents deleted categories as inactive records. Keep the raw
+  // response intact for the existing data flow, but do not render those
+  // soft-deleted records in the category-management UI.
+  const visibleCategories = useMemo(
+    () => categories.filter((category) => category.isActive),
+    [categories]
+  );
+
+  const totalPages = Math.max(1, Math.ceil(visibleCategories.length / limit));
 
   useEffect(() => {
     if (page > totalPages) {
@@ -113,8 +121,8 @@ const Categories: React.FC = () => {
 
   const paginatedCategories = useMemo(() => {
     const start = (page - 1) * limit;
-    return categories.slice(start, start + limit);
-  }, [categories, page]);
+    return visibleCategories.slice(start, start + limit);
+  }, [page, visibleCategories]);
 
   const handleCreateClose = useCallback(() => {
     dispatch({ type: 'CLOSE_CREATE_MODAL' });
@@ -178,7 +186,7 @@ const Categories: React.FC = () => {
                       </td>
                     </tr>
                   ))
-                ) : categories.length === 0 ? (
+                ) : visibleCategories.length === 0 ? (
                   <tr>
                     <td colSpan={5}>
                       <div
@@ -255,7 +263,7 @@ const Categories: React.FC = () => {
             </table>
           </div>
 
-          {categories.length > 0 && totalPages > 1 ? (
+          {visibleCategories.length > 0 && totalPages > 1 ? (
             <div
               style={{
                 display: 'flex',
