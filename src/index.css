@@ -561,7 +561,7 @@ table.data-table tbody td {
   position: relative;
   isolation: isolate;
   min-width: 0;
-  min-height: 116px;
+  min-height: 124px;
   display: flex;
   align-items: center;
   gap: 16px;
@@ -926,10 +926,49 @@ table.data-table tbody td {
 .orders-filter-grid {
   width: 100%;
   min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 2fr) minmax(160px, .75fr) minmax(340px, 1.4fr) auto;
+  align-items: end;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--bg-surface) 82%, transparent);
 }
 
 .orders-filter-grid > * {
   min-width: 0;
+}
+
+.orders-filter-field {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.orders-filter-field .form-label {
+  margin: 0;
+}
+
+.orders-filter-date-range {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.orders-filter-grid .input-field,
+.orders-filter-clear {
+  min-height: 44px;
+}
+
+.orders-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding-inline: 18px;
+  white-space: nowrap;
 }
 
 .orders-table-container {
@@ -2037,17 +2076,14 @@ table.data-table tbody td {
 
 @media (min-width: 1800px) {
   .orders-stat-grid {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .orders-filter-grid {
-    grid-template-columns: minmax(240px, 2fr) repeat(4, minmax(140px, 1fr)) auto !important;
-  }
 }
 
 @media (max-width: 1799px) {
   .orders-filter-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    grid-template-columns: minmax(260px, 2fr) minmax(160px, .75fr) minmax(340px, 1.4fr) auto;
   }
 }
 
@@ -2058,6 +2094,14 @@ table.data-table tbody td {
 
   .orders-capability-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .orders-filter-grid {
+    grid-template-columns: minmax(150px, .7fr) minmax(280px, 1.3fr) auto !important;
+  }
+
+  .orders-filter-search-field {
+    grid-column: 1 / -1;
   }
 }
 
@@ -2194,6 +2238,7 @@ table.data-table tbody td {
 }
 
 .orders-summary-dialog.is-paid { --summary-tone: var(--accent); }
+.orders-summary-dialog.is-pending { --summary-tone: var(--danger); }
 .orders-summary-dialog.is-completed { --summary-tone: var(--success); }
 
 .orders-summary-header {
@@ -2248,6 +2293,15 @@ table.data-table tbody td {
 .orders-summary-columns.is-completed,
 .orders-summary-row.is-completed { grid-template-columns: 40px minmax(130px, .8fr) minmax(180px, 1.2fr) 170px; }
 
+.orders-summary-columns.is-pending,
+.orders-summary-row.is-pending {
+  grid-template-columns: 48px minmax(150px, 1fr) minmax(150px, .85fr) minmax(130px, .8fr);
+}
+
+.orders-summary-columns.is-pending {
+  padding-right: 45px;
+}
+
 .orders-summary-columns {
   height: 34px;
   padding: 0 22px;
@@ -2261,18 +2315,24 @@ table.data-table tbody td {
 
 .orders-summary-scroll {
   min-width: 640px;
-  max-height: 400px;
+  max-height: min(593px, calc(100dvh - 220px));
+  display: grid;
+  gap: 3px;
+  padding: 3px;
   overflow-y: auto;
   overflow-x: hidden;
+  background: var(--bg-surface);
   scroll-behavior: smooth;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
 
 .orders-summary-row {
-  height: 40px;
-  padding: 0 22px;
-  border-bottom: 1px solid var(--border);
+  height: 56px;
+  padding: 0 19px;
+  border: 1px solid color-mix(in srgb, var(--summary-tone) 10%, var(--border));
+  border-radius: 8px;
+  background: var(--bg-card);
   color: var(--text-secondary);
   font-size: 12px;
   transition: background 150ms ease, transform 150ms ease;
@@ -2280,6 +2340,50 @@ table.data-table tbody td {
 
 .orders-summary-row:hover {
   background: color-mix(in srgb, var(--summary-tone) 7%, transparent);
+  transform: translateX(1px);
+}
+
+button.orders-summary-row {
+  width: 100%;
+  appearance: none;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.orders-summary-row:focus-visible {
+  outline: 2px solid var(--summary-tone);
+  outline-offset: -2px;
+}
+
+.orders-summary-row.is-pending {
+  position: relative;
+  padding-right: 42px;
+}
+
+.orders-summary-row.is-pending:hover {
+  background: color-mix(in srgb, var(--danger) 9%, var(--bg-card));
+}
+
+.orders-summary-row-chevron {
+  position: absolute;
+  right: 16px;
+  color: var(--danger);
+  transition: transform 150ms ease;
+}
+
+.orders-summary-row.is-pending:hover .orders-summary-row-chevron {
+  transform: translateX(2px);
+}
+
+.orders-summary-live-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .orders-summary-row > *:not(.orders-summary-thumb) {
@@ -2305,8 +2409,8 @@ table.data-table tbody td {
 }
 
 .orders-summary-thumb {
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   display: grid;
   place-items: center;
   overflow: hidden;
@@ -2334,7 +2438,7 @@ table.data-table tbody td {
 }
 
 @media (max-width: 640px) {
-  .orders-stat-grid > .card[role=button] { min-height: 108px; padding-left: 16px; }
+  .orders-stat-grid > .card[role=button] { min-height: 116px; padding-left: 16px; }
   .orders-ticket-stat-helper { left: 80px; }
   .orders-summary-dialog {
     width: calc(100vw - 20px);
@@ -2348,7 +2452,8 @@ table.data-table tbody td {
   .orders-summary-count { grid-column: 1; grid-row: 2; justify-self: start; }
   .orders-summary-header > .action-icon-button { grid-column: 2; grid-row: 1; }
   .orders-summary-columns,
-  .orders-summary-row { padding-inline: 16px; }
+  .orders-summary-row { padding-inline: 13px; }
+  .orders-summary-scroll { max-height: min(593px, calc(100dvh - 205px)); }
 }
 
 @media (max-width: 1023px) {
@@ -2362,7 +2467,11 @@ table.data-table tbody td {
   }
 
   .orders-filter-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    grid-template-columns: minmax(150px, .7fr) minmax(280px, 1.3fr) auto !important;
+  }
+
+  .orders-filter-search-field {
+    grid-column: 1 / -1;
   }
 
   .orders-capability-grid,
@@ -2657,6 +2766,14 @@ table.data-table tbody td {
     grid-template-columns: 1fr !important;
   }
 
+  .orders-filter-search-field {
+    grid-column: auto;
+  }
+
+  .orders-filter-clear {
+    width: 100%;
+  }
+
   .orders-table-card {
     display: none;
   }
@@ -2726,6 +2843,10 @@ table.data-table tbody td {
 }
 
 @media (max-width: 480px) {
+  .orders-filter-date-range {
+    grid-template-columns: 1fr;
+  }
+
   .btn-primary span {
     display: none;
   }

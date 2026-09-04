@@ -58,7 +58,7 @@ type OrderStatus = OrderStatusValue;
 type PaymentStatus = 'pending' | 'paid' | 'failed' | 'refunded';
 type OrderSource = 'customized' | 'standard';
 type OrderStatusFilter = 'all' | OrderStatus;
-type OrderSummaryModal = 'paid' | 'completed' | null;
+type OrderSummaryModal = 'paid' | 'pending' | 'completed' | null;
 
 interface Layer {
   _id?: string;
@@ -152,6 +152,12 @@ interface NormalizedOrdersResponse {
 }
 
 const ORDERS_PER_PAGE = 10;
+const PENDING_FULFILLMENT_STATUSES: OrderStatus[] = [
+  'placed',
+  'confirmed',
+  'processing',
+  'shipped',
+];
 const ORDER_STATUS_OPTIONS: OrderStatusFilter[] = [
   'all',
   'placed',
@@ -1321,7 +1327,7 @@ const Orders: React.FC = () => {
 
   const stats = useMemo(() => {
     const pendingOrders = orders.filter((order) =>
-      ['placed', 'confirmed', 'processing'].includes(order.orderStatus)
+      PENDING_FULFILLMENT_STATUSES.includes(order.orderStatus)
     ).length;
     const completedOrders = orders.filter((order) => order.orderStatus === 'delivered').length;
     return [
@@ -1363,20 +1369,14 @@ const Orders: React.FC = () => {
     () => paidOrders.filter((order) => order.orderStatus === 'delivered'),
     [paidOrders]
   );
-  const firstPendingOrder = useMemo(
-    () => paidOrders.find((order) => ['placed', 'confirmed', 'processing'].includes(order.orderStatus)),
+  const pendingOrders = useMemo(
+    () => paidOrders.filter((order) =>
+      PENDING_FULFILLMENT_STATUSES.includes(order.orderStatus)
+    ),
     [paidOrders]
   );
 
   const handleSummaryCardClick = (kind: 'paid' | 'pending' | 'completed') => {
-    if (kind === 'pending') {
-      if (!firstPendingOrder) {
-        toast.success('No pending paid orders need shipment attention.');
-        return;
-      }
-      navigate(`/shipment-tracking?orderId=${encodeURIComponent(firstPendingOrder._id)}`);
-      return;
-    }
     setSummaryModal(kind);
   };
 
@@ -1529,8 +1529,10 @@ const Orders: React.FC = () => {
                   key={stat.label}
                   role='button'
                   aria-label={stat.label + ': ' + stat.value + '. ' + stat.helper}
+                  aria-haspopup='dialog'
                   tabIndex={0}
                   data-kind={stat.kind}
+                  data-opens-dialog
                   data-alerting={stat.kind === 'pending' ? Number(stat.value) > 0 : false}
                   onClick={() => handleSummaryCardClick(stat.kind)}
                   onKeyDown={(event) => {
@@ -1579,16 +1581,8 @@ const Orders: React.FC = () => {
               {isLoading ? 'Loading orders…' : `${totalCount} order${totalCount === 1 ? '' : 's'}`}
             </span>
           </div>
-          <div
-            className="orders-filter-grid"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'minmax(240px, 2fr) repeat(3, minmax(140px, 1fr)) auto',
-              gap: 12,
-              alignItems: 'end',
-            }}
-          >
-            <div>
+          <div className="orders-filter-grid">
+            <div className="orders-filter-field orders-filter-search-field">
               <label className="form-label" htmlFor="orders-search">Search</label>
               <div style={{ position: 'relative' }}>
                 <Search
@@ -1615,7 +1609,7 @@ const Orders: React.FC = () => {
               </div>
             </div>
 
-            <div>
+            <div className="orders-filter-field">
               <label className="form-label" htmlFor="orders-status-filter">Order Status</label>
               <select
                 id="orders-status-filter"
@@ -1636,34 +1630,37 @@ const Orders: React.FC = () => {
               </select>
             </div>
 
-            <div>
-              <label className="form-label" htmlFor="orders-from-date">From date</label>
-              <input
-                id="orders-from-date"
-                type="date"
-                className="input-field"
-                value={fromDate}
-                onChange={(event) => {
-                  dispatch({ type: 'SET_FROM_DATE', payload: event.target.value });
-                }}
-              />
+            <div className="orders-filter-date-range" role="group" aria-label="Order date range">
+              <div className="orders-filter-field">
+                <label className="form-label" htmlFor="orders-from-date">From date</label>
+                <input
+                  id="orders-from-date"
+                  type="date"
+                  className="input-field"
+                  value={fromDate}
+                  onChange={(event) => {
+                    dispatch({ type: 'SET_FROM_DATE', payload: event.target.value });
+                  }}
+                />
+              </div>
+
+              <div className="orders-filter-field">
+                <label className="form-label" htmlFor="orders-to-date">To date</label>
+                <input
+                  id="orders-to-date"
+                  type="date"
+                  className="input-field"
+                  value={toDate}
+                  onChange={(event) => {
+                    dispatch({ type: 'SET_TO_DATE', payload: event.target.value });
+                  }}
+                />
+              </div>
             </div>
 
-            <div>
-              <label className="form-label" htmlFor="orders-to-date">To date</label>
-              <input
-                id="orders-to-date"
-                type="date"
-                className="input-field"
-                value={toDate}
-                onChange={(event) => {
-                  dispatch({ type: 'SET_TO_DATE', payload: event.target.value });
-                }}
-              />
-            </div>
-
-            <button type="button" className="btn-ghost" onClick={clearFilters}>
-              Clear
+            <button type="button" className="btn-ghost orders-filter-clear" onClick={clearFilters}>
+              <X size={15} aria-hidden="true" />
+              Clear filters
             </button>
           </div>
         </section>
@@ -1927,7 +1924,17 @@ const Orders: React.FC = () => {
             <OrderSummaryDialog
               key={`summary-${summaryModal}`}
               mode={summaryModal}
-              orders={summaryModal === 'paid' ? paidOrders : completedOrders}
+              orders={
+                summaryModal === 'paid'
+                  ? paidOrders
+                  : summaryModal === 'pending'
+                    ? pendingOrders
+                    : completedOrders
+              }
+              onSelectOrder={(order) => {
+                setSummaryModal(null);
+                navigate(`/shipment-tracking?orderId=${encodeURIComponent(order._id)}`);
+              }}
               onClose={() => setSummaryModal(null)}
             />
           ) : null}
@@ -1958,20 +1965,91 @@ const Orders: React.FC = () => {
 };
 
 const getSummaryImage = (order: Order) => order.customization?.previewImageUrl || '';
+const getSummaryProductImage = (order: Order) =>
+  order.items.find((item) => item.product.image)?.product.image || '';
+type SummaryLiveShipment = {
+  awbCode: string | null;
+  status: string | null;
+  loading: boolean;
+};
 
 const OrderSummaryDialog: React.FC<{
   mode: Exclude<OrderSummaryModal, null>;
   orders: Order[];
+  onSelectOrder: (order: Order) => void;
   onClose: () => void;
-}> = ({ mode, orders, onClose }) => {
+}> = ({ mode, orders, onSelectOrder, onClose }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const completed = mode === 'completed';
+  const pending = mode === 'pending';
+  const [liveShipments, setLiveShipments] = useState<Record<string, SummaryLiveShipment>>({});
 
   useEffect(() => {
     const dialog = dialogRef.current;
     if (dialog && !dialog.open) dialog.showModal();
     return () => { if (dialog?.open) dialog.close(); };
   }, []);
+
+  useEffect(() => {
+    if (!pending) return;
+
+    const trackableOrders = orders.filter((order) =>
+      Boolean(
+        order.shiprocket?.awbCode ||
+        order.shiprocket?.shipmentId ||
+        order.shiprocket?.shiprocketOrderId
+      )
+    );
+
+    if (trackableOrders.length === 0) {
+      setLiveShipments({});
+      return;
+    }
+
+    let active = true;
+    setLiveShipments(
+      Object.fromEntries(
+        trackableOrders.map((order) => [
+          order._id,
+          {
+            awbCode: order.shiprocket?.awbCode || null,
+            status: order.shiprocket?.shipmentStatus || null,
+            loading: true,
+          },
+        ])
+      )
+    );
+
+    trackableOrders.forEach((order) => {
+      void getShiprocketTracking(order._id)
+        .then((tracking) => {
+          if (!active) return;
+          setLiveShipments((current) => ({
+            ...current,
+            [order._id]: {
+              awbCode: tracking.awbCode || order.shiprocket?.awbCode || null,
+              status: tracking.currentStatus || order.shiprocket?.shipmentStatus || null,
+              loading: false,
+            },
+          }));
+        })
+        .catch(() => {
+          if (!active) return;
+          setLiveShipments((current) => ({
+            ...current,
+            [order._id]: {
+              awbCode: order.shiprocket?.awbCode || null,
+              status: order.shiprocket?.shipmentStatus || null,
+              loading: false,
+            },
+          }));
+        });
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [orders, pending]);
 
   return (
     <dialog
@@ -1982,16 +2060,26 @@ const OrderSummaryDialog: React.FC<{
     >
       <button type='button' className='modal-backdrop-dismiss' onClick={onClose} aria-label='Close order summary' />
       <m.section
-        className={`orders-summary-dialog ${completed ? 'is-completed' : 'is-paid'}`}
+        className={`orders-summary-dialog is-${mode}`}
         initial={{ opacity: 0, scale: 0.96, y: 14 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 14 }}
       >
         <header className='orders-summary-header'>
           <div>
-            <p className='orders-eyebrow'>{completed ? 'Fulfillment archive' : 'Payment register'}</p>
-            <h2 id='orders-summary-title'>{completed ? 'Successfully delivered' : 'Paid orders'}</h2>
-            <p>{completed ? 'Orders received by customers on this page.' : 'Verified customer payments on this page.'}</p>
+            <p className='orders-eyebrow'>
+              {completed ? 'Fulfillment archive' : pending ? 'Shipment queue' : 'Payment register'}
+            </p>
+            <h2 id='orders-summary-title'>
+              {completed ? 'Successfully delivered' : pending ? 'Orders awaiting delivery' : 'Paid orders'}
+            </h2>
+            <p>
+              {completed
+                ? 'Orders received by customers on this page.'
+                : pending
+                  ? 'Active paid shipments on this page. Select an order to track it.'
+                  : 'Verified customer payments on this page.'}
+            </p>
           </div>
           <span className='orders-summary-count'>{orders.length}</span>
           <button type='button' className='action-icon-button' onClick={onClose} aria-label='Close' autoFocus>
@@ -2000,25 +2088,53 @@ const OrderSummaryDialog: React.FC<{
         </header>
 
         <div className='orders-summary-table'>
-          <div className={`orders-summary-columns ${completed ? 'is-completed' : 'is-paid'}`} aria-hidden='true'>
-            {completed ? <><span>Design</span><span>Customer</span><span>Product</span><span>Received</span></> : <><span>Design</span><span>Order ID</span><span>Qty</span><span>Paid</span></>}
+          <div className={`orders-summary-columns is-${mode}`} aria-hidden='true'>
+            {completed
+              ? <><span>Design</span><span>Customer</span><span>Product</span><span>Received</span></>
+              : pending
+                ? <><span>Product</span><span>Customer</span><span>AWB ID</span><span>Live status</span></>
+                : <><span>Design</span><span>Order ID</span><span>Qty</span><span>Paid</span></>}
           </div>
           <div className='orders-summary-scroll'>
             {orders.length === 0 ? (
-              <div className='orders-summary-empty'><PackageCheck size={28} /><span>No matching orders on this page.</span></div>
+              <div className='orders-summary-empty'>
+                <PackageCheck size={28} />
+                <span>{pending ? 'No orders are awaiting delivery on this page.' : 'No matching orders on this page.'}</span>
+              </div>
             ) : orders.map((order) => {
-              const image = getSummaryImage(order);
+              const image = pending ? getSummaryProductImage(order) : getSummaryImage(order);
               const quantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
-              return (
-                <article key={order._id} className={`orders-summary-row ${completed ? 'is-completed' : 'is-paid'}`}>
+              const liveShipment = liveShipments[order._id];
+              const awbCode = liveShipment?.awbCode || order.shiprocket?.awbCode;
+              const shipmentStatus =
+                liveShipment?.status ||
+                order.shiprocket?.shipmentStatus ||
+                orderStatusLabels[order.orderStatus];
+              const rowContent = (
+                <>
                   <span className='orders-summary-thumb'>
-                    {image ? <img src={image} alt='' referrerPolicy='no-referrer' /> : <ImageIcon size={15} />}
+                    {image
+                      ? <img src={image} alt={pending ? `${productLabel(order)} product` : ''} referrerPolicy='no-referrer' />
+                      : <ImageIcon size={17} />}
                   </span>
                   {completed ? (
                     <>
                       <strong title={order.customer.name}>{order.customer.name}</strong>
                       <span title={productLabel(order)}>{productLabel(order)}</span>
                       <time dateTime={order.updatedAt}>{formatDateTime(order.updatedAt)}</time>
+                    </>
+                  ) : pending ? (
+                    <>
+                      <strong title={order.customer.name}>{order.customer.name}</strong>
+                      <span className='orders-summary-order-id' title={awbCode || 'AWB not assigned'}>
+                        {awbCode || 'Not assigned'}
+                      </span>
+                      {liveShipment?.loading ? (
+                        <span className='orders-summary-live-loading'>
+                          <Loader2 className='animate-spin' size={13} />
+                          Checking
+                        </span>
+                      ) : <ShiprocketStatusBadge status={shipmentStatus} />}
                     </>
                   ) : (
                     <>
@@ -2029,6 +2145,24 @@ const OrderSummaryDialog: React.FC<{
                       <strong>{formatCurrency(order.totalAmount)}</strong>
                     </>
                   )}
+                </>
+              );
+
+              return pending ? (
+                <button
+                  key={order._id}
+                  type='button'
+                  className='orders-summary-row is-pending'
+                  onClick={() => onSelectOrder(order)}
+                  aria-label={`Track order ${order.orderNumber} for ${order.customer.name}`}
+                  title={`Open shipment tracking for ${order.orderNumber}`}
+                >
+                  {rowContent}
+                  <ChevronRight className='orders-summary-row-chevron' size={16} aria-hidden='true' />
+                </button>
+              ) : (
+                <article key={order._id} className={`orders-summary-row is-${mode}`}>
+                  {rowContent}
                 </article>
               );
             })}
