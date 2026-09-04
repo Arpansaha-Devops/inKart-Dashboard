@@ -1,6 +1,6 @@
-# InkArt Admin Dashboard
+# PrintFrint Admin Dashboard
 
-This repository contains the InkArt admin dashboard. It is a Vite + React + TypeScript single-page app for managing the same backend data used by the customer-facing InkArt e-commerce storefront.
+This repository contains the PrintFrint admin dashboard. It is a Vite + React + TypeScript single-page app for managing the same backend data used by the customer-facing PrintFrint e-commerce storefront.
 
 Admin changes are live business data changes. Product, category, coupon, customer, order, and analytics operations in this dashboard can affect what the storefront displays or consumes through the shared API.
 
@@ -107,8 +107,7 @@ Actual frontend runtime usage:
 
 [src/main.tsx](src/main.tsx):
 
-- Removes the legacy `localStorage['inkart-dashboard-deleted-categories']` key at startup.
-- Reads `localStorage['inkart-dashboard-theme']`.
+- Reads `localStorage['printfrint-dashboard-theme']`.
 - Defaults to dark mode unless the stored value is exactly `light`.
 - Applies `body.dark` or `body.light` and `color-scheme` before React render.
 - Renders `<App />` inside `StrictMode`.
@@ -433,7 +432,7 @@ Implementation notes:
 - Derives title from the current route.
 - Shows the `/orders` route title as `Customized Orders`.
 - Shows theme toggle and admin avatar initial.
-- Persists theme in `localStorage['inkart-dashboard-theme']`.
+- Persists theme in `localStorage['printfrint-dashboard-theme']`.
 - Dispatches `themechange` for chart updates.
 
 [src/components/Sidebar.tsx](src/components/Sidebar.tsx):
@@ -602,8 +601,8 @@ http://localhost:8000/admin/login
 - The notification panel is UI-only and not connected to backend data yet.
 - `NotificationContext` exists but is not mounted by the current app shell.
 - Several UI strings still contain encoding artifacts such as `â€™`, `â‚¹`, `Â·`, and `Ã—`.
-- `public/favicon_io/site.webmanifest` uses root-relative icon paths even though the files live under `public/favicon_io/`.
-- `package.json` is still named `react-example`, even though metadata identifies this as the InkArt Admin Panel.
+- Browser and installable-app branding use the PrintFrint SVG favicon and manifest metadata.
+- The package identity is `printfrint-admin-dashboard`.
 
 ## Live API Audit — 17 July 2026
 

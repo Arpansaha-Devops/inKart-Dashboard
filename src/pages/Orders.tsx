@@ -1326,11 +1326,11 @@ const Orders: React.FC = () => {
     const completedOrders = orders.filter((order) => order.orderStatus === 'delivered').length;
     return [
       {
-        label: 'Matching Paid Orders',
-        value: totalCount,
+        label: 'Page Paid Orders',
+        value: orders.length,
         icon: ShoppingBag,
         kind: 'paid' as const,
-        helper: 'View paid purchases',
+        helper: 'View paid orders on this page',
         color: 'var(--accent)',
         background: 'var(--accent-muted)',
       },
@@ -1353,7 +1353,7 @@ const Orders: React.FC = () => {
         background: 'var(--success-muted)',
       },
     ];
-  }, [orders, totalCount]);
+  }, [orders]);
 
   const paidOrders = useMemo(
     () => orders.filter((order) => order.paymentStatus === 'paid'),
@@ -1498,7 +1498,7 @@ const Orders: React.FC = () => {
             <div>
               <p className="orders-eyebrow">Operations center</p>
               <h1 className="page-title">Orders & fulfillment</h1>
-              <p>Manage every InkArt order from payment review through customer delivery.</p>
+              <p>Manage every PrintFrint order from payment review through customer delivery.</p>
             </div>
           </div>
 
@@ -1715,7 +1715,11 @@ const Orders: React.FC = () => {
                       </tr>
                     ) : (
                       orders.map((order) => (
-                        <tr key={`${order.source}-${order._id}`} className="group">
+                        <tr
+                          key={`${order.source}-${order._id}`}
+                          className="group"
+                          data-order-state={order.orderStatus}
+                        >
                           <td>
                             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                               <span
@@ -1818,7 +1822,12 @@ const Orders: React.FC = () => {
                     </div>
                   ))
                 : orders.map((order) => (
-                    <div key={`${order.source}-${order._id}`} className="card" style={{ display: 'grid', gap: 14 }}>
+                    <div
+                      key={`${order.source}-${order._id}`}
+                      className="card"
+                      data-order-state={order.orderStatus}
+                      style={{ display: 'grid', gap: 14 }}
+                    >
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
                         <span
                           style={{
@@ -2156,7 +2165,7 @@ const DeleteOrderDialog: React.FC<{
         <p className="orders-eyebrow">Order management</p>
         <h2 id="delete-order-title">Delete this order?</h2>
         <p id="delete-order-description">
-          This permanently deletes the order from the InkArt server and removes it from every
+          This permanently deletes the order from the PrintFrint server and removes it from every
           admin device.
         </p>
       </div>
@@ -2242,6 +2251,7 @@ type OrderDetailState = {
   deliveryDate: string;
   deliveryNote: string;
   deliveryError: string;
+  deliverySuccess: string;
   isApproving: boolean;
   isSavingEstimate: boolean;
   isResending: boolean;
@@ -2262,6 +2272,7 @@ type OrderDetailAction =
   | { type: 'setDeliveryDate'; value: string }
   | { type: 'setDeliveryNote'; value: string }
   | { type: 'setDeliveryError'; value: string }
+  | { type: 'setDeliverySuccess'; value: string }
   | { type: 'setApproving'; value: boolean }
   | { type: 'setSavingEstimate'; value: boolean }
   | { type: 'setResending'; value: boolean }
@@ -2291,6 +2302,7 @@ const getInitialOrderDetailState = (order: Order): OrderDetailState => ({
   deliveryDate: order.estimatedDeliveryDate?.slice(0, 10) || '',
   deliveryNote: order.deliveryNote || '',
   deliveryError: '',
+  deliverySuccess: '',
   isApproving: false,
   isSavingEstimate: false,
   isResending: false,
@@ -2315,6 +2327,8 @@ const orderDetailReducer = (
       return { ...state, deliveryNote: action.value };
     case 'setDeliveryError':
       return { ...state, deliveryError: action.value };
+    case 'setDeliverySuccess':
+      return { ...state, deliverySuccess: action.value };
     case 'setApproving':
       return { ...state, isApproving: action.value };
     case 'setSavingEstimate':
@@ -2565,11 +2579,11 @@ const ShipmentWorkspace: React.FC<{ order: Order }> = ({ order }) => {
           state: 'complete' as const,
         }))
       : [
-          { key: 'order-received', label: 'Order received', description: 'Payment captured in InkArt', date: order.createdAt, state: 'complete' },
+          { key: 'order-received', label: 'Order received', description: 'Payment captured in PrintFrint', date: order.createdAt, state: 'complete' },
           {
             key: 'admin-approval',
             label: 'Admin approval',
-            description: isCancelled ? 'Order cancelled before fulfillment' : isApproved ? 'Order confirmed in InkArt' : 'Waiting for admin approval',
+            description: isCancelled ? 'Order cancelled before fulfillment' : isApproved ? 'Order confirmed in PrintFrint' : 'Waiting for admin approval',
             state: (isApproved ? 'complete' : isCancelled ? 'pending' : 'current') as 'complete' | 'current' | 'pending',
           },
           {
@@ -2828,12 +2842,14 @@ const OrderDetailModal: React.FC<{
   );
   const [openDesignPreviewSide, setOpenDesignPreviewSide] = useState<'front' | 'back' | null>(null);
   const [designPreviewErrors, setDesignPreviewErrors] = useState({ front: false, back: false });
+  const [frontPreviewSize, setFrontPreviewSize] = useState<{ width: number; height: number } | null>(null);
   const [fetchedCustomization, setFetchedCustomization] = useState<OrderCustomization | null>(null);
   const [isDesignPreviewLoading, setIsDesignPreviewLoading] = useState(false);
   const {
     deliveryDate,
     deliveryNote,
     deliveryError,
+    deliverySuccess,
     isApproving,
     isSavingEstimate,
     isResending,
@@ -2877,6 +2893,9 @@ const OrderDetailModal: React.FC<{
     openDesignPreviewSide === 'front' ? frontDesignPreviewUrl : backDesignPreviewUrl;
   const hasActiveDesignPreview =
     openDesignPreviewSide === 'front' ? hasFrontDesignPreview : hasBackDesignPreview;
+  const designWidth = resolvedCustomization?.canvasWidth || frontPreviewSize?.width || 0;
+  const designHeight = resolvedCustomization?.canvasHeight || frontPreviewSize?.height || 0;
+  const hasDesignDimensions = designWidth > 0 && designHeight > 0;
 
   const closeDesignPreview = () => {
     previewDialogRef.current?.close();
@@ -2886,6 +2905,13 @@ const OrderDetailModal: React.FC<{
   const handleDesignPreviewError = (side: 'front' | 'back') => {
     setDesignPreviewErrors((current) => ({ ...current, [side]: true }));
     closeDesignPreview();
+  };
+
+  const captureDesignPreviewSize = (event: React.SyntheticEvent<HTMLImageElement>) => {
+    const { naturalWidth, naturalHeight } = event.currentTarget;
+    if (naturalWidth > 0 && naturalHeight > 0) {
+      setFrontPreviewSize((current) => current || { width: naturalWidth, height: naturalHeight });
+    }
   };
 
   useEffect(() => {
@@ -3070,7 +3096,9 @@ const OrderDetailModal: React.FC<{
 
   const handleSaveEstimate = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (hasEstimate) return;
     dispatchDetail({ type: 'setDeliveryError', value: '' });
+    dispatchDetail({ type: 'setDeliverySuccess', value: '' });
 
     if (!deliveryDate) {
       dispatchDetail({ type: 'setDeliveryError', value: 'Estimated delivery date is required' });
@@ -3096,6 +3124,7 @@ const OrderDetailModal: React.FC<{
           estimatedDeliveryDate: deliveryDate,
           deliveryNote: trimmedNote || undefined,
         });
+        dispatchDetail({ type: 'setDeliverySuccess', value: 'Delivery estimate saved and shared with the customer.' });
         toast.success('Delivery estimate updated');
       }
     } catch (error: unknown) {
@@ -3203,6 +3232,7 @@ const OrderDetailModal: React.FC<{
                     >
                       <img
                         src={frontDesignPreviewUrl}
+                        onLoad={captureDesignPreviewSize}
                         alt={`${productLabel(order)} front design preview`}
                         referrerPolicy="no-referrer"
                         onError={() => handleDesignPreviewError('front')}
@@ -3235,6 +3265,7 @@ const OrderDetailModal: React.FC<{
                     >
                       <img
                         src={backDesignPreviewUrl}
+                        onLoad={captureDesignPreviewSize}
                         alt={`${productLabel(order)} back design preview`}
                         referrerPolicy="no-referrer"
                         onError={() => handleDesignPreviewError('back')}
@@ -3253,7 +3284,7 @@ const OrderDetailModal: React.FC<{
                 <div className="detail-row">
                   <span className="form-label" style={{ margin: 0 }}>Canvas</span>
                   <span>
-                    {resolvedCustomization?.canvasWidth || 0} x {resolvedCustomization?.canvasHeight || 0}
+                    {hasDesignDimensions ? `${designWidth} × ${designHeight} px` : 'Not provided'}
                   </span>
                 </div>
                 <div className="detail-row">
@@ -3503,8 +3534,15 @@ const OrderDetailModal: React.FC<{
           <ComputedDeliveryEstimatePanel
             estimate={computedEstimate}
             onUseDate={handleUseComputedDate}
-            disabled={isAnyRequestInFlight}
+            disabled={isAnyRequestInFlight || hasEstimate}
           />
+
+          {deliverySuccess ? (
+            <div className='orders-delivery-success' role='status' aria-live='polite'>
+              <CheckCircle2 size={17} />
+              <span>{deliverySuccess}</span>
+            </div>
+          ) : null}
 
           <form className="orders-delivery-form" onSubmit={(event) => void handleSaveEstimate(event)}>
             <div style={{ display: 'grid', gap: 6 }}>
@@ -3519,7 +3557,7 @@ const OrderDetailModal: React.FC<{
                 onChange={(event) =>
                   dispatchDetail({ type: 'setDeliveryDate', value: event.target.value })
                 }
-                disabled={isAnyRequestInFlight}
+                disabled={isAnyRequestInFlight || hasEstimate}
               />
               {deliveryError ? (
                 <p style={{ margin: 0, color: 'var(--danger)', fontSize: 12 }}>
@@ -3541,7 +3579,7 @@ const OrderDetailModal: React.FC<{
                 onChange={(event) =>
                   dispatchDetail({ type: 'setDeliveryNote', value: event.target.value })
                 }
-                disabled={isAnyRequestInFlight}
+                disabled={isAnyRequestInFlight || hasEstimate}
                 style={{ resize: 'vertical', minHeight: 88 }}
               />
               <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12, textAlign: 'right' }}>
@@ -3550,10 +3588,11 @@ const OrderDetailModal: React.FC<{
             </div>
 
             <div className="orders-delivery-submit">
-              <button type="submit" className="btn-primary" disabled={isAnyRequestInFlight}>
-                {isSavingEstimate ? <Loader2 className="animate-spin" size={16} /> : <Calendar size={16} />}
-                {hasEstimate ? 'Update Estimate' : 'Set Delivery Estimate'}
+              <button type="submit" className="btn-primary" disabled={isAnyRequestInFlight || hasEstimate}>
+                {isSavingEstimate ? <Loader2 className="animate-spin" size={16} /> : hasEstimate ? <CheckCircle2 size={16} /> : <Calendar size={16} />}
+                {hasEstimate ? 'Estimate Set' : 'Set Delivery Estimate'}
               </button>
+              {hasEstimate ? <small className='orders-estimate-locked'>Delivery estimate can only be set once.</small> : null}
             </div>
           </form>
         </div>

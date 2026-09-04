@@ -10,15 +10,24 @@ interface HeaderProps {
 
 type ThemeMode = 'dark' | 'light';
 
-const THEME_STORAGE_KEY = 'inkart-dashboard-theme';
+const THEME_STORAGE_KEY = 'printfrint-dashboard-theme';
+const LEGACY_THEME_STORAGE_KEY = 'inkart-dashboard-theme';
 
 const getStoredTheme = (): ThemeMode => {
   if (typeof window === 'undefined') {
     return 'dark';
   }
 
-  const savedTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
-  return savedTheme === 'light' ? 'light' : 'dark';
+  const currentTheme = window.localStorage.getItem(THEME_STORAGE_KEY);
+  const legacyTheme = window.localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
+  const savedTheme = currentTheme ?? legacyTheme;
+  const resolvedTheme: ThemeMode = savedTheme === 'light' ? 'light' : 'dark';
+
+  if (currentTheme === null && (legacyTheme === 'light' || legacyTheme === 'dark')) {
+    window.localStorage.setItem(THEME_STORAGE_KEY, legacyTheme);
+  }
+
+  return resolvedTheme;
 };
 
 const pageTitles: Record<string, string> = {
@@ -38,7 +47,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen = false }) 
 
   const currentKey = location.pathname.split('/')[1] || 'dashboard';
   const pageTitle = pageTitles[currentKey] || 'Dashboard';
-  const avatarInitial = user?.name?.trim().charAt(0).toUpperCase() || 'I';
+  const avatarInitial = user?.name?.trim().charAt(0).toUpperCase() || 'P';
   const toggleLabel = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
 
   useEffect(() => {
@@ -120,7 +129,7 @@ const Header: React.FC<HeaderProps> = ({ onMenuToggle, isSidebarOpen = false }) 
         </button>
 
         <div
-          title={user?.name || 'InkArt Admin'}
+          title={user?.name || 'PrintFrint Admin'}
           style={{
             width: 36,
             height: 36,

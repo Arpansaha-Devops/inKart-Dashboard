@@ -102,7 +102,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
               color: 'var(--accent)',
             }}
           >
-            InkArt
+            PrintFrint
           </h1>
           <p
             style={{

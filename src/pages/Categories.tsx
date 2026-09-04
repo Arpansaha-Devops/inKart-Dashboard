@@ -198,10 +198,12 @@ const Categories: React.FC = () => {
                       >
                         <Tag size={40} style={{ margin: '0 auto 12px', opacity: 0.35 }} />
                         <p style={{ fontSize: '15px', margin: '0 0 4px', color: 'var(--text-primary)' }}>
-                          No categories yet
+                          {categories.length === 0 ? 'No categories yet' : 'No active categories'}
                         </p>
                         <p style={{ fontSize: '13px', margin: 0 }}>
-                          Create your first category to start organizing the catalog.
+                          {categories.length === 0
+                            ? 'Create your first category to start organizing the catalog.'
+                            : 'All existing categories are inactive.'}
                         </p>
                       </div>
                     </td>

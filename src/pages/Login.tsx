@@ -139,7 +139,7 @@ const Login: React.FC = () => {
             className="text-3xl sm:text-4xl font-bold tracking-tighter mb-2"
             style={{ color: 'var(--accent)' }}
           >
-            InkArt
+            PrintFrint
           </h1>
           <p className="text-sm sm:text-base" style={{ color: 'var(--text-secondary)' }}>
             Admin Management Portal
@@ -170,7 +170,7 @@ const Login: React.FC = () => {
                     required
                     className="input-field text-base sm:text-sm"
                     style={loginInputStyle}
-                    placeholder="admin@inkart.com"
+                    placeholder="admin@printfrint.com"
                     value={email}
                     onChange={(e) => dispatch({ type: 'SET_EMAIL', payload: e.target.value })}
                   />
@@ -265,7 +265,7 @@ const Login: React.FC = () => {
           style={{ borderTop: '1px solid var(--border)' }}
         >
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            &copy; 2026 InkArt. All rights reserved.
+            &copy; 2026 PrintFrint. All rights reserved.
           </p>
         </div>
       </div>

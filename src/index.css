@@ -970,6 +970,62 @@ table.data-table tbody td {
   z-index: 1;
 }
 
+.orders-table tbody tr:is([data-order-state=placed], [data-order-state=confirmed], [data-order-state=processing]) {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 10%, transparent), color-mix(in srgb, var(--danger) 3%, transparent) 58%, transparent);
+}
+
+.orders-table tbody tr:is([data-order-state=placed], [data-order-state=confirmed], [data-order-state=processing]):hover {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--danger) 15%, transparent), color-mix(in srgb, var(--danger) 5%, transparent) 62%, transparent);
+}
+
+.orders-table tbody tr:is([data-order-state=placed], [data-order-state=confirmed], [data-order-state=processing]) td:first-child {
+  box-shadow: inset 3px 0 0 var(--danger);
+}
+
+.orders-card-list > .card:is([data-order-state=placed], [data-order-state=confirmed], [data-order-state=processing]) {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--danger) 32%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--danger) 8%, var(--bg-card)), var(--bg-card) 48%);
+  box-shadow: 0 10px 28px rgba(239, 68, 68, 0.09);
+}
+
+.orders-card-list > .card:is([data-order-state=placed], [data-order-state=confirmed], [data-order-state=processing])::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--danger);
+}
+
+.orders-table tbody tr[data-order-state=delivered] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 11%, transparent), color-mix(in srgb, var(--success) 3%, transparent) 58%, transparent);
+}
+
+.orders-table tbody tr[data-order-state=delivered]:hover {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--success) 16%, transparent), color-mix(in srgb, var(--success) 6%, transparent) 62%, transparent);
+}
+
+.orders-table tbody tr[data-order-state=delivered] td:first-child {
+  box-shadow: inset 3px 0 0 var(--success);
+}
+
+.orders-card-list > .card[data-order-state=delivered] {
+  position: relative;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border));
+  background: linear-gradient(135deg, color-mix(in srgb, var(--success) 9%, var(--bg-card)), var(--bg-card) 48%);
+  box-shadow: 0 10px 28px rgba(34, 197, 94, 0.1);
+}
+
+.orders-card-list > .card[data-order-state=delivered]::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--success);
+}
+
 .orders-row-actions {
   display: inline-flex;
   align-items: center;
@@ -1771,17 +1827,41 @@ table.data-table tbody td {
   align-items: start;
 }
 
+.orders-delivery-success {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 12px;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--success) 34%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--success-muted);
+  color: var(--success);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.orders-delivery-success svg { flex: 0 0 auto; }
+
 .orders-delivery-submit {
   display: flex;
   grid-column: 1 / -1;
   justify-content: flex-end;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   padding-top: 0;
 }
 
 .orders-delivery-submit button {
   min-width: 220px;
   justify-content: center;
+}
+
+.orders-estimate-locked {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .orders-resend-popover {
