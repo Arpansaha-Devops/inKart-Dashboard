@@ -1107,7 +1107,7 @@ const TableSkeleton: React.FC = () => (
   <>
     {Array.from({ length: 5 }).map((_, index) => (
       <tr key={index}>
-        <td colSpan={11}>
+        <td colSpan={5}>
           <div className="skeleton" style={{ height: 54 }}>
             <span className="sr-only">Loading order row</span>
           </div>
@@ -1843,16 +1843,10 @@ const Orders: React.FC = () => {
                 <table className="data-table orders-table">
                   <thead>
                     <tr>
-                      <th>Order ID</th>
-                      <th>Type</th>
                       <th>Customer</th>
+                      <th>Order ID</th>
                       <th>Product</th>
-                      <th>Design Preview</th>
-                      <th>Date</th>
-                      <th>Amount</th>
-                      <th>Payment</th>
                       <th>Order Status</th>
-                      <th>Shipping</th>
                       <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
@@ -1861,7 +1855,7 @@ const Orders: React.FC = () => {
                       <TableSkeleton />
                     ) : orders.length === 0 ? (
                       <tr>
-                        <td colSpan={11}>
+                        <td colSpan={5}>
                           <EmptyState />
                         </td>
                       </tr>
@@ -1871,71 +1865,28 @@ const Orders: React.FC = () => {
                           key={`${order.source}-${order._id}`}
                           className="group"
                           data-order-state={order.orderStatus}
+                          data-order-source={order.source}
                         >
                           <td>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                              <span
-                                title={order.orderNumber}
-                                className="orders-id-text"
-                                style={{ fontFamily: "'SFMono-Regular', Consolas, monospace" }}
-                              >
-                                {shortOrderId(order)}
-                              </span>
-                              <button
-                                type="button"
-                                className="action-icon-button opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
-                                aria-label="Copy order number"
-                                onClick={() => void copyText(order.orderNumber)}
-                              >
-                                <Clipboard size={14} />
-                              </button>
-                            </div>
+                            <strong className="orders-compact-customer" title={order.customer.name}>
+                              {order.customer.name}
+                            </strong>
                           </td>
                           <td>
-                            <OrderTypeBadge source={order.source} />
+                            <span className="orders-id-text" title={order.orderNumber}>
+                              {order.orderNumber}
+                            </span>
                           </td>
                           <td>
-                            <div style={{ display: 'grid', gap: 2, minWidth: 0 }}>
-                              <span style={{ fontWeight: 600 }}>{order.customer.name}</span>
-                              <span style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-                                {order.customer.email || 'N/A'}
-                              </span>
-                            </div>
-                          </td>
-                          <td style={{ color: 'var(--text-secondary)' }}>{productLabel(order)}</td>
-                          <td>
-                            {order.source === 'customized' ? (
-                              <PreviewImage
-                                src={order.customization?.previewImageUrl}
-                                alt={`${productLabel(order)} preview`}
-                              />
-                            ) : (
-                              <span style={{ color: 'var(--text-muted)' }}>-</span>
-                            )}
-                          </td>
-                          <td style={{ color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                            {formatDateTime(order.createdAt)}
-                          </td>
-                          <td style={{ fontWeight: 700 }}>{formatCurrency(order.totalAmount)}</td>
-                          <td>
-                            <PaymentStatusBadge status={order.paymentStatus} />
-                          </td>
-                          <td>
-                            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                              <OrderStatusBadge status={order.orderStatus} />
-                              {order.estimatedDeliveryDate ? (
-                                <span title={`Delivery estimate: ${formatDeliveryDate(order.estimatedDeliveryDate)}`}>
-                                  <Calendar
-                                    size={16}
-                                    aria-label="Delivery estimate set"
-                                    style={{ color: 'var(--text-muted)' }}
-                                  />
-                                </span>
+                            <div className="orders-compact-product" title={productLabel(order)}>
+                              {order.source === 'customized' ? (
+                                <span className="orders-customized-mark" aria-label="Customized product" title="Customized">C</span>
                               ) : null}
+                              <span>{productLabel(order)}</span>
                             </div>
                           </td>
                           <td>
-                            {order.shiprocket?.awbCode ? <ShiprocketStatusBadge status={order.shiprocket.shipmentStatus ?? null} /> : <IntegrationBadge state={order.shiprocket?.shiprocketOrderId ? 'live' : 'api-pending'} />}
+                            <OrderStatusBadge status={order.orderStatus} />
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <div className="orders-row-actions">
@@ -1978,77 +1929,44 @@ const Orders: React.FC = () => {
                       key={`${order.source}-${order._id}`}
                       className="card"
                       data-order-state={order.orderStatus}
+                      data-order-source={order.source}
                       style={{ display: 'grid', gap: 14 }}
                     >
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                        <span
-                          style={{
-                            fontFamily: "'SFMono-Regular', Consolas, monospace",
-                            color: 'var(--text-primary)',
-                            fontWeight: 600,
-                          }}
-                        >
-                          {shortOrderId(order)}
-                        </span>
-                        <OrderStatusBadge status={order.orderStatus} />
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                        <OrderTypeBadge source={order.source} />
-                        <PaymentStatusBadge status={order.paymentStatus} />
-                      </div>
-                      <div className="orders-mobile-shipping-row">
-                        <span>Shiprocket fulfillment</span>
-                        {order.shiprocket?.awbCode ? <ShiprocketStatusBadge status={order.shiprocket.shipmentStatus ?? null} /> : <IntegrationBadge state={order.shiprocket?.shiprocketOrderId ? 'live' : 'api-pending'} />}
-                      </div>
-                      <div>
-                        <p style={{ margin: '0 0 2px', fontWeight: 600 }}>{order.customer.name}</p>
-                        <p style={{ margin: 0, fontSize: 13, color: 'var(--text-muted)' }}>
-                          {order.customer.email || 'N/A'}
-                        </p>
-                      </div>
-                      <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                        {order.source === 'customized' ? (
-                          <PreviewImage src={order.customization?.previewImageUrl} alt={`${productLabel(order)} preview`} />
-                        ) : (
-                          <div className="orders-mobile-product-placeholder">
-                            <Box size={18} />
-                          </div>
-                        )}
-                        <div style={{ minWidth: 0 }}>
-                          <p style={{ margin: 0, color: 'var(--text-primary)', fontWeight: 600 }}>
-                            {productLabel(order)}
-                          </p>
+                      <div className='orders-compact-mobile-summary'>
+                        <div className='orders-compact-mobile-heading'>
+                          <strong title={order.customer.name}>{order.customer.name}</strong>
+                          <OrderStatusBadge status={order.orderStatus} />
                         </div>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          justifyContent: 'space-between',
-                          gap: 12,
-                          color: 'var(--text-secondary)',
-                          fontSize: 13,
-                        }}
-                      >
-                        <span>{formatDateTime(order.createdAt)}</span>
-                        <strong style={{ color: 'var(--text-primary)' }}>{formatCurrency(order.totalAmount)}</strong>
-                      </div>
-                      <div className="orders-mobile-card-actions">
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          onClick={() => openOrderDetails(order)}
-                        >
-                          <Eye size={15} />
-                          View Details
-                        </button>
-                        <button
-                          type="button"
-                          className="orders-delete-button"
-                          onClick={() => requestOrderDeletion(order)}
-                        >
-                          <Trash2 size={15} />
-                          Delete
-                        </button>
+                        <div className='orders-compact-mobile-details'>
+                          <div>
+                            <span>Order ID</span>
+                            <strong title={order.orderNumber}>{order.orderNumber}</strong>
+                          </div>
+                          <div>
+                            <span>Product</span>
+                            <strong title={productLabel(order)}>
+                              {order.source === 'customized' ? (
+                                <span className='orders-customized-mark' aria-label='Customized product' title='Customized'>C</span>
+                              ) : null}
+                              <span>{productLabel(order)}</span>
+                            </strong>
+                          </div>
+                        </div>
+                        <div className='orders-compact-mobile-actions'>
+                          <button type='button' className='btn-ghost' onClick={() => openOrderDetails(order)}>
+                            <Eye size={15} />
+                            View
+                          </button>
+                          <button
+                            type='button'
+                            className='orders-delete-icon-button'
+                            onClick={() => requestOrderDeletion(order)}
+                            aria-label={`Delete ${order.orderNumber} from order history`}
+                            title='Delete from order history'
+                          >
+                            <Trash2 size={15} />
+                          </button>
+                        </div>
                       </div>
                     </div>
                   ))}

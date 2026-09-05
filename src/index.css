@@ -3217,3 +3217,186 @@ button.orders-summary-row:focus-visible {
 
 @media(max-width:1000px){.shipment-tracking-layout,.shipment-panels{grid-template-columns:1fr}.shipment-order-picker{min-height:0}.shipment-order-list{max-height:230px}.shipment-metrics{grid-template-columns:repeat(2,minmax(0,1fr));}}
 @media(max-width:600px){.shipment-tracking-page{padding:14px}.shipment-tracking-hero{padding:20px;align-items:flex-start;flex-direction:column}.shipment-metrics{grid-template-columns:1fr}.shipment-detail-head{align-items:flex-start;flex-direction:column}.shipment-actions>*{width:100%;justify-content:center}}
+
+/* Compact order queue: detailed information remains in the View modal. */
+.orders-table {
+  width: 100%;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.orders-table thead tr,
+.orders-table tbody tr:not(:has(td[colspan])) {
+  display: grid;
+  grid-template-columns: minmax(130px, 1.05fr) minmax(150px, 1.15fr) minmax(180px, 1.5fr) minmax(120px, .8fr) minmax(132px, .8fr);
+  align-items: stretch;
+}
+
+.orders-table thead th,
+.orders-table tbody td {
+  min-width: 0;
+}
+
+.orders-table tbody tr:not(:has(td[colspan])) > td {
+  display: flex;
+  align-items: center;
+}
+
+.orders-customized-mark {
+  width: 24px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 24px;
+  border: 1px solid color-mix(in srgb, var(--info) 30%, transparent);
+  border-radius: 7px;
+  background: var(--info-muted);
+  color: var(--info);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.orders-table tbody tr:not(:has(td[colspan])) > td:nth-child(5) {
+  justify-content: flex-end;
+}
+
+.orders-table tbody td[colspan] {
+  width: 100%;
+}
+
+.orders-compact-customer,
+.orders-table .orders-id-text {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orders-table .orders-id-text {
+  color: var(--text-primary);
+  font-family: SFMono-Regular, Consolas, Liberation Mono, monospace;
+  font-size: 12px;
+}
+
+.orders-compact-product {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+  color: var(--text-secondary);
+}
+
+.orders-compact-product > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orders-compact-mobile-summary {
+  display: grid;
+  gap: 14px;
+}
+
+.orders-compact-mobile-heading {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.orders-compact-mobile-heading > strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orders-compact-mobile-details {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  gap: 10px;
+}
+
+.orders-compact-mobile-details > div {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-surface) 84%, transparent);
+}
+
+.orders-compact-mobile-details > div > span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.orders-compact-mobile-details strong {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.orders-compact-mobile-details strong > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.orders-compact-mobile-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px;
+  gap: 8px;
+}
+
+.orders-compact-mobile-actions .btn-ghost {
+  width: 100%;
+  min-height: 40px;
+}
+
+.orders-compact-mobile-actions .orders-delete-icon-button {
+  width: 42px;
+  height: 40px;
+}
+
+@media (max-width: 1199px) {
+  .orders-table-card {
+    display: none;
+  }
+
+  .orders-card-list {
+    display: grid;
+    gap: 10px;
+  }
+
+  .orders-card-list > .card[data-order-state] {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 520px) {
+  .orders-compact-mobile-details {
+    grid-template-columns: 1fr;
+  }
+
+  .orders-card-list > .card[data-order-state] {
+    padding: 14px;
+  }
+}
