@@ -1,7 +1,9 @@
 import React, { lazy, Suspense, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
+  CheckCircle2,
   Package,
+  ShoppingBag,
   Tag,
   Ticket,
   TrendingUp,
@@ -36,12 +38,22 @@ type DashboardDataState = {
   stats: DashboardStats;
   isLoading: boolean;
   recentUsers: User[];
+  recentPurchasedOrders: DashboardActivityOrder[];
+  recentDeliveredOrders: DashboardActivityOrder[];
   doughnutData: DashboardChartData;
   barData: DashboardChartData;
 };
 
 type DashboardDataAction =
-  | { type: 'SET_SUMMARY'; payload: { stats: DashboardStats; recentUsers: User[] } }
+  | {
+      type: 'SET_SUMMARY';
+      payload: {
+        stats: DashboardStats;
+        recentUsers: User[];
+        recentPurchasedOrders: DashboardActivityOrder[];
+        recentDeliveredOrders: DashboardActivityOrder[];
+      };
+    }
   | { type: 'SET_DOUGHNUT_DATA'; payload: DashboardChartData }
   | { type: 'SET_BAR_DATA'; payload: DashboardChartData }
   | { type: 'SET_LOADING'; payload: boolean };
@@ -50,6 +62,26 @@ const COMMON_ARRAY_KEYS = ['data', 'users', 'products', 'coupons', 'categories',
 const COMMON_COUNT_KEYS = ['totalCount', 'total', 'count', 'totalResults', 'length'];
 const PRODUCT_CHART_LIMIT = 500;
 const COUPON_CHART_LIMIT = 50;
+const ACTIVITY_ORDER_LIMIT = 8;
+
+type DashboardActivityOrder = {
+  id: string;
+  orderNumber: string;
+  customerName: string;
+  createdAt: string;
+  deliveredAt: string;
+  status: string;
+};
+
+type DashboardActivityItem = {
+  id: string;
+  type: 'user' | 'purchase' | 'delivery';
+  title: string;
+  description: string;
+  timestamp: string;
+  sortTime: number;
+  badge: string;
+};
 
 const quickActions = [
   {
@@ -91,6 +123,8 @@ const dashboardDataInitialState: DashboardDataState = {
   },
   isLoading: true,
   recentUsers: [],
+  recentPurchasedOrders: [],
+  recentDeliveredOrders: [],
   doughnutData: {
     labels: [],
     datasets: [
@@ -124,6 +158,8 @@ function dashboardDataReducer(
         ...state,
         stats: action.payload.stats,
         recentUsers: action.payload.recentUsers,
+        recentPurchasedOrders: action.payload.recentPurchasedOrders,
+        recentDeliveredOrders: action.payload.recentDeliveredOrders,
       };
     case 'SET_DOUGHNUT_DATA':
       return { ...state, doughnutData: action.payload };
@@ -227,6 +263,18 @@ const isProductLike = (item: any): boolean =>
 const isCouponLike = (item: any): boolean =>
   Boolean(item && typeof item === 'object' && typeof item._id === 'string' && typeof item.code === 'string');
 
+const isOrderLike = (item: any): boolean =>
+  Boolean(
+    item &&
+      typeof item === 'object' &&
+      (typeof item._id === 'string' || typeof item.id === 'string') &&
+      (
+        typeof item.orderNumber === 'string' ||
+        typeof item.orderId === 'string' ||
+        typeof item.orderStatus === 'string'
+      )
+  );
+
 const isUserLike = (item: any): item is User =>
   Boolean(
     item &&
@@ -305,9 +353,83 @@ const extractProducts = (payload: any): any[] =>
     payload?.data,
   ]);
 
+const extractActivityOrders = (payload: any): DashboardActivityOrder[] => {
+  const rows = pickBestArray(payload, isOrderLike, [
+    payload?.orders,
+    payload?.data?.orders,
+    payload?.data?.items,
+    payload?.data?.docs,
+    payload?.data,
+  ]);
+
+  return rows.flatMap((order: any) => {
+    const id = String(order?._id || order?.id || '').trim();
+    if (!id) return [];
+
+    const customer = order?.customer || order?.user || {};
+    const shiprocket = order?.shiprocket || order?.shipment || {};
+
+    return [{
+      id,
+      orderNumber: String(order?.orderNumber || order?.orderId || id).trim(),
+      customerName: String(
+        customer?.name ||
+        order?.customerName ||
+        order?.address?.fullName ||
+        'Customer'
+      ).trim(),
+      createdAt: String(order?.createdAt || '').trim(),
+      deliveredAt: String(
+        order?.deliveredAt ||
+        order?.deliveryDate ||
+        shiprocket?.deliveredDate ||
+        shiprocket?.delivered_date ||
+        order?.updatedAt ||
+        ''
+      ).trim(),
+      status: normalizeValue(order?.orderStatus || order?.status),
+    }];
+  });
+};
+
+const activityDateFormatter = new Intl.DateTimeFormat('en-IN', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+const toActivityTime = (value: string): number => {
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+};
+
+const formatActivityTime = (value: string): string => {
+  const timestamp = toActivityTime(value);
+  if (!timestamp) return 'Recently';
+
+  const elapsed = Date.now() - timestamp;
+  if (elapsed >= 0 && elapsed < 60_000) return 'Just now';
+  if (elapsed >= 0 && elapsed < 3_600_000) return `${Math.max(1, Math.floor(elapsed / 60_000))}m ago`;
+  if (elapsed >= 0 && elapsed < 86_400_000) return `${Math.max(1, Math.floor(elapsed / 3_600_000))}h ago`;
+
+  return activityDateFormatter.format(new Date(timestamp));
+};
+
+const formatActivityDateTitle = (value: string): string => {
+  const timestamp = toActivityTime(value);
+  return timestamp ? activityDateFormatter.format(new Date(timestamp)) : 'Recently';
+};
+
 const Dashboard: React.FC = () => {
   const [state, dispatch] = useReducer(dashboardDataReducer, dashboardDataInitialState);
-  const { stats, isLoading, recentUsers, doughnutData, barData } = state;
+  const {
+    stats,
+    isLoading,
+    recentUsers,
+    recentPurchasedOrders,
+    recentDeliveredOrders,
+    doughnutData,
+    barData,
+  } = state;
   const hasShownDashboardErrorRef = useRef(false);
   const lastKnownCounts = useRef({
     users: 0,
@@ -316,6 +438,8 @@ const Dashboard: React.FC = () => {
     categories: 0,
   });
   const lastKnownRecentUsers = useRef<User[]>([]);
+  const lastKnownPurchasedOrders = useRef<DashboardActivityOrder[]>([]);
+  const lastKnownDeliveredOrders = useRef<DashboardActivityOrder[]>([]);
   const [chartTheme, setChartTheme] = useState<ChartThemeColors>(getChartThemeColors);
 
   useEffect(() => {
@@ -340,22 +464,51 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const [usersRes, productsRes, couponsRes, categoriesRes] = await Promise.allSettled([
+        const [
+          usersRes,
+          productsRes,
+          couponsRes,
+          categoriesRes,
+          purchasedOrdersRes,
+          deliveredOrdersRes,
+        ] = await Promise.allSettled([
           apiClient.get('/users/all', { params: { page: 1, limit: 5 } }),
           apiClient.get('/admin/products', {
             params: { page: 1, limit: PRODUCT_CHART_LIMIT, _ts: Date.now() },
           }),
           apiClient.get('/admin/coupons', { params: { page: 1, limit: COUPON_CHART_LIMIT } }),
           apiClient.get('/admin/categories'),
+          apiClient.get('/admin/orders', {
+            params: { page: 1, limit: ACTIVITY_ORDER_LIMIT, paymentStatus: 'paid' },
+          }),
+          apiClient.get('/admin/orders', {
+            params: {
+              page: 1,
+              limit: ACTIVITY_ORDER_LIMIT,
+              paymentStatus: 'paid',
+              status: 'delivered',
+            },
+          }),
         ]);
 
         const usersPayload = usersRes.status === 'fulfilled' ? usersRes.value.data : null;
         const productsPayload = productsRes.status === 'fulfilled' ? productsRes.value.data : null;
         const couponsPayload = couponsRes.status === 'fulfilled' ? couponsRes.value.data : null;
         const categoriesPayload = categoriesRes.status === 'fulfilled' ? categoriesRes.value.data : null;
+        const purchasedOrdersPayload =
+          purchasedOrdersRes.status === 'fulfilled' ? purchasedOrdersRes.value.data : null;
+        const deliveredOrdersPayload =
+          deliveredOrdersRes.status === 'fulfilled' ? deliveredOrdersRes.value.data : null;
         let chartProductsPayload = productsPayload;
         const chartCouponsPayload = couponsPayload;
-        const failedCalls = [usersRes, productsRes, couponsRes, categoriesRes].filter(
+        const failedCalls = [
+          usersRes,
+          productsRes,
+          couponsRes,
+          categoriesRes,
+          purchasedOrdersRes,
+          deliveredOrdersRes,
+        ].filter(
           (result) => result.status === 'rejected'
         ).length;
 
@@ -365,6 +518,24 @@ const Dashboard: React.FC = () => {
             : lastKnownRecentUsers.current;
         if (usersRes.status === 'fulfilled') {
           lastKnownRecentUsers.current = dashboardUsers;
+        }
+
+        const dashboardPurchasedOrders =
+          purchasedOrdersRes.status === 'fulfilled'
+            ? extractActivityOrders(purchasedOrdersPayload)
+            : lastKnownPurchasedOrders.current;
+        if (purchasedOrdersRes.status === 'fulfilled') {
+          lastKnownPurchasedOrders.current = dashboardPurchasedOrders;
+        }
+
+        const dashboardDeliveredOrders =
+          deliveredOrdersRes.status === 'fulfilled'
+            ? extractActivityOrders(deliveredOrdersPayload).filter(
+                (order) => order.status === 'delivered'
+              )
+            : lastKnownDeliveredOrders.current;
+        if (deliveredOrdersRes.status === 'fulfilled') {
+          lastKnownDeliveredOrders.current = dashboardDeliveredOrders;
         }
 
         const categories = pickBestArray(categoriesPayload, isCategoryLike, [
@@ -422,6 +593,8 @@ const Dashboard: React.FC = () => {
               activeCategories: nextCounts.categories,
             },
             recentUsers: dashboardUsers.slice(0, 5),
+            recentPurchasedOrders: dashboardPurchasedOrders.slice(0, ACTIVITY_ORDER_LIMIT),
+            recentDeliveredOrders: dashboardDeliveredOrders.slice(0, ACTIVITY_ORDER_LIMIT),
           },
         });
 
@@ -604,7 +777,14 @@ const Dashboard: React.FC = () => {
           hasShownDashboardErrorRef.current = true;
         }
 
-        if (usersPayload || productsPayload || couponsPayload || categoriesPayload) {
+        if (
+          usersPayload ||
+          productsPayload ||
+          couponsPayload ||
+          categoriesPayload ||
+          purchasedOrdersPayload ||
+          deliveredOrdersPayload
+        ) {
           hasShownDashboardErrorRef.current = false;
         }
       } catch (error: any) {
@@ -627,6 +807,42 @@ const Dashboard: React.FC = () => {
     () => <div className="skeleton" style={{ width: '100%', height: '100%' }} />,
     []
   );
+
+  const recentActivities = useMemo<DashboardActivityItem[]>(() => {
+    const userActivities = recentUsers.map((user) => ({
+      id: `user-${user._id}`,
+      type: 'user' as const,
+      title: 'New user registered',
+      description: `${user.name || 'Unnamed user'} · ${user.email || 'No email'}`,
+      timestamp: user.createdAt,
+      sortTime: toActivityTime(user.createdAt),
+      badge: 'User',
+    }));
+
+    const purchaseActivities = recentPurchasedOrders.map((order) => ({
+      id: `purchase-${order.id}`,
+      type: 'purchase' as const,
+      title: 'New order purchased',
+      description: `${order.orderNumber} · ${order.customerName}`,
+      timestamp: order.createdAt,
+      sortTime: toActivityTime(order.createdAt),
+      badge: 'Paid',
+    }));
+
+    const deliveryActivities = recentDeliveredOrders.map((order) => ({
+      id: `delivery-${order.id}`,
+      type: 'delivery' as const,
+      title: `${order.orderNumber} delivered`,
+      description: `Successfully delivered to ${order.customerName}`,
+      timestamp: order.deliveredAt,
+      sortTime: toActivityTime(order.deliveredAt),
+      badge: 'Delivered',
+    }));
+
+    return [...userActivities, ...purchaseActivities, ...deliveryActivities]
+      .sort((left, right) => right.sortTime - left.sortTime)
+      .slice(0, 5);
+  }, [recentDeliveredOrders, recentPurchasedOrders, recentUsers]);
 
   const statCards = [
     {
@@ -781,87 +997,54 @@ const Dashboard: React.FC = () => {
           </div>
 
           {isLoading ? (
-            <div style={{ display: 'grid', gap: '12px' }}>
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div key={index} className="skeleton" style={{ height: 60 }} />
+            <div className="dashboard-activity-list">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <div key={index} className="skeleton dashboard-activity-skeleton" />
               ))}
             </div>
-          ) : recentUsers.length === 0 ? (
-            <div
-              style={{
-                minHeight: 220,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--text-muted)',
-                fontSize: '14px',
-              }}
-            >
-              No recent user activity available
+          ) : recentActivities.length === 0 ? (
+            <div className="dashboard-activity-empty">
+              <TrendingUp size={24} />
+              <strong>No recent activity</strong>
+              <span>Registrations and order updates will appear here.</span>
             </div>
           ) : (
-            recentUsers.map((user) => (
-              <div
-                key={user._id}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '12px 0',
-                  borderBottom: '1px solid var(--border)',
-                }}
-              >
-                <div
-                  style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: '50%',
-                    background: 'var(--bg-input)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <UserCheck size={16} color="var(--text-muted)" />
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p
-                    style={{
-                      fontSize: '14px',
-                      color: 'var(--text-primary)',
-                      margin: 0,
-                    }}
+            <div className="dashboard-activity-list">
+              {recentActivities.map((activity) => {
+                const ActivityIcon =
+                  activity.type === 'delivery'
+                    ? CheckCircle2
+                    : activity.type === 'purchase'
+                      ? ShoppingBag
+                      : UserCheck;
+
+                return (
+                  <article
+                    key={activity.id}
+                    className="dashboard-activity-row"
+                    data-activity-type={activity.type}
                   >
-                    New user registered
-                  </p>
-                  <p
-                    style={{
-                      fontSize: '12px',
-                      color: 'var(--text-muted)',
-                      margin: 0,
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {user.name || 'Unnamed user'} · {user.email || 'No email'}
-                  </p>
-                </div>
-                <span
-                  style={{
-                    background: 'var(--info-muted)',
-                    color: 'var(--info)',
-                    fontSize: '12px',
-                    padding: '2px 8px',
-                    borderRadius: '20px',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  User
-                </span>
-              </div>
-            ))
+                    <span className="dashboard-activity-icon" aria-hidden="true">
+                      <ActivityIcon size={17} />
+                    </span>
+                    <div className="dashboard-activity-copy">
+                      <div className="dashboard-activity-title-line">
+                        <strong>{activity.title}</strong>
+                        <span className="dashboard-activity-badge">{activity.badge}</span>
+                      </div>
+                      <p title={activity.description}>{activity.description}</p>
+                    </div>
+                    <time
+                      className="dashboard-activity-time"
+                      dateTime={activity.timestamp || undefined}
+                      title={formatActivityDateTitle(activity.timestamp)}
+                    >
+                      {formatActivityTime(activity.timestamp)}
+                    </time>
+                  </article>
+                );
+              })}
+            </div>
           )}
         </div>
 

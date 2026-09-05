@@ -152,6 +152,8 @@ interface NormalizedOrdersResponse {
 }
 
 const ORDERS_PER_PAGE = 10;
+const SUMMARY_ORDERS_PER_PAGE = 100;
+const ORDERS_REFRESH_INTERVAL_MS = 30_000;
 const PENDING_FULFILLMENT_STATUSES: OrderStatus[] = [
   'placed',
   'confirmed',
@@ -765,6 +767,57 @@ const fetchPaidOrdersPage = async (
   };
 };
 
+const fetchAllPaidOrders = async (status?: OrderStatus, search?: string): Promise<Order[]> => {
+  const firstPage = await fetchPaidOrdersPage({
+    page: 1,
+    limit: SUMMARY_ORDERS_PER_PAGE,
+    status,
+    search,
+  });
+  const pages = [firstPage.orders];
+
+  for (let page = 2; page <= firstPage.totalPages; page += 1) {
+    const response = await fetchPaidOrdersPage({
+      page,
+      limit: SUMMARY_ORDERS_PER_PAGE,
+      status,
+      search,
+    });
+    pages.push(response.orders);
+  }
+
+  return dedupeAndSortOrders(pages.flat());
+};
+
+const fetchSummaryCounts = async () => {
+  const [paid, delivered, ...pending] = await Promise.all([
+    fetchPaidOrdersPage({ page: 1, limit: 1 }),
+    fetchPaidOrdersPage({ page: 1, limit: 1, status: 'delivered' }),
+    ...PENDING_FULFILLMENT_STATUSES.map((status) =>
+      fetchPaidOrdersPage({ page: 1, limit: 1, status })
+    ),
+  ]);
+
+  return {
+    paid: paid.total,
+    pending: pending.reduce((total, response) => total + response.total, 0),
+    completed: delivered.total,
+  };
+};
+
+const fetchSummaryOrders = async (
+  mode: Exclude<OrderSummaryModal, null>
+): Promise<Order[]> => {
+  if (mode === 'completed') return fetchAllPaidOrders('delivered');
+  if (mode === 'pending') {
+    const pages = await Promise.all(
+      PENDING_FULFILLMENT_STATUSES.map((status) => fetchAllPaidOrders(status))
+    );
+    return dedupeAndSortOrders(pages.flat());
+  }
+  return fetchAllPaidOrders();
+};
+
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
   style: 'currency',
   currency: 'INR',
@@ -1233,6 +1286,16 @@ const Orders: React.FC = () => {
   const navigate = useNavigate();
   const [state, dispatch] = useReducer(ordersReducer, ordersInitialState);
   const [summaryModal, setSummaryModal] = useState<OrderSummaryModal>(null);
+  const [summaryCounts, setSummaryCounts] = useState({ paid: 0, pending: 0, completed: 0 });
+  const [isSummaryCountsLoading, setIsSummaryCountsLoading] = useState(true);
+  const [summaryCountsError, setSummaryCountsError] = useState('');
+  const [summaryOrders, setSummaryOrders] = useState<Order[]>([]);
+  const [isSummaryOrdersLoading, setIsSummaryOrdersLoading] = useState(false);
+  const [summaryOrdersError, setSummaryOrdersError] = useState('');
+  const summaryRequestIdRef = useRef(0);
+  const orderListRequestIdRef = useRef(0);
+  const summaryCountsRequestIdRef = useRef(0);
+  const hasSuccessfulSummaryCountsRef = useRef(false);
   const [orderPendingDeletion, setOrderPendingDeletion] = useState<Order | null>(null);
   const [isDeletingOrder, setIsDeletingOrder] = useState(false);
   const deleteTriggerElementRef = useRef<HTMLElement | null>(null);
@@ -1261,27 +1324,54 @@ const Orders: React.FC = () => {
   }, [searchInput]);
 
   const loadOrders = useCallback(
-    async (showRefresh = false) => {
-      dispatch({ type: 'START_LOADING', payload: { showRefresh } });
+    async (showRefresh = false, background = false) => {
+      const requestId = orderListRequestIdRef.current + 1;
+      orderListRequestIdRef.current = requestId;
+
+      if (!background) {
+        dispatch({ type: 'START_LOADING', payload: { showRefresh } });
+      }
 
       try {
-        const response = await fetchPaidOrdersPage({
-          page,
-          limit: ORDERS_PER_PAGE,
-          status: orderStatus === 'all' ? undefined : orderStatus,
-          search: debouncedSearch || undefined,
-        });
-        const dateFiltered = response.orders.filter((order) => matchesDateRange(order, fromDate, toDate));
+        const status = orderStatus === 'all' ? undefined : orderStatus;
+        const search = debouncedSearch || undefined;
+        const hasDateFilter = Boolean(fromDate || toDate);
+        const response = hasDateFilter
+          ? await fetchAllPaidOrders(status, search).then((allOrders) => {
+              const filteredOrders = allOrders.filter((order) =>
+                matchesDateRange(order, fromDate, toDate)
+              );
+              const filteredTotalPages = Math.max(
+                1,
+                Math.ceil(filteredOrders.length / ORDERS_PER_PAGE)
+              );
+              const start = (page - 1) * ORDERS_PER_PAGE;
+              return {
+                orders: filteredOrders.slice(start, start + ORDERS_PER_PAGE),
+                total: filteredOrders.length,
+                totalPages: filteredTotalPages,
+              };
+            })
+          : await fetchPaidOrdersPage({
+              page,
+              limit: ORDERS_PER_PAGE,
+              status,
+              search,
+            });
+
+        if (orderListRequestIdRef.current !== requestId) return;
         dispatch({
           type: 'SET_DATA',
           payload: {
-            orders: dateFiltered,
+            orders: response.orders,
             totalCount: response.total,
             totalPages: response.totalPages,
           },
         });
       } catch (requestError: unknown) {
+        if (orderListRequestIdRef.current !== requestId) return;
         console.error('Failed to load orders', requestError);
+        if (background) return;
         const message =
           isRecord(requestError) &&
           isRecord(requestError.response) &&
@@ -1296,9 +1386,55 @@ const Orders: React.FC = () => {
     [debouncedSearch, fromDate, orderStatus, page, toDate]
   );
 
+  const loadSummaryCounts = useCallback(async () => {
+    const requestId = summaryCountsRequestIdRef.current + 1;
+    summaryCountsRequestIdRef.current = requestId;
+    if (!hasSuccessfulSummaryCountsRef.current) {
+      setSummaryCountsError('');
+      setIsSummaryCountsLoading(true);
+    }
+
+    try {
+      const counts = await fetchSummaryCounts();
+      if (summaryCountsRequestIdRef.current !== requestId) return;
+      hasSuccessfulSummaryCountsRef.current = true;
+      setSummaryCounts(counts);
+      setSummaryCountsError('');
+    } catch (requestError: unknown) {
+      if (summaryCountsRequestIdRef.current !== requestId) return;
+      console.error('Failed to load order summary counts', requestError);
+      if (!hasSuccessfulSummaryCountsRef.current) {
+        setSummaryCountsError('Order totals are temporarily unavailable.');
+      }
+    } finally {
+      if (summaryCountsRequestIdRef.current === requestId) {
+        setIsSummaryCountsLoading(false);
+      }
+    }
+  }, []);
+
   useEffect(() => {
     void loadOrders();
   }, [loadOrders]);
+
+  useEffect(() => {
+    void loadSummaryCounts();
+  }, [loadSummaryCounts]);
+
+  useEffect(() => {
+    const refreshVisibleOrders = () => {
+      if (document.visibilityState !== 'visible') return;
+      void loadOrders(false, true);
+      void loadSummaryCounts();
+    };
+    const intervalId = window.setInterval(refreshVisibleOrders, ORDERS_REFRESH_INTERVAL_MS);
+    document.addEventListener('visibilitychange', refreshVisibleOrders);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', refreshVisibleOrders);
+    };
+  }, [loadOrders, loadSummaryCounts]);
 
   useEffect(() => {
     dispatch({ type: 'SET_PAGE', payload: 1 });
@@ -1326,32 +1462,28 @@ const Orders: React.FC = () => {
   }, [isDeletingOrder, orderPendingDeletion, selectedOrder, summaryModal]);
 
   const stats = useMemo(() => {
-    const pendingOrders = orders.filter((order) =>
-      PENDING_FULFILLMENT_STATUSES.includes(order.orderStatus)
-    ).length;
-    const completedOrders = orders.filter((order) => order.orderStatus === 'delivered').length;
     return [
       {
-        label: 'Page Paid Orders',
-        value: orders.length,
+        label: 'Paid Orders',
+        value: summaryCounts.paid,
         icon: ShoppingBag,
         kind: 'paid' as const,
-        helper: 'View paid orders on this page',
+        helper: 'View all paid orders',
         color: 'var(--accent)',
         background: 'var(--accent-muted)',
       },
       {
         label: 'Pending Orders',
-        value: pendingOrders,
+        value: summaryCounts.pending,
         icon: AlertTriangle,
         kind: 'pending' as const,
-        helper: pendingOrders > 0 ? 'Needs shipment attention' : 'Queue is clear',
+        helper: summaryCounts.pending > 0 ? 'Needs shipment attention' : 'Queue is clear',
         color: 'var(--danger)',
         background: 'var(--danger-muted)',
       },
       {
         label: 'Completed Orders',
-        value: completedOrders,
+        value: summaryCounts.completed,
         icon: CheckCircle2,
         kind: 'completed' as const,
         helper: 'View delivered orders',
@@ -1359,25 +1491,29 @@ const Orders: React.FC = () => {
         background: 'var(--success-muted)',
       },
     ];
-  }, [orders]);
+  }, [summaryCounts]);
 
-  const paidOrders = useMemo(
-    () => orders.filter((order) => order.paymentStatus === 'paid'),
-    [orders]
-  );
-  const completedOrders = useMemo(
-    () => paidOrders.filter((order) => order.orderStatus === 'delivered'),
-    [paidOrders]
-  );
-  const pendingOrders = useMemo(
-    () => paidOrders.filter((order) =>
-      PENDING_FULFILLMENT_STATUSES.includes(order.orderStatus)
-    ),
-    [paidOrders]
-  );
-
-  const handleSummaryCardClick = (kind: 'paid' | 'pending' | 'completed') => {
+  const handleSummaryCardClick = (kind: Exclude<OrderSummaryModal, null>) => {
+    const requestId = summaryRequestIdRef.current + 1;
+    summaryRequestIdRef.current = requestId;
     setSummaryModal(kind);
+    setSummaryOrders([]);
+    setSummaryOrdersError('');
+    setIsSummaryOrdersLoading(true);
+
+    void fetchSummaryOrders(kind)
+      .then((nextOrders) => {
+        if (summaryRequestIdRef.current === requestId) setSummaryOrders(nextOrders);
+      })
+      .catch((requestError: unknown) => {
+        console.error('Failed to load order summary', requestError);
+        if (summaryRequestIdRef.current === requestId) {
+          setSummaryOrdersError('Could not load the complete order summary. Please try again.');
+        }
+      })
+      .finally(() => {
+        if (summaryRequestIdRef.current === requestId) setIsSummaryOrdersLoading(false);
+      });
   };
 
   const rangeStart = totalCount === 0 ? 0 : (page - 1) * ORDERS_PER_PAGE + 1;
@@ -1391,13 +1527,15 @@ const Orders: React.FC = () => {
     (updatedOrder: Order) => {
       dispatch({ type: 'UPDATE_ORDER', payload: updatedOrder });
       void loadOrders(true);
+      void loadSummaryCounts();
     },
-    [loadOrders]
+    [loadOrders, loadSummaryCounts]
   );
 
   const handleOrderStatusUpdated = useCallback((orderId: string, status: OrderStatus) => {
     dispatch({ type: 'UPDATE_ORDER_STATUS', payload: { orderId, status } });
-  }, []);
+    void loadSummaryCounts();
+  }, [loadSummaryCounts]);
 
   const openOrderDetails = useCallback((order: Order) => {
     orderDetailsTriggerElementRef.current = document.activeElement as HTMLElement | null;
@@ -1438,13 +1576,14 @@ const Orders: React.FC = () => {
       } else {
         await loadOrders(true);
       }
+      void loadSummaryCounts();
     } catch (deleteError: unknown) {
       console.error('Failed to delete order', deleteError);
       toast.error(getErrorMessage(deleteError, 'Failed to delete order'));
     } finally {
       setIsDeletingOrder(false);
     }
-  }, [closeOrderDeletionDialog, isDeletingOrder, loadOrders, orderPendingDeletion, orders.length, page]);
+  }, [closeOrderDeletionDialog, isDeletingOrder, loadOrders, loadSummaryCounts, orderPendingDeletion, orders.length, page]);
 
   const exportCsv = () => {
     const headers = [
@@ -1522,8 +1661,24 @@ const Orders: React.FC = () => {
         <FulfillmentReadiness />
 
         <div className="orders-stat-grid">
-          {isLoading
+          {isSummaryCountsLoading
             ? Array.from({ length: 3 }).map((_, index) => <StatSkeleton key={index} />)
+            : summaryCountsError
+              ? (
+                  <div className='card orders-summary-count-error' role='alert'>
+                    <span className='orders-summary-count-error-icon' aria-hidden='true'>
+                      <AlertTriangle size={20} />
+                    </span>
+                    <div>
+                      <strong>Order totals unavailable</strong>
+                      <p>{summaryCountsError} Existing order data has not been replaced.</p>
+                    </div>
+                    <button type='button' className='btn-ghost' onClick={() => void loadSummaryCounts()}>
+                      <RefreshCw size={15} />
+                      Retry
+                    </button>
+                  </div>
+                )
             : stats.map((stat) => (
                 <div
                   key={stat.label}
@@ -1924,13 +2079,9 @@ const Orders: React.FC = () => {
             <OrderSummaryDialog
               key={`summary-${summaryModal}`}
               mode={summaryModal}
-              orders={
-                summaryModal === 'paid'
-                  ? paidOrders
-                  : summaryModal === 'pending'
-                    ? pendingOrders
-                    : completedOrders
-              }
+              orders={summaryOrders}
+              isLoading={isSummaryOrdersLoading}
+              error={summaryOrdersError}
               onSelectOrder={(order) => {
                 setSummaryModal(null);
                 navigate(`/shipment-tracking?orderId=${encodeURIComponent(order._id)}`);
@@ -1976,9 +2127,11 @@ type SummaryLiveShipment = {
 const OrderSummaryDialog: React.FC<{
   mode: Exclude<OrderSummaryModal, null>;
   orders: Order[];
+  isLoading: boolean;
+  error: string;
   onSelectOrder: (order: Order) => void;
   onClose: () => void;
-}> = ({ mode, orders, onSelectOrder, onClose }) => {
+}> = ({ mode, orders, isLoading, error, onSelectOrder, onClose }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const completed = mode === 'completed';
   const pending = mode === 'pending';
@@ -2020,8 +2173,13 @@ const OrderSummaryDialog: React.FC<{
       )
     );
 
-    trackableOrders.forEach((order) => {
-      void getShiprocketTracking(order._id)
+    const queue = [...trackableOrders];
+    const loadNextShipment = (): Promise<void> => {
+      if (!active) return Promise.resolve();
+      const order = queue.shift();
+      if (!order) return Promise.resolve();
+
+      return getShiprocketTracking(order._id)
         .then((tracking) => {
           if (!active) return;
           setLiveShipments((current) => ({
@@ -2043,8 +2201,14 @@ const OrderSummaryDialog: React.FC<{
               loading: false,
             },
           }));
-        });
-    });
+        })
+        .then(loadNextShipment);
+    };
+
+    const workerCount = Math.min(4, queue.length);
+    for (let worker = 0; worker < workerCount; worker += 1) {
+      void loadNextShipment();
+    }
 
     return () => {
       active = false;
@@ -2075,13 +2239,15 @@ const OrderSummaryDialog: React.FC<{
             </h2>
             <p>
               {completed
-                ? 'Orders received by customers on this page.'
+                ? 'Orders received by customers.'
                 : pending
-                  ? 'Active paid shipments on this page. Select an order to track it.'
-                  : 'Verified customer payments on this page.'}
+                  ? 'Active paid shipments. Select an order to track it.'
+                  : 'Verified customer payments.'}
             </p>
           </div>
-          <span className='orders-summary-count'>{orders.length}</span>
+          <span className='orders-summary-count' aria-label={isLoading ? 'Loading order count' : `${orders.length} orders`}>
+            {isLoading ? <Loader2 className='animate-spin' size={14} /> : orders.length}
+          </span>
           <button type='button' className='action-icon-button' onClick={onClose} aria-label='Close' autoFocus>
             <X size={19} />
           </button>
@@ -2096,10 +2262,21 @@ const OrderSummaryDialog: React.FC<{
                 : <><span>Design</span><span>Order ID</span><span>Qty</span><span>Paid</span></>}
           </div>
           <div className='orders-summary-scroll'>
-            {orders.length === 0 ? (
+            {isLoading ? (
+              Array.from({ length: 5 }).map((_, index) => (
+                <div key={index} className='skeleton orders-summary-row'>
+                  <span className='sr-only'>Loading order summary row</span>
+                </div>
+              ))
+            ) : error ? (
+              <div className='orders-summary-empty is-error'>
+                <AlertTriangle size={28} />
+                <span>{error}</span>
+              </div>
+            ) : orders.length === 0 ? (
               <div className='orders-summary-empty'>
                 <PackageCheck size={28} />
-                <span>{pending ? 'No orders are awaiting delivery on this page.' : 'No matching orders on this page.'}</span>
+                <span>{pending ? 'No orders are awaiting delivery.' : 'No matching orders.'}</span>
               </div>
             ) : orders.map((order) => {
               const image = pending ? getSummaryProductImage(order) : getSummaryImage(order);
