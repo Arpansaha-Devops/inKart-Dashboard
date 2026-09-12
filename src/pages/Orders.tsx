@@ -2742,7 +2742,7 @@ const ShipmentWorkspace: React.FC<{ order: Order }> = ({ order }) => {
   const handleSyncShipment = async () => {
     dispatch({ type: 'setSyncingShipment', value: true });
     try {
-      const shipment = await syncShipment(order._id);
+      const shipment = await syncShipment(order._id, { approveOrder: true });
       if (!mountedRef.current) return;
       dispatch({ type: 'success', data: shipment, tracking: null, fetchedAt: new Date() });
       toast.success(shipment.awbCode ? `Shipment created — AWB ${shipment.awbCode}` : 'Shipment synced with Shiprocket');
@@ -3345,11 +3345,13 @@ const OrderDetailModal: React.FC<{
       if (!mountedRef.current) return;
       await setDeliveryEstimate(order._id, {
         estimatedDeliveryDate: deliveryDate,
+        approveOrder: true,
         ...(trimmedNote ? { deliveryNote: trimmedNote } : {}),
       });
       if (mountedRef.current) {
         onOrderUpdated({
           ...order,
+          orderStatus: 'confirmed',
           estimatedDeliveryDate: deliveryDate,
           deliveryNote: trimmedNote || undefined,
         });

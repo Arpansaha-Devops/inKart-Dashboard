@@ -3,6 +3,7 @@ import apiClient from '../lib/apiClient';
 export interface DeliveryEstimatePayload {
   estimatedDeliveryDate: string;
   deliveryNote?: string;
+  approveOrder: boolean;
 }
 
 export interface PincodeDeliveryEstimate {
@@ -411,8 +412,11 @@ export async function getShipmentDetails(orderId: string): Promise<ShiprocketDat
   return normalizeShiprocketData(response.data);
 }
 
-export async function syncShipment(orderId: string): Promise<ShiprocketData> {
-  const response = await apiClient.post(`/shipments/${encodeURIComponent(orderId)}/sync-shipment`);
+export async function syncShipment(
+  orderId: string,
+  data: { approveOrder: boolean } = { approveOrder: true }
+): Promise<ShiprocketData> {
+  const response = await apiClient.post(`/shipments/${encodeURIComponent(orderId)}/sync-shipment`, data);
   return normalizeShiprocketData(response.data);
 }
 
