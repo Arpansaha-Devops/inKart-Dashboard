@@ -338,7 +338,7 @@ const getCustomizationBackPreviewUrl = (source: Record<string, unknown>): string
 const normalizeOrderStatus = (value: unknown): OrderStatus => {
   const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (status === 'pending') return 'placed';
-  if (status === 'completed') return 'delivered';
+  if (status === 'completed' || status === 'delivered') return 'shipped';
   if (
     status === 'placed' ||
     status === 'confirmed' ||
@@ -1292,6 +1292,7 @@ const Orders: React.FC = () => {
   const [summaryOrders, setSummaryOrders] = useState<Order[]>([]);
   const [isSummaryOrdersLoading, setIsSummaryOrdersLoading] = useState(false);
   const [summaryOrdersError, setSummaryOrdersError] = useState('');
+  const [verifiedDeliveries, setVerifiedDeliveries] = useState<Record<string, boolean>>({});
   const summaryRequestIdRef = useRef(0);
   const orderListRequestIdRef = useRef(0);
   const summaryCountsRequestIdRef = useRef(0);
@@ -1416,6 +1417,50 @@ const Orders: React.FC = () => {
   useEffect(() => {
     void loadOrders();
   }, [loadOrders]);
+
+  useEffect(() => {
+    const trackableOrders = orders.filter((order) => Boolean(
+      order.shiprocket?.awbCode ||
+      order.shiprocket?.shipmentId ||
+      order.shiprocket?.shiprocketOrderId
+    ));
+
+    if (trackableOrders.length === 0) {
+      setVerifiedDeliveries({});
+      return;
+    }
+
+    let active = true;
+    setVerifiedDeliveries((current) => Object.fromEntries(
+      trackableOrders.map((order) => [order._id, current[order._id] === true])
+    ));
+
+    void Promise.all(trackableOrders.map(async (order) => {
+      try {
+        const tracking = await getShiprocketTracking(order._id);
+        const status = `${tracking.currentStatus || ''} ${tracking.activities.map((activity) => `${activity.status} ${activity.activity}`).join(' ')}`.toLowerCase();
+        return [order._id, Boolean(
+          tracking.deliveredDate ||
+          /\bdelivered\b/.test(status)
+        )] as const;
+      } catch {
+        return [order._id, false] as const;
+      }
+    })).then((results) => {
+      if (active) setVerifiedDeliveries(Object.fromEntries(results));
+    });
+
+    return () => { active = false; };
+  }, [orders]);
+
+  const displayedOrderStatus = useCallback((order: Order): OrderStatus => {
+    if (order.orderStatus === 'delivered' && !verifiedDeliveries[order._id]) {
+      return order.shiprocket?.awbCode || order.shiprocket?.shipmentId || order.shiprocket?.shiprocketOrderId
+        ? 'shipped'
+        : 'processing';
+    }
+    return verifiedDeliveries[order._id] ? 'delivered' : order.orderStatus;
+  }, [verifiedDeliveries]);
 
   useEffect(() => {
     void loadSummaryCounts();
@@ -1608,7 +1653,7 @@ const Orders: React.FC = () => {
       formatDateTime(order.createdAt),
       String(order.totalAmount),
       order.paymentStatus,
-      order.orderStatus,
+      displayedOrderStatus(order),
       order.shiprocket?.awbCode || '',
       order.shiprocket?.courierName || '',
     ]);
@@ -1864,7 +1909,7 @@ const Orders: React.FC = () => {
                         <tr
                           key={`${order.source}-${order._id}`}
                           className="group"
-                          data-order-state={order.orderStatus}
+                          data-order-state={displayedOrderStatus(order)}
                           data-order-source={order.source}
                         >
                           <td>
@@ -1886,7 +1931,7 @@ const Orders: React.FC = () => {
                             </div>
                           </td>
                           <td>
-                            <OrderStatusBadge status={order.orderStatus} />
+                            <OrderStatusBadge status={displayedOrderStatus(order)} />
                           </td>
                           <td style={{ textAlign: 'right' }}>
                             <div className="orders-row-actions">
@@ -1928,14 +1973,14 @@ const Orders: React.FC = () => {
                     <div
                       key={`${order.source}-${order._id}`}
                       className="card"
-                      data-order-state={order.orderStatus}
+                      data-order-state={displayedOrderStatus(order)}
                       data-order-source={order.source}
                       style={{ display: 'grid', gap: 14 }}
                     >
                       <div className='orders-compact-mobile-summary'>
                         <div className='orders-compact-mobile-heading'>
                           <strong title={order.customer.name}>{order.customer.name}</strong>
-                          <OrderStatusBadge status={order.orderStatus} />
+                          <OrderStatusBadge status={displayedOrderStatus(order)} />
                         </div>
                         <div className='orders-compact-mobile-details'>
                           <div>
@@ -2011,6 +2056,7 @@ const Orders: React.FC = () => {
             <OrderDetailModal
               key={selectedOrder._id}
               order={selectedOrder}
+              displayedStatus={displayedOrderStatus(selectedOrder)}
               onOrderUpdated={handleOrderUpdated}
               onOrderStatusUpdated={handleOrderStatusUpdated}
               onDelete={() => requestOrderDeletion(selectedOrder)}
@@ -3048,13 +3094,14 @@ const ShipmentWorkspace: React.FC<{ order: Order }> = ({ order }) => {
 
 const OrderDetailModal: React.FC<{
   order: Order;
+  displayedStatus: OrderStatus;
   onOrderUpdated: (order: Order) => void;
   onOrderStatusUpdated: (orderId: string, status: OrderStatus) => void;
   onDelete: () => void;
   onClose: () => void;
   onCopy: () => void;
-}> = ({ order, onOrderUpdated, onOrderStatusUpdated, onDelete, onClose, onCopy }) => {
-  const terminalLabel = terminalStatusLabel(order.orderStatus);
+}> = ({ order, displayedStatus, onOrderUpdated, onOrderStatusUpdated, onDelete, onClose, onCopy }) => {
+  const terminalLabel = terminalStatusLabel(displayedStatus);
   const mountedRef = useRef(true);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const previewDialogRef = useRef<HTMLDialogElement>(null);
@@ -3213,6 +3260,14 @@ const OrderDetailModal: React.FC<{
       if (!result.status) {
         dispatchDetail({ type: 'setStatusRefreshError', value: "Couldn't refresh status" });
         return;
+      }
+
+      if (result.status === 'delivered') {
+        const tracking = await getShiprocketTracking(order._id);
+        const trackingText = `${tracking.currentStatus || ''} ${tracking.activities.map((activity) => `${activity.status} ${activity.activity}`).join(' ')}`.toLowerCase();
+        if (!tracking.deliveredDate && !/\bdelivered\b/.test(trackingText)) {
+          return;
+        }
       }
 
       if (result.status !== order.orderStatus) {
@@ -3429,7 +3484,7 @@ const OrderDetailModal: React.FC<{
           </div>
           <div className="orders-detail-header-actions">
             <PaymentStatusBadge status={order.paymentStatus} />
-            <OrderStatusBadge status={order.orderStatus} />
+            <OrderStatusBadge status={displayedStatus} />
             <button type="button" className="action-icon-button" onClick={onClose} aria-label="Close order details">
               <X size={20} />
             </button>
@@ -3668,7 +3723,7 @@ const OrderDetailModal: React.FC<{
                   flexWrap: 'wrap',
                 }}
               >
-                <OrderStatusBadge status={order.orderStatus} />
+                <OrderStatusBadge status={displayedStatus} />
                 <button
                   type="button"
                   className="action-icon-button"

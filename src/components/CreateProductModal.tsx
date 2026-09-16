@@ -1674,7 +1674,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                                   onClick={() => addVariantSize(variant.id)}
                                 >
                                   <Plus size={14} /> Add size
-                                </button>
+                               </button>
                               </div>
                               {variant.sizes.map((sizeEntry, sizeIndex) => (
                                 <div
