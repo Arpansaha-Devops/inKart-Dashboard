@@ -336,10 +336,15 @@ const getCustomizationBackPreviewUrl = (source: Record<string, unknown>): string
 };
 
 const normalizeOrderStatus = (value: unknown): OrderStatus => {
-  const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  const status = typeof value === 'string'
+    ? value.trim().toLowerCase().replace(/[\s-]+/g, '_')
+    : '';
   if (status === 'pending') return 'placed';
-  if (status === 'completed' || status === 'delivered') return 'shipped';
+  if (status === 'completed') return 'delivered';
   if (status === 'canceled') return 'cancelled';
+  if (status === 'rto' || status === 'rto_delivered' || status === 'returned_to_rto') {
+    return 'returned';
+  }
   if (
     status === 'placed' ||
     status === 'confirmed' ||
@@ -353,6 +358,24 @@ const normalizeOrderStatus = (value: unknown): OrderStatus => {
     return status;
   }
   return 'placed';
+};
+
+const resolveOrderStatus = (value: Record<string, unknown>): OrderStatus => {
+  const candidates = [
+    value.orderStatus,
+    value.status,
+    value.fulfillmentStatus,
+    value.deliveryStatus,
+  ];
+  const normalized = candidates.map(normalizeOrderStatus);
+
+  if (normalized.includes('cancelled')) return 'cancelled';
+  if (normalized.includes('returned') || normalized.includes('return_requested')) {
+    return normalized.includes('returned') ? 'returned' : 'return_requested';
+  }
+  if (normalized.includes('delivered')) return 'delivered';
+
+  return normalized.find((status) => status !== 'placed') || normalized[0] || 'placed';
 };
 
 const normalizePaymentStatus = (value: unknown): PaymentStatus => {
@@ -392,6 +415,8 @@ const getShipmentOutcome = (tracking: ShiprocketTrackingResult): ShipmentOutcome
 
 const isPendingFulfillmentOrder = (order: Order) =>
   PENDING_FULFILLMENT_STATUSES.includes(order.orderStatus);
+
+const isCancelledOrder = (order: Order) => order.orderStatus === 'cancelled';
 
 const normalizeLayer = (value: unknown): Layer | null => {
   if (!isRecord(value)) return null;
@@ -642,7 +667,7 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
           }
         : undefined,
     totalAmount: getNumber(value, ['totalAmount', 'amount', 'total', 'paidAmount']),
-    orderStatus: normalizeOrderStatus(value.status ?? value.orderStatus),
+    orderStatus: resolveOrderStatus(value),
     paymentStatus: normalizePaymentStatus(
       value.paymentStatus ?? value.payment_status ?? payment.status
     ),
@@ -835,14 +860,16 @@ const fetchSummaryCounts = async () => {
 const fetchSummaryOrders = async (
   mode: Exclude<OrderSummaryModal, null>
 ): Promise<Order[]> => {
-  if (mode === 'completed') return fetchAllPaidOrders('delivered');
+  if (mode === 'completed') {
+    return (await fetchAllPaidOrders('delivered')).filter((order) => !isCancelledOrder(order));
+  }
   if (mode === 'pending') {
     const pages = await Promise.all(
       PENDING_FULFILLMENT_STATUSES.map((status) => fetchAllPaidOrders(status))
     );
     return dedupeAndSortOrders(pages.flat()).filter(isPendingFulfillmentOrder);
   }
-  return fetchAllPaidOrders();
+  return (await fetchAllPaidOrders()).filter((order) => !isCancelledOrder(order));
 };
 
 const currencyFormatter = new Intl.NumberFormat('en-IN', {
