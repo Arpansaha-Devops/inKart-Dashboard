@@ -196,9 +196,9 @@ const orderStatusStyles: Record<OrderStatus, { color: string; background: string
   processing: { color: '#9333ea', background: 'rgba(147, 51, 234, 0.15)' },
   shipped: { color: '#0891b2', background: 'rgba(8, 145, 178, 0.15)' },
   delivered: { color: 'var(--success)', background: 'var(--success-muted)' },
-  cancelled: { color: 'var(--danger)', background: 'var(--danger-muted)' },
+  cancelled: { color: '#a16207', background: 'rgba(234, 179, 8, 0.18)' },
   return_requested: { color: '#d97706', background: 'rgba(217, 119, 6, 0.16)' },
-  returned: { color: 'var(--text-secondary)', background: 'var(--bg-input)' },
+  returned: { color: '#dc2626', background: 'rgba(220, 38, 38, 0.14)' },
 };
 
 const paymentStatusStyles: Record<PaymentStatus, { color: string; background: string }> = {
@@ -339,6 +339,7 @@ const normalizeOrderStatus = (value: unknown): OrderStatus => {
   const status = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (status === 'pending') return 'placed';
   if (status === 'completed' || status === 'delivered') return 'shipped';
+  if (status === 'canceled') return 'cancelled';
   if (
     status === 'placed' ||
     status === 'confirmed' ||
@@ -365,6 +366,32 @@ const normalizePaymentStatus = (value: unknown): PaymentStatus => {
   if (status === 'cancelled' || status === 'canceled') return 'failed';
   return 'pending';
 };
+
+type ShipmentOutcome = 'delivered' | 'returned' | null;
+
+const getShipmentOutcome = (tracking: ShiprocketTrackingResult): ShipmentOutcome => {
+  const trackingText = [
+    tracking.currentStatus,
+    ...tracking.activities.flatMap((activity) => [activity.status, activity.activity]),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (
+    /\brto\b|return\s+(?:to|back)|returned\s+to|return\s+accepted|reverse\s+(?:pickup|shipment)/.test(
+      trackingText
+    )
+  ) {
+    return 'returned';
+  }
+
+  if (tracking.deliveredDate || /\bdelivered\b/.test(trackingText)) return 'delivered';
+  return null;
+};
+
+const isPendingFulfillmentOrder = (order: Order) =>
+  PENDING_FULFILLMENT_STATUSES.includes(order.orderStatus);
 
 const normalizeLayer = (value: unknown): Layer | null => {
   if (!isRecord(value)) return null;
@@ -813,7 +840,7 @@ const fetchSummaryOrders = async (
     const pages = await Promise.all(
       PENDING_FULFILLMENT_STATUSES.map((status) => fetchAllPaidOrders(status))
     );
-    return dedupeAndSortOrders(pages.flat());
+    return dedupeAndSortOrders(pages.flat()).filter(isPendingFulfillmentOrder);
   }
   return fetchAllPaidOrders();
 };
@@ -992,7 +1019,7 @@ const SHIPROCKET_STATUS_STYLES: Record<string, { color: string; background: stri
   'in transit': { color: 'var(--info)', background: 'var(--info-muted)' },
   'picked up': { color: '#0891b2', background: 'rgba(8,145,178,0.12)' },
   'shipment created': { color: '#ca8a04', background: 'rgba(234,179,8,0.14)' },
-  cancelled: { color: 'var(--danger)', background: 'var(--danger-muted)' },
+  cancelled: { color: '#b45309', background: 'rgba(234, 179, 8, 0.22)' },
 };
 
 const ShiprocketStatusBadge: React.FC<{ status: string | null }> = ({ status }) => {
@@ -1292,7 +1319,7 @@ const Orders: React.FC = () => {
   const [summaryOrders, setSummaryOrders] = useState<Order[]>([]);
   const [isSummaryOrdersLoading, setIsSummaryOrdersLoading] = useState(false);
   const [summaryOrdersError, setSummaryOrdersError] = useState('');
-  const [verifiedDeliveries, setVerifiedDeliveries] = useState<Record<string, boolean>>({});
+  const [shipmentOutcomes, setShipmentOutcomes] = useState<Record<string, ShipmentOutcome>>({});
   const summaryRequestIdRef = useRef(0);
   const orderListRequestIdRef = useRef(0);
   const summaryCountsRequestIdRef = useRef(0);
@@ -1419,48 +1446,46 @@ const Orders: React.FC = () => {
   }, [loadOrders]);
 
   useEffect(() => {
-    const trackableOrders = orders.filter((order) => Boolean(
+    const trackableOrders = orders.filter((order) => order.orderStatus !== 'cancelled' && Boolean(
       order.shiprocket?.awbCode ||
       order.shiprocket?.shipmentId ||
       order.shiprocket?.shiprocketOrderId
     ));
 
     if (trackableOrders.length === 0) {
-      setVerifiedDeliveries({});
+      setShipmentOutcomes({});
       return;
     }
 
     let active = true;
-    setVerifiedDeliveries((current) => Object.fromEntries(
-      trackableOrders.map((order) => [order._id, current[order._id] === true])
+    setShipmentOutcomes((current) => Object.fromEntries(
+      trackableOrders.map((order) => [order._id, current[order._id] || null])
     ));
 
     void Promise.all(trackableOrders.map(async (order) => {
       try {
         const tracking = await getShiprocketTracking(order._id);
-        const status = `${tracking.currentStatus || ''} ${tracking.activities.map((activity) => `${activity.status} ${activity.activity}`).join(' ')}`.toLowerCase();
-        return [order._id, Boolean(
-          tracking.deliveredDate ||
-          /\bdelivered\b/.test(status)
-        )] as const;
+        return [order._id, getShipmentOutcome(tracking)] as const;
       } catch {
-        return [order._id, false] as const;
+        return [order._id, null] as const;
       }
     })).then((results) => {
-      if (active) setVerifiedDeliveries(Object.fromEntries(results));
+      if (active) setShipmentOutcomes(Object.fromEntries(results));
     });
 
     return () => { active = false; };
   }, [orders]);
 
   const displayedOrderStatus = useCallback((order: Order): OrderStatus => {
-    if (order.orderStatus === 'delivered' && !verifiedDeliveries[order._id]) {
+    if (order.orderStatus === 'cancelled') return 'cancelled';
+    if (shipmentOutcomes[order._id] === 'returned') return 'returned';
+    if (order.orderStatus === 'delivered' && shipmentOutcomes[order._id] !== 'delivered') {
       return order.shiprocket?.awbCode || order.shiprocket?.shipmentId || order.shiprocket?.shiprocketOrderId
         ? 'shipped'
         : 'processing';
     }
-    return verifiedDeliveries[order._id] ? 'delivered' : order.orderStatus;
-  }, [verifiedDeliveries]);
+    return shipmentOutcomes[order._id] === 'delivered' ? 'delivered' : order.orderStatus;
+  }, [shipmentOutcomes]);
 
   useEffect(() => {
     void loadSummaryCounts();
@@ -2108,7 +2133,7 @@ const OrderSummaryDialog: React.FC<{
   }, []);
 
   useEffect(() => {
-    if (!pending) return;
+    if (!pending && !completed) return;
 
     const trackableOrders = orders.filter((order) =>
       Boolean(
@@ -2146,6 +2171,17 @@ const OrderSummaryDialog: React.FC<{
       return getShiprocketTracking(order._id)
         .then((tracking) => {
           if (!active) return;
+          if (getShipmentOutcome(tracking) === 'returned') {
+            setLiveShipments((current) => ({
+              ...current,
+              [order._id]: {
+                awbCode: tracking.awbCode || order.shiprocket?.awbCode || null,
+                status: 'returned',
+                loading: false,
+              },
+            }));
+            return;
+          }
           setLiveShipments((current) => ({
             ...current,
             [order._id]: {
@@ -2177,7 +2213,17 @@ const OrderSummaryDialog: React.FC<{
     return () => {
       active = false;
     };
-  }, [orders, pending]);
+  }, [completed, orders, pending]);
+
+  const visibleOrders = orders.filter((order) => {
+    if (order.orderStatus === 'cancelled') return false;
+    if (pending || completed) {
+      if (order.orderStatus === 'returned') return false;
+      if (liveShipments[order._id]?.status === 'returned') return false;
+    }
+    if (pending) return isPendingFulfillmentOrder(order);
+    return true;
+  });
 
   return (
     <dialog
@@ -2209,8 +2255,8 @@ const OrderSummaryDialog: React.FC<{
                   : 'Verified customer payments.'}
             </p>
           </div>
-          <span className='orders-summary-count' aria-label={isLoading ? 'Loading order count' : `${orders.length} orders`}>
-            {isLoading ? <Loader2 className='animate-spin' size={14} /> : orders.length}
+          <span className='orders-summary-count' aria-label={isLoading ? 'Loading order count' : `${visibleOrders.length} orders`}>
+            {isLoading ? <Loader2 className='animate-spin' size={14} /> : visibleOrders.length}
           </span>
           <button type='button' className='action-icon-button' onClick={onClose} aria-label='Close' autoFocus>
             <X size={19} />
@@ -2237,12 +2283,12 @@ const OrderSummaryDialog: React.FC<{
                 <AlertTriangle size={28} />
                 <span>{error}</span>
               </div>
-            ) : orders.length === 0 ? (
+            ) : visibleOrders.length === 0 ? (
               <div className='orders-summary-empty'>
                 <PackageCheck size={28} />
                 <span>{pending ? 'No orders are awaiting delivery.' : 'No matching orders.'}</span>
               </div>
-            ) : orders.map((order) => {
+            ) : visibleOrders.map((order) => {
               const image = pending ? getSummaryProductImage(order) : getSummaryImage(order);
               const quantity = order.items.reduce((sum, item) => sum + item.quantity, 0);
               const liveShipment = liveShipments[order._id];
