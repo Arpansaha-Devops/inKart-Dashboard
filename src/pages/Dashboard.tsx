@@ -81,6 +81,7 @@ type DashboardActivityItem = {
   timestamp: string;
   sortTime: number;
   badge: string;
+  status?: string;
 };
 
 const quickActions = [
@@ -224,6 +225,48 @@ const normalizeValue = (value: unknown): string => {
   if (typeof value !== 'string') return '';
   return value.trim().toLowerCase();
 };
+
+const normalizeActivityStatus = (value: unknown): string => {
+  const status = normalizeValue(value).replace(/[\s-]+/g, '_');
+  if (status === 'canceled') return 'cancelled';
+  if (status === 'completed') return 'delivered';
+  if (status.startsWith('rto') || status === 'returned_to_rto') return 'returned';
+  return status;
+};
+
+const resolveActivityOrderStatus = (order: any, shiprocket: any): string => {
+  const shipmentStatus = normalizeActivityStatus(shiprocket?.shipmentStatus || shiprocket?.status);
+  if (
+    order?.isCancelled === true ||
+    order?.isCanceled === true ||
+    order?.cancelledAt ||
+    order?.canceledAt ||
+    normalizeActivityStatus(order?.cancellationStatus || order?.cancelStatus) === 'cancelled' ||
+    shipmentStatus === 'cancelled'
+  ) {
+    return 'cancelled';
+  }
+
+  const statuses = [
+    order?.orderStatus,
+    order?.status,
+    order?.fulfillmentStatus,
+    order?.deliveryStatus,
+  ].map(normalizeActivityStatus);
+  if (statuses.includes('returned') || statuses.includes('return_requested') || shipmentStatus === 'returned') {
+    return statuses.includes('returned') || shipmentStatus === 'returned' ? 'returned' : 'return_requested';
+  }
+  if (statuses.includes('delivered') || shipmentStatus === 'delivered') {
+    return 'delivered';
+  }
+  return statuses.find(Boolean) || 'placed';
+};
+
+const activityStatusLabel = (status: string): string =>
+  status
+    .split('_')
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ');
 
 const hashString = (value: string): number => {
   let hash = 0;
@@ -387,7 +430,7 @@ const extractActivityOrders = (payload: any): DashboardActivityOrder[] => {
         order?.updatedAt ||
         ''
       ).trim(),
-      status: normalizeValue(order?.orderStatus || order?.status),
+      status: resolveActivityOrderStatus(order, shiprocket),
     }];
   });
 };
@@ -486,7 +529,6 @@ const Dashboard: React.FC = () => {
               page: 1,
               limit: ACTIVITY_ORDER_LIMIT,
               paymentStatus: 'paid',
-              status: 'delivered',
             },
           }),
         ]);
@@ -530,9 +572,7 @@ const Dashboard: React.FC = () => {
 
         const dashboardDeliveredOrders =
           deliveredOrdersRes.status === 'fulfilled'
-            ? extractActivityOrders(deliveredOrdersPayload).filter(
-                (order) => order.status === 'delivered'
-              )
+            ? extractActivityOrders(deliveredOrdersPayload)
             : lastKnownDeliveredOrders.current;
         if (deliveredOrdersRes.status === 'fulfilled') {
           lastKnownDeliveredOrders.current = dashboardDeliveredOrders;
@@ -829,15 +869,27 @@ const Dashboard: React.FC = () => {
       badge: 'Paid',
     }));
 
-    const deliveryActivities = recentDeliveredOrders.map((order) => ({
-      id: `delivery-${order.id}`,
-      type: 'delivery' as const,
-      title: `${order.orderNumber} delivered`,
-      description: `Successfully delivered to ${order.customerName}`,
-      timestamp: order.deliveredAt,
-      sortTime: toActivityTime(order.deliveredAt),
-      badge: 'Delivered',
-    }));
+    const deliveryActivities = recentDeliveredOrders.map((order) => {
+      const statusLabel = activityStatusLabel(order.status);
+      const description = order.status === 'delivered'
+        ? `Successfully delivered to ${order.customerName}`
+        : order.status === 'cancelled'
+          ? `Order cancelled for ${order.customerName}`
+          : order.status === 'returned'
+            ? `Order returned by ${order.customerName}`
+            : `${statusLabel} order for ${order.customerName}`;
+
+      return {
+        id: `delivery-${order.id}`,
+        type: 'delivery' as const,
+        title: `${order.orderNumber} ${statusLabel.toLowerCase()}`,
+        description,
+        timestamp: order.deliveredAt,
+        sortTime: toActivityTime(order.deliveredAt),
+        badge: statusLabel,
+        status: order.status,
+      };
+    });
 
     return [...userActivities, ...purchaseActivities, ...deliveryActivities]
       .sort((left, right) => right.sortTime - left.sortTime)
@@ -1023,6 +1075,7 @@ const Dashboard: React.FC = () => {
                     key={activity.id}
                     className="dashboard-activity-row"
                     data-activity-type={activity.type}
+                    data-activity-status={activity.status}
                   >
                     <span className="dashboard-activity-icon" aria-hidden="true">
                       <ActivityIcon size={17} />

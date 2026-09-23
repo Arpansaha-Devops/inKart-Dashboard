@@ -12,6 +12,7 @@ Current functionality:
 - Protected admin-only routes
 - Dashboard summary cards, product/category charts, coupon discount chart, recent users, and quick actions
 - Orders listing with server filters, search, date range filtering, pagination, CSV export, detailed front/back customization previews, purchased quantity summaries, order approval, delivery estimate updates, confirmation email resend, and a server-backed order-history delete workflow
+- Shipment tracking workspace for paid, approved orders with Shiprocket synchronization, AWB lookup, live tracking timeline, pickup scheduling, label/manifest download, and shipment cancellation
 - Order analytics KPI cards and revenue-over-time chart
 - Customer listing, debounced search, pagination, customer details, and user deletion
 - Product listing, create, edit, stock adjustment, quantity pricing tiers, image upload, and verified delete
@@ -118,6 +119,7 @@ Actual frontend runtime usage:
 - Uses `BrowserRouter` with `basename="/admin"`.
 - Mounts `Toaster`.
 - Defines public and protected routes.
+- Adds the protected `/shipment-tracking` route alongside regular admin pages.
 - Lazy-loads `Dashboard` and `Analytics`.
 
 ## Route Map
@@ -127,6 +129,7 @@ Actual frontend runtime usage:
 | `/login` | Public | `Login` |
 | `/dashboard` | Admin only | `Dashboard` |
 | `/orders` | Admin only | `Orders` |
+| `/shipment-tracking` | Admin only | `ShipmentTracking` |
 | `/analytics` | Admin only | `Analytics` |
 | `/customers` | Admin only | `Customers` |
 | `/products` | Admin only | `Products` |
@@ -139,6 +142,7 @@ Sidebar navigation matches the protected routes:
 
 - Dashboard
 - Orders
+- Shipment Tracking
 - Analytics
 - Customers
 - Products
@@ -194,6 +198,13 @@ All backend endpoints referenced by current source:
 | `DELETE` | `/orders/:id/history` | Order-history delete workflow; currently not usable for admin-owned deletion of customer orders |
 | `GET` | `/customization/:id` | Order detail customization/preview fallback |
 | `POST` | `/shipments/check-delivery` | Order detail pincode delivery estimate |
+| `GET` | `/shipments/:id/shipmentDetails` | Shipment tracking workspace, Shiprocket shipment details |
+| `POST` | `/shipments/:id/sync-shipment` | Shipment tracking create/sync AWB and Shiprocket shipment |
+| `GET` | `/shipments/:id/label` | Shipment tracking shipping label download |
+| `GET` | `/shipments/:id/manifest` | Shipment tracking manifest download |
+| `POST` | `/shipments/:id/pickup` | Shipment tracking pickup scheduling |
+| `POST` | `/shipments/:id/cancel-shipment` | Shipment tracking cancellation |
+| `GET` | `/shipments/:id/track` | Shipment tracking live updates and timeline |
 | `GET` | `/admin/products` | Dashboard, Products, CreateProductModal, productService |
 | `GET` | `/products` | Dashboard/Products fallback, product delete fallback |
 | `POST` | `/admin/products` | Products, CreateProductModal, productService |
@@ -289,6 +300,31 @@ Implementation notes:
 - Front and back artwork have separate preview cards. The back card remains an explicit API-pending placeholder until a back-preview URL is returned.
 - The Shiprocket fulfillment workspace is intentionally static and marked API/webhook pending; it does not invent shipment, courier, AWB, or tracking values.
 - `DELETE /orders/:id/history` is documented by the backend but live testing shows it is user-scoped: an admin deleting a customer-owned order receives `404`. A dedicated admin endpoint is still required.
+
+### Shipment Tracking
+
+File: [src/pages/ShipmentTracking.tsx](src/pages/ShipmentTracking.tsx)
+
+Provides a dedicated Shiprocket fulfillment workspace for paid, approved orders. It lets admins pick an order, refresh shipment data, sync an AWB, view the live tracking timeline, schedule pickups, download the shipping label and manifest, and cancel shipments when the order is still actionable.
+
+API calls:
+
+- `GET /admin/orders` with `paymentStatus=paid` to load eligible shipment orders
+- `GET /shipments/:id/shipmentDetails`
+- `GET /shipments/:id/track`
+- `POST /shipments/:id/sync-shipment`
+- `POST /shipments/:id/pickup`
+- `GET /shipments/:id/label`
+- `GET /shipments/:id/manifest`
+- `POST /shipments/:id/cancel-shipment`
+
+Implementation notes:
+
+- Only paid, approved, non-terminal orders can manage shipment workflows.
+- The page auto-refreshes every 30 seconds while a shipment has an active booking and is not terminal.
+- It normalizes flexible Shiprocket response payloads through [src/services/orderService.ts](src/services/orderService.ts), including AWB, courier, tracking timeline, fire-and-forget pickup results, and label/manifest URLs.
+- The UI gracefully handles missing shipment data, invalid tracking payloads, and transient backend failures without locking the admin out of the order list.
+- A dedicated `Shipment Tracking` entry is exposed in the admin sidebar and route tree, and can open a selected order directly via `?orderId=` query param.
 
 ### Customers
 

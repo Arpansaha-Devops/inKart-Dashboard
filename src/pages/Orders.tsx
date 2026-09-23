@@ -361,6 +361,9 @@ const normalizeOrderStatus = (value: unknown): OrderStatus => {
 };
 
 const resolveOrderStatus = (value: Record<string, unknown>): OrderStatus => {
+  const cancellationStatus = normalizeOrderStatus(value.cancellationStatus ?? value.cancelStatus);
+  const hasCancellationFlag = value.isCancelled === true || value.isCanceled === true;
+  const hasCancellationTimestamp = Boolean(value.cancelledAt || value.canceledAt);
   const candidates = [
     value.orderStatus,
     value.status,
@@ -369,7 +372,9 @@ const resolveOrderStatus = (value: Record<string, unknown>): OrderStatus => {
   ];
   const normalized = candidates.map(normalizeOrderStatus);
 
-  if (normalized.includes('cancelled')) return 'cancelled';
+  if (hasCancellationFlag || hasCancellationTimestamp || cancellationStatus === 'cancelled' || normalized.includes('cancelled')) {
+    return 'cancelled';
+  }
   if (normalized.includes('returned') || normalized.includes('return_requested')) {
     return normalized.includes('returned') ? 'returned' : 'return_requested';
   }
@@ -390,7 +395,7 @@ const normalizePaymentStatus = (value: unknown): PaymentStatus => {
   return 'pending';
 };
 
-type ShipmentOutcome = 'delivered' | 'returned' | null;
+type ShipmentOutcome = 'delivered' | 'returned' | 'cancelled' | null;
 
 const getShipmentOutcome = (tracking: ShiprocketTrackingResult): ShipmentOutcome => {
   const trackingText = [
@@ -401,6 +406,7 @@ const getShipmentOutcome = (tracking: ShiprocketTrackingResult): ShipmentOutcome
     .join(' ')
     .toLowerCase();
 
+  if (/\bcancel(?:led|ed)\b/.test(trackingText)) return 'cancelled';
   if (
     /\brto\b|return\s+(?:to|back)|returned\s+to|return\s+accepted|reverse\s+(?:pickup|shipment)/.test(
       trackingText
@@ -413,10 +419,12 @@ const getShipmentOutcome = (tracking: ShiprocketTrackingResult): ShipmentOutcome
   return null;
 };
 
-const isPendingFulfillmentOrder = (order: Order) =>
-  PENDING_FULFILLMENT_STATUSES.includes(order.orderStatus);
+const isCancelledOrder = (order: Order) =>
+  order.orderStatus === 'cancelled' ||
+  normalizeOrderStatus(order.shiprocket?.shipmentStatus) === 'cancelled';
 
-const isCancelledOrder = (order: Order) => order.orderStatus === 'cancelled';
+const isPendingFulfillmentOrder = (order: Order) =>
+  !isCancelledOrder(order) && PENDING_FULFILLMENT_STATUSES.includes(order.orderStatus);
 
 const normalizeLayer = (value: unknown): Layer | null => {
   if (!isRecord(value)) return null;
@@ -842,18 +850,17 @@ const fetchAllPaidOrders = async (status?: OrderStatus, search?: string): Promis
 };
 
 const fetchSummaryCounts = async () => {
-  const [paid, delivered, ...pending] = await Promise.all([
-    fetchPaidOrdersPage({ page: 1, limit: 1 }),
-    fetchPaidOrdersPage({ page: 1, limit: 1, status: 'delivered' }),
-    ...PENDING_FULFILLMENT_STATUSES.map((status) =>
-      fetchPaidOrdersPage({ page: 1, limit: 1, status })
-    ),
+  const [paidOrders, deliveredOrders, ...pendingOrderPages] = await Promise.all([
+    fetchAllPaidOrders(),
+    fetchAllPaidOrders('delivered'),
+    ...PENDING_FULFILLMENT_STATUSES.map((status) => fetchAllPaidOrders(status)),
   ]);
+  const pendingOrders = dedupeAndSortOrders(pendingOrderPages.flat()).filter(isPendingFulfillmentOrder);
 
   return {
-    paid: paid.total,
-    pending: pending.reduce((total, response) => total + response.total, 0),
-    completed: delivered.total,
+    paid: paidOrders.filter((order) => !isCancelledOrder(order)).length,
+    pending: pendingOrders.length,
+    completed: deliveredOrders.filter((order) => !isCancelledOrder(order)).length,
   };
 };
 
@@ -1504,7 +1511,7 @@ const Orders: React.FC = () => {
   }, [orders]);
 
   const displayedOrderStatus = useCallback((order: Order): OrderStatus => {
-    if (order.orderStatus === 'cancelled') return 'cancelled';
+    if (isCancelledOrder(order) || shipmentOutcomes[order._id] === 'cancelled') return 'cancelled';
     if (shipmentOutcomes[order._id] === 'returned') return 'returned';
     if (order.orderStatus === 'delivered' && shipmentOutcomes[order._id] !== 'delivered') {
       return order.shiprocket?.awbCode || order.shiprocket?.shipmentId || order.shiprocket?.shiprocketOrderId
