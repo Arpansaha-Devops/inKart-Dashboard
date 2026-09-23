@@ -406,7 +406,11 @@ const getShipmentOutcome = (tracking: ShiprocketTrackingResult): ShipmentOutcome
     .join(' ')
     .toLowerCase();
 
-  if (/\bcancel(?:led|ed)\b/.test(trackingText)) return 'cancelled';
+  if (tracking.deliveredDate || /\bdelivered\b/.test(trackingText)) return 'delivered';
+
+  const currentText = (tracking.currentStatus || '').toLowerCase();
+  if (!tracking.deliveredDate && /\bcancel(?:led|ed)\b/.test(currentText)) return 'cancelled';
+
   if (
     /\brto\b|return\s+(?:to|back)|returned\s+to|return\s+accepted|reverse\s+(?:pickup|shipment)/.test(
       trackingText
@@ -415,7 +419,6 @@ const getShipmentOutcome = (tracking: ShiprocketTrackingResult): ShipmentOutcome
     return 'returned';
   }
 
-  if (tracking.deliveredDate || /\bdelivered\b/.test(trackingText)) return 'delivered';
   return null;
 };
 
@@ -850,17 +853,12 @@ const fetchAllPaidOrders = async (status?: OrderStatus, search?: string): Promis
 };
 
 const fetchSummaryCounts = async () => {
-  const [paidOrders, deliveredOrders, ...pendingOrderPages] = await Promise.all([
-    fetchAllPaidOrders(),
-    fetchAllPaidOrders('delivered'),
-    ...PENDING_FULFILLMENT_STATUSES.map((status) => fetchAllPaidOrders(status)),
-  ]);
-  const pendingOrders = dedupeAndSortOrders(pendingOrderPages.flat()).filter(isPendingFulfillmentOrder);
+  const paidOrders = (await fetchAllPaidOrders()).filter((order) => !isCancelledOrder(order));
 
   return {
-    paid: paidOrders.filter((order) => !isCancelledOrder(order)).length,
-    pending: pendingOrders.length,
-    completed: deliveredOrders.filter((order) => !isCancelledOrder(order)).length,
+    paid: paidOrders.length,
+    pending: paidOrders.filter(isPendingFulfillmentOrder).length,
+    completed: paidOrders.filter((order) => order.orderStatus === 'delivered').length,
   };
 };
 
