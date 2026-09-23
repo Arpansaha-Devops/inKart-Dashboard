@@ -60,6 +60,9 @@ type OrderSource = 'customized' | 'standard';
 type OrderStatusFilter = 'all' | OrderStatus;
 type OrderSummaryModal = 'paid' | 'pending' | 'completed' | null;
 
+
+
+
 interface Layer {
   _id?: string;
   id?: string;
@@ -71,6 +74,14 @@ interface Layer {
   text?: string;
 }
 
+
+interface ArtworkFile {
+  url: string;
+  publicId?: string;
+  fileName?: string;
+  fileType?: string;
+}
+
 interface OrderCustomization {
   _id: string;
   previewImageUrl?: string;
@@ -79,7 +90,10 @@ interface OrderCustomization {
   canvasHeight: number;
   layers: Layer[];
   backLayers?: Layer[];
+  frontUploadedFiles?: ArtworkFile[];
+  backUploadedFiles?: ArtworkFile[];
 }
+
 
 interface OrderItem {
   _id: string;
@@ -406,18 +420,19 @@ const getShipmentOutcome = (tracking: ShiprocketTrackingResult): ShipmentOutcome
     .join(' ')
     .toLowerCase();
 
-  if (tracking.deliveredDate || /\bdelivered\b/.test(trackingText)) return 'delivered';
-
   const currentText = (tracking.currentStatus || '').toLowerCase();
-  if (!tracking.deliveredDate && /\bcancel(?:led|ed)\b/.test(currentText)) return 'cancelled';
 
   if (
-    /\brto\b|return\s+(?:to|back)|returned\s+to|return\s+accepted|reverse\s+(?:pickup|shipment)/.test(
+    /\brto\b|return\s+(?:to|back)|returned\s+to|return\s+accepted|reverse\s+(?:pickup|shipment)|\breturned\b|return_requested/.test(
       trackingText
     )
   ) {
     return 'returned';
   }
+
+  if (!tracking.deliveredDate && /\bcancel(?:led|ed)\b/.test(currentText)) return 'cancelled';
+
+  if (tracking.deliveredDate || /\bdelivered\b/.test(trackingText)) return 'delivered';
 
   return null;
 };
@@ -446,6 +461,45 @@ const normalizeLayer = (value: unknown): Layer | null => {
 const normalizeLayers = (items: unknown[]) =>
   items.map(normalizeLayer).filter((layer): layer is Layer => layer !== null);
 
+const normalizeArtworkFiles = (items: unknown[]): ArtworkFile[] =>
+  items.reduce<ArtworkFile[]>((result, item) => {
+    if (!isRecord(item)) return result;
+    const url = getString(item, ['url', 'secure_url', 'imageUrl']);
+    if (url) {
+      result.push({
+        url,
+        publicId: getString(item, ['publicId', 'public_id']) || undefined,
+        fileName: getString(item, ['fileName', 'file_name', 'originalname', 'name']) || undefined,
+        fileType: getString(item, ['fileType', 'file_type', 'mimetype', 'type']) || undefined,
+      });
+    }
+    return result;
+  }, []);
+
+const getDesignSideUploadedFiles = (
+  source: Record<string, unknown>,
+  side: 'front' | 'back'
+): ArtworkFile[] => {
+  // Try designs[] array first (new API contract)
+  const designs = getArray(source, ['designs']);
+  for (const design of designs) {
+    if (!isRecord(design)) continue;
+    const designSide = getString(design, ['side']);
+    if (designSide === side) {
+      const files = normalizeArtworkFiles(getArray(design, ['uploadedFiles']));
+      if (files.length > 0) return files;
+    }
+  }
+  // Fallback: flat uploadedFiles on the customization root
+  if (side === 'front') {
+    return normalizeArtworkFiles(
+      getArray(source, ['uploadedFiles', 'frontUploadedFiles', 'artworkFiles'])
+    );
+  }
+  return normalizeArtworkFiles(getArray(source, ['backUploadedFiles']));
+};
+
+
 const normalizeCustomization = (
   value: Record<string, unknown>,
   fallbackId = ''
@@ -460,6 +514,8 @@ const normalizeCustomization = (
     const layers = normalizeLayers(getArray(value, ['backLayers', 'backObjects']));
     return layers.length > 0 ? layers : undefined;
   })(),
+  frontUploadedFiles: getDesignSideUploadedFiles(value, 'front'),
+  backUploadedFiles: getDesignSideUploadedFiles(value, 'back'),
 });
 
 const normalizeCustomizationResponse = (
@@ -673,8 +729,10 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
               ['canvasHeight', 'height'],
               getNumber(value, ['canvasHeight'])
             ),
-            layers: frontLayers,
+             layers: frontLayers,
             backLayers: backLayers.length > 0 ? backLayers : undefined,
+            frontUploadedFiles: getDesignSideUploadedFiles(customizationSource, 'front'),
+            backUploadedFiles: getDesignSideUploadedFiles(customizationSource, 'back'),
           }
         : undefined,
     totalAmount: getNumber(value, ['totalAmount', 'amount', 'total', 'paidAmount']),
@@ -1509,14 +1567,19 @@ const Orders: React.FC = () => {
   }, [orders]);
 
   const displayedOrderStatus = useCallback((order: Order): OrderStatus => {
-    if (isCancelledOrder(order) || shipmentOutcomes[order._id] === 'cancelled') return 'cancelled';
-    if (shipmentOutcomes[order._id] === 'returned') return 'returned';
-    if (order.orderStatus === 'delivered' && shipmentOutcomes[order._id] !== 'delivered') {
-      return order.shiprocket?.awbCode || order.shiprocket?.shipmentId || order.shiprocket?.shiprocketOrderId
-        ? 'shipped'
-        : 'processing';
-    }
-    return shipmentOutcomes[order._id] === 'delivered' ? 'delivered' : order.orderStatus;
+    const liveOutcome = shipmentOutcomes[order._id];
+
+    if (isCancelledOrder(order)) return 'cancelled';
+    if (liveOutcome === 'returned') return 'returned';
+    if (liveOutcome === 'cancelled') return 'cancelled';
+    if (liveOutcome === 'delivered') return 'delivered';
+
+    if (order.orderStatus === 'returned') return 'returned';
+    if (order.orderStatus === 'cancelled') return 'cancelled';
+    if (order.orderStatus === 'return_requested') return 'return_requested';
+    if (order.orderStatus === 'delivered') return 'delivered';
+
+    return order.orderStatus;
   }, [shipmentOutcomes]);
 
   useEffect(() => {
@@ -3573,14 +3636,31 @@ const OrderDetailModal: React.FC<{
           <div style={{ display: 'grid', gap: 16 }}>
             {order.source === 'customized' ? (
               <>
-                <section className="card orders-design-preview-card" aria-labelledby="front-design-preview-title">
-                  <div className="orders-design-preview-heading">
-                    <div>
-                      <p className="orders-eyebrow">Customer artwork</p>
-                      <h3 id="front-design-preview-title" className="section-title">Front Design</h3>
-                    </div>
-                    <span className="orders-design-side-badge">Front</span>
-                  </div>
+               <section className="card orders-design-preview-card" aria-labelledby="front-design-preview-title">
+  <div className="orders-design-preview-heading">
+    <div>
+      <p className="orders-eyebrow">Customer artwork</p>
+      <h3 id="front-design-preview-title" className="section-title">Front Design</h3>
+    </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {resolvedCustomization?.frontUploadedFiles?.map((file, index) => (
+        <a
+          key={file.publicId || index}
+          href={file.url}
+          download={file.fileName || `front-design-${index + 1}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-ghost"
+          style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          title={`Download front design file: ${file.fileName || 'front-design'}`}
+        >
+          <Download size={13} />
+          {file.fileName ? file.fileName.slice(0, 18) + (file.fileName.length > 18 ? '…' : '') : `Front file ${index + 1}`}
+        </a>
+      ))}
+      <span className="orders-design-side-badge">Front</span>
+    </div>
+  </div>
 
                   {isDesignPreviewLoading ? (
                     <div className="orders-design-preview-placeholder" aria-live="polite">
@@ -3611,14 +3691,32 @@ const OrderDetailModal: React.FC<{
                   )}
                 </section>
 
-                <section className="card orders-design-preview-card" aria-labelledby="back-design-preview-title">
-                  <div className="orders-design-preview-heading">
-                    <div>
-                      <p className="orders-eyebrow">Customer artwork</p>
-                      <h3 id="back-design-preview-title" className="section-title">Back Design</h3>
-                    </div>
-                    <span className="orders-design-side-badge is-muted">Back</span>
-                  </div>
+               <section className="card orders-design-preview-card" aria-labelledby="back-design-preview-title">
+  <div className="orders-design-preview-heading">
+    <div>
+      <p className="orders-eyebrow">Customer artwork</p>
+      <h3 id="back-design-preview-title" className="section-title">Back Design</h3>
+    </div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {resolvedCustomization?.backUploadedFiles?.map((file, index) => (
+        <a
+          key={file.publicId || index}
+          href={file.url}
+          download={file.fileName || `back-design-${index + 1}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="btn-ghost"
+          style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+          title={`Download back design file: ${file.fileName || 'back-design'}`}
+        >
+          <Download size={13} />
+          {file.fileName ? file.fileName.slice(0, 18) + (file.fileName.length > 18 ? '…' : '') : `Back file ${index + 1}`}
+        </a>
+      ))}
+      <span className="orders-design-side-badge is-muted">Back</span>
+    </div>
+  </div>
+  
 
                   {hasBackDesignPreview ? (
                     <button
@@ -3644,6 +3742,46 @@ const OrderDetailModal: React.FC<{
                     </div>
                   )}
                 </section>
+                {(() => {
+                  const allFiles = [
+                    ...(resolvedCustomization?.frontUploadedFiles ?? []),
+                    ...(resolvedCustomization?.backUploadedFiles ?? []),
+                  ];
+                  if (allFiles.length < 2) return null;
+                  return (
+                    <div
+                      style={{
+                        display: 'flex',
+                        flexWrap: 'wrap',
+                        gap: 8,
+                        padding: '10px 14px',
+                        background: 'var(--bg-surface)',
+                        borderRadius: 'var(--radius-sm)',
+                        border: '1px solid var(--border)',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <FileText size={15} style={{ color: 'var(--text-secondary)', flexShrink: 0 }} />
+                      <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>
+                        Customer uploaded {allFiles.length} design file{allFiles.length > 1 ? 's' : ''}
+                      </span>
+                      {allFiles.map((file, index) => (
+                        <a
+                          key={file.publicId || index}
+                          href={file.url}
+                          download={file.fileName || `design-file-${index + 1}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn-ghost"
+                          style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                        >
+                          <Download size={13} />
+                          {file.fileName || `File ${index + 1}`}
+                        </a>
+                      ))}
+                    </div>
+                  );
+                })()}
                 <PurchasedItemsSummary items={order.items} />
                 <div className="detail-row">
                   <span className="form-label" style={{ margin: 0 }}>Canvas</span>
