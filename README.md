@@ -369,7 +369,7 @@ Implementation notes:
 - Category labels are resolved from `/admin/categories` and nested product category data.
 - Product display names are cleaned with [src/lib/productNames.ts](src/lib/productNames.ts) so hidden uniqueness markers are not shown to admins.
 - Edit submits `FormData` with name, description, category, product type, stock, customizable flag, base price, HSN code, GST percentage, optional image, and sorted `quantityPricing`.
-- Quantity pricing tiers must have positive whole-number `minQty`, positive `pricePerUnit`, unique minimum quantities, and a first tier starting at quantity 1.
+- Quantity pricing tiers must have non-negative whole-number `minQty`, positive `pricePerUnit`, and unique minimum quantities.
 - Delete verifies removal by refetching `/admin/products`; if the admin delete still appears to leave the product, it attempts the public `/products/:id` delete fallback.
 
 ### Create Product Modal

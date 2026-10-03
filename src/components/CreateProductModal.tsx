@@ -271,8 +271,8 @@ const validateQuantityPricing = (tiers: QuantityPricingTier[]): string | null =>
     return 'Add at least one pricing tier';
   }
 
-  if (tiers.some((tier) => !Number.isInteger(tier.minQty) || tier.minQty <= 0)) {
-    return 'Min quantity must be a positive whole number for every tier';
+  if (tiers.some((tier) => !Number.isInteger(tier.minQty) || tier.minQty < 0)) {
+    return 'Min quantity must be a non-negative whole number for every tier';
   }
 
   if (tiers.some((tier) => !Number.isFinite(tier.pricePerUnit) || tier.pricePerUnit <= 0)) {
@@ -285,10 +285,6 @@ const validateQuantityPricing = (tiers: QuantityPricingTier[]): string | null =>
       return 'Pricing tiers cannot use duplicate min quantities';
     }
     minQtyValues.add(tier.minQty);
-  }
-
-  if (sortQuantityPricing(tiers)[0]?.minQty !== 1) {
-    return 'The first pricing tier must start at min quantity 1';
   }
 
   return null;

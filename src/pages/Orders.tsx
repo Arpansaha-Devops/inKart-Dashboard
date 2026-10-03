@@ -461,42 +461,219 @@ const normalizeLayer = (value: unknown): Layer | null => {
 const normalizeLayers = (items: unknown[]) =>
   items.map(normalizeLayer).filter((layer): layer is Layer => layer !== null);
 
+const getArtworkFileUrl = (item: Record<string, unknown>): string => {
+  const preferredKeys = [
+    'originalUrl',
+    'original_url',
+    'originalFileUrl',
+    'original_file_url',
+    'downloadUrl',
+    'download_url',
+    'fileUrl',
+    'file_url',
+    'sourceUrl',
+    'source_url',
+    'assetUrl',
+    'asset_url',
+    'publicUrl',
+    'public_url',
+    'url',
+    'secure_url',
+    'imageUrl',
+    'image_url',
+    'src',
+    'path',
+    'file',
+  ];
+
+  for (const key of preferredKeys) {
+    const value = item[key];
+    const url = typeof value === 'string' ? value.trim() : typeof value === 'object' && value && 'url' in value && typeof value.url === 'string' ? value.url.trim() : '';
+    if (url) return url;
+  }
+
+  const innerFile = item.file;
+  if (isRecord(innerFile)) {
+    const innerUrl = getArtworkFileUrl(innerFile);
+    if (innerUrl) return innerUrl;
+  }
+
+  const previewUrl = toImageUrl(item);
+  return previewUrl;
+};
+
 const normalizeArtworkFiles = (items: unknown[]): ArtworkFile[] =>
   items.reduce<ArtworkFile[]>((result, item) => {
     if (!isRecord(item)) return result;
-    const url = getString(item, ['url', 'secure_url', 'imageUrl']);
+
+    const url = getArtworkFileUrl(item);
     if (url) {
+      const nestedFile = isRecord(item.file) ? item.file : {};
+      const fileName =
+        getString(item, ['originalFileName', 'original_file_name', 'fileName', 'file_name', 'originalname', 'name']) ||
+        getString(nestedFile, ['originalFileName', 'original_file_name', 'fileName', 'file_name', 'originalname', 'name']) ||
+        undefined;
+
+      const fileType =
+        getString(item, ['fileType', 'file_type', 'mimetype', 'type']) ||
+        getString(nestedFile, ['fileType', 'file_type', 'mimetype', 'type']) ||
+        undefined;
+
       result.push({
         url,
         publicId: getString(item, ['publicId', 'public_id']) || undefined,
-        fileName: getString(item, ['fileName', 'file_name', 'originalname', 'name']) || undefined,
-        fileType: getString(item, ['fileType', 'file_type', 'mimetype', 'type']) || undefined,
+        fileName,
+        fileType,
       });
     }
     return result;
   }, []);
 
+const getFileExtensionFromUrl = (value: string, fallbackType?: string) => {
+  try {
+    const url = new URL(value, window.location.origin);
+    const pathname = url.pathname || '';
+    const match = pathname.match(/\.([a-zA-Z0-9]+)$/);
+    if (match?.[1]) return match[1].toLowerCase();
+  } catch {
+    const fallbackMatch = value.match(/\.([a-zA-Z0-9]+)(?:\?.*)?$/);
+    if (fallbackMatch?.[1]) return fallbackMatch[1].toLowerCase();
+  }
+
+  if (fallbackType) {
+    const typeMatch = fallbackType.match(/(?:image|audio|video|application)\/([a-zA-Z0-9.+-]+)/);
+    if (typeMatch?.[1]) return typeMatch[1].toLowerCase();
+  }
+
+  return '';
+};
+
+const sanitizeDownloadFileName = (fileName: string, fallback: string) => {
+  const normalized = (fileName || fallback).trim();
+  const safeName = normalized
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return safeName || fallback;
+};
+
+const triggerArtworkDownload = async (file: ArtworkFile) => {
+  if (!file?.url) return;
+
+  const extension = getFileExtensionFromUrl(file.url, file.fileType);
+  const fallbackName = `design-file-${Date.now()}${extension ? `.${extension}` : ''}`;
+  const proposedName = sanitizeDownloadFileName(
+    file.fileName || fallbackName,
+    fallbackName
+  );
+
+  try {
+    const response = await fetch(file.url, { credentials: 'same-origin' });
+    if (!response.ok) throw new Error('Download failed');
+
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = objectUrl;
+    anchor.download = proposedName;
+    anchor.rel = 'noopener noreferrer';
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    return;
+  } catch {
+    const anchor = document.createElement('a');
+    anchor.href = file.url;
+    anchor.download = proposedName;
+    anchor.rel = 'noopener noreferrer';
+    anchor.style.display = 'none';
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+  }
+};
+
 const getDesignSideUploadedFiles = (
   source: Record<string, unknown>,
   side: 'front' | 'back'
 ): ArtworkFile[] => {
-  // Try designs[] array first (new API contract)
-  const designs = getArray(source, ['designs']);
-  for (const design of designs) {
-    if (!isRecord(design)) continue;
-    const designSide = getString(design, ['side']);
-    if (designSide === side) {
-      const files = normalizeArtworkFiles(getArray(design, ['uploadedFiles']));
-      if (files.length > 0) return files;
+  const sideKeys = [
+    side,
+    `${side}Design`,
+    `${side}Artwork`,
+    `${side}Customization`,
+    `${side}Canvas`,
+    `${side}Preview`,
+  ];
+
+  for (const key of sideKeys) {
+    const candidate = isRecord(source[key]) ? source[key] : null;
+    if (!candidate) continue;
+
+    const files = normalizeArtworkFiles(
+      getArray(candidate, ['uploadedFiles', 'artworkFiles', 'files', 'designFiles', 'originalFiles'])
+    );
+    if (files.length > 0) return files;
+
+    const sideSpecificFiles = normalizeArtworkFiles(
+      getArray(candidate, [side === 'front' ? 'frontUploadedFiles' : 'backUploadedFiles'])
+    );
+    if (sideSpecificFiles.length > 0) return sideSpecificFiles;
+  }
+
+  const nestedContainers = [
+    isRecord(source.design) ? source.design : null,
+    isRecord(source.customization) ? source.customization : null,
+    isRecord(source.canvas) ? source.canvas : null,
+  ];
+
+  for (const container of nestedContainers) {
+    if (!container) continue;
+    const nestedSide = isRecord(container[side]) ? container[side] : null;
+    if (!nestedSide) continue;
+
+    const files = normalizeArtworkFiles(
+      getArray(nestedSide, ['uploadedFiles', 'artworkFiles', 'files', 'designFiles', 'originalFiles'])
+    );
+    if (files.length > 0) return files;
+  }
+
+  const designArrays = [
+    getArray(source, ['designs']),
+    getArray(source, ['frontDesigns', 'backDesigns']),
+  ];
+
+  for (const designs of designArrays) {
+    for (const design of designs) {
+      if (!isRecord(design)) continue;
+      const designSide = getString(design, ['side', 'view', 'position']).toLowerCase();
+      if (!designSide || designSide === side || designSide.includes(side)) {
+        const files = normalizeArtworkFiles(
+          getArray(design, ['uploadedFiles', 'artworkFiles', 'files', 'designFiles', 'originalFiles'])
+        );
+        if (files.length > 0) return files;
+      }
     }
   }
-  // Fallback: flat uploadedFiles on the customization root
-  if (side === 'front') {
-    return normalizeArtworkFiles(
-      getArray(source, ['uploadedFiles', 'frontUploadedFiles', 'artworkFiles'])
-    );
+
+  const rootGroups = side === 'front'
+    ? [
+        getArray(source, ['uploadedFiles', 'frontUploadedFiles', 'artworkFiles', 'files', 'designFiles', 'originalFiles']),
+        getArray(source, ['frontFiles']),
+      ]
+    : [
+        getArray(source, ['backUploadedFiles', 'backFiles', 'artworkFiles', 'files', 'designFiles', 'originalFiles']),
+      ];
+
+  for (const group of rootGroups) {
+    const files = normalizeArtworkFiles(group);
+    if (files.length > 0) return files;
   }
-  return normalizeArtworkFiles(getArray(source, ['backUploadedFiles']));
+
+  return [];
 };
 
 
@@ -3304,6 +3481,16 @@ const OrderDetailModal: React.FC<{
     : order.customization;
   const frontDesignPreviewUrl = resolvedCustomization?.previewImageUrl;
   const backDesignPreviewUrl = resolvedCustomization?.backPreviewImageUrl;
+  const frontDownloadFiles = getDownloadableArtworkFiles(
+    'front',
+    frontDesignPreviewUrl,
+    resolvedCustomization?.frontUploadedFiles ?? []
+  );
+  const backDownloadFiles = getDownloadableArtworkFiles(
+    'back',
+    backDesignPreviewUrl,
+    resolvedCustomization?.backUploadedFiles ?? []
+  );
   const hasFrontDesignPreview = Boolean(frontDesignPreviewUrl) && !designPreviewErrors.front;
   const hasBackDesignPreview = Boolean(backDesignPreviewUrl) && !designPreviewErrors.back;
   const activeDesignPreviewUrl =
@@ -3643,20 +3830,18 @@ const OrderDetailModal: React.FC<{
       <h3 id="front-design-preview-title" className="section-title">Front Design</h3>
     </div>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      {resolvedCustomization?.frontUploadedFiles?.map((file, index) => (
-        <a
-          key={file.publicId || index}
-          href={file.url}
-          download={file.fileName || `front-design-${index + 1}`}
-          target="_blank"
-          rel="noopener noreferrer"
+      {frontDownloadFiles.map((file) => (
+        <button
+          key={file.publicId || file.url}
+          type="button"
+          onClick={() => void triggerArtworkDownload(file)}
           className="btn-ghost"
           style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
           title={`Download front design file: ${file.fileName || 'front-design'}`}
         >
           <Download size={13} />
-          {file.fileName ? file.fileName.slice(0, 18) + (file.fileName.length > 18 ? '…' : '') : `Front file ${index + 1}`}
-        </a>
+          Front Download
+        </button>
       ))}
       <span className="orders-design-side-badge">Front</span>
     </div>
@@ -3698,20 +3883,18 @@ const OrderDetailModal: React.FC<{
       <h3 id="back-design-preview-title" className="section-title">Back Design</h3>
     </div>
     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-      {resolvedCustomization?.backUploadedFiles?.map((file, index) => (
-        <a
-          key={file.publicId || index}
-          href={file.url}
-          download={file.fileName || `back-design-${index + 1}`}
-          target="_blank"
-          rel="noopener noreferrer"
+      {backDownloadFiles.map((file) => (
+        <button
+          key={file.publicId || file.url}
+          type="button"
+          onClick={() => void triggerArtworkDownload(file)}
           className="btn-ghost"
           style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
           title={`Download back design file: ${file.fileName || 'back-design'}`}
         >
           <Download size={13} />
-          {file.fileName ? file.fileName.slice(0, 18) + (file.fileName.length > 18 ? '…' : '') : `Back file ${index + 1}`}
-        </a>
+          Back Download
+        </button>
       ))}
       <span className="orders-design-side-badge is-muted">Back</span>
     </div>
@@ -3744,8 +3927,8 @@ const OrderDetailModal: React.FC<{
                 </section>
                 {(() => {
                   const allFiles = [
-                    ...(resolvedCustomization?.frontUploadedFiles ?? []),
-                    ...(resolvedCustomization?.backUploadedFiles ?? []),
+                    ...frontDownloadFiles.map((file) => ({ file, side: 'front' })),
+                    ...backDownloadFiles.map((file) => ({ file, side: 'back' })),
                   ];
                   if (allFiles.length < 2) return null;
                   return (
@@ -3765,19 +3948,17 @@ const OrderDetailModal: React.FC<{
                       <span style={{ fontSize: 13, color: 'var(--text-secondary)', flex: 1 }}>
                         Customer uploaded {allFiles.length} design file{allFiles.length > 1 ? 's' : ''}
                       </span>
-                      {allFiles.map((file, index) => (
-                        <a
-                          key={file.publicId || index}
-                          href={file.url}
-                          download={file.fileName || `design-file-${index + 1}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                      {allFiles.map(({ file, side }, index) => (
+                        <button
+                          key={`${side}:${file.publicId || file.url}`}
+                          type="button"
+                          onClick={() => void triggerArtworkDownload(file)}
                           className="btn-ghost"
                           style={{ fontSize: 12, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                         >
                           <Download size={13} />
                           {file.fileName || `File ${index + 1}`}
-                        </a>
+                        </button>
                       ))}
                     </div>
                   );
@@ -4356,6 +4537,35 @@ const LayerList: React.FC<{ title: string; layers: Layer[] }> = ({ title, layers
 );
 
 export default Orders;
+const buildArtworkFileFromPreview = (
+  url: string,
+  side: 'front' | 'back',
+  fileName = `${side}-design`
+): ArtworkFile | null => {
+  if (!url) return null;
+
+  const extension = getFileExtensionFromUrl(url) || 'png';
+  const safeName = sanitizeDownloadFileName(fileName, `${side}-design`);
+
+  return {
+    url,
+    fileName: safeName.includes('.') ? safeName : `${safeName}.${extension}`,
+    fileType: `image/${extension}`,
+  };
+};
+
+const getDownloadableArtworkFiles = (
+  side: 'front' | 'back',
+  previewUrl?: string,
+  uploadedFiles: ArtworkFile[] = []
+): ArtworkFile[] => {
+  if (uploadedFiles.length > 0) return uploadedFiles;
+  if (!previewUrl) return [];
+
+  const file = buildArtworkFileFromPreview(previewUrl, side, `${side}-design`);
+  return file ? [file] : [];
+};
+
 const getDesignSidePreviewUrl = (
   source: Record<string, unknown>,
   side: 'front' | 'back'
