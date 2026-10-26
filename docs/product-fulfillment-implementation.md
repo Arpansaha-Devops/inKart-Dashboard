@@ -62,6 +62,10 @@ Nested multipart encoding follows the existing `quantityPricing` JSON convention
 
 Read-back uses the documented listing route rather than inventing a detail route. It searches bounded pages, stopping on a short/unknown list shape. Products absent from those pages yield an unverified warning. Comparison currently expects documented numeric/boolean/object response types; other backend shapes require a confirmed normalization contract.
 
+Each read-back request explicitly includes `_ts: Date.now()`, matching product-list requests. The shared Axios request interceptor already adds `_ts` to all GET requests and preserves an explicitly supplied value; the service parameter makes this behavior explicit and testable even with a mocked client.
+
+A read-only, unauthenticated probe of deployed `GET /admin/products?page=1&limit=1` on 26 October 2026 returned `401 Unauthorized`, `Cache-Control: public, max-age=0, must-revalidate`, `Age: 0`, and `X-Vercel-Cache: MISS`. These headers describe that error response: they do not confirm that authenticated product listings return cached or stale data. The cache policy and cache-hit behavior of successful authenticated listings remain unverified. No authentication or production mutation was performed for this probe.
+
 ## UI
 
 `ProductConfigurationFields` and `PackageDetailsForm` extend existing modals using the dashboard’s CSS variables, form controls and buttons. They wrap on small screens and work in dark/light themes. Numeric inputs retain blank states, labels include units, errors announce themselves, and nested editors disable during saves. Product edit disables its form while saving/verifying, and create/edit have synchronous submission guards. Saved field removal asks for confirmation because customer selections may reference its key.
@@ -103,7 +107,7 @@ Read-back uses the documented listing route rather than inventing a detail route
 ## Checks and limits
 
 - Baseline: `npm run lint` passed. Initial sandbox build could not read parent directories; the approved build outside the sandbox passed.
-- `npm test`: 26 focused automated tests passed. Tests use Node 24 and the installed TypeScript compiler, with no added dependencies. This includes full/short pagination cases for both `docs` and `data.docs` product listings and saved/new option identifier rendering.
+- `npm test`: 27 focused automated tests passed. Tests use Node 24 and the installed TypeScript compiler, with no added dependencies. This includes explicit cache-busting parameters on each read-back page, full/short pagination cases for both `docs` and `data.docs` product listings and saved/new option identifier rendering.
 - `npm run lint`: TypeScript passed.
 - `npm run build`: production build passed. The existing >500 kB main-chunk advisory remains; it was present before these changes.
 - `npm run test:browser`: passed against an isolated headless Edge browser with mocked API interception. Covers product creation with image upload/configuration/measurements; product editing and reload; adding/removing fields and unsaved options; disabled saved-option removal while its active toggle remains usable; duplicate-key validation before any mutation; stable saved keys and option values; new option identifiers remaining editable; active-only category assignments with the current inactive category retained; switching category without losing inputs; distinct duplicate-name category assignment; duplicate category creation with an assertion that the parsed POST request omits the `slug` key; warning when the backend ignores edited configuration; read-only order parcel UI; backend delivery-charge/selected-option display; and existing paid-order approval without shipment auto-sync. The PASS message is printed only after the final browser-error and shipment assertions.

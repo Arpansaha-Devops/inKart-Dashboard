@@ -27,6 +27,18 @@ test('unavailable read or missing ID returns a warning without retrying creation
   assert.equal(await verifyProductExtensions({}, new FormData()), null);
 });
 
+test('each read-back page includes a fresh cache-busting timestamp', async (context) => {
+  let timestamp = 1000;
+  context.mock.method(Date, 'now', () => ++timestamp);
+  const firstPage = Array.from({ length: 100 }, (_, index) => ({ _id: `other-${index}`, name: 'Other product' }));
+  mockApi((method, url, options) => ({ data: { products: options.params.page === 1 ? firstPage : [{ _id: 'p', name: 'Saved product', configuration: config }] } }));
+  assert.equal(await verifyProductExtensions({}, data(), 'p'), null);
+  assert.deepEqual(calls.map((call) => call.args[1].params), [
+    { page: 1, limit: 100, _ts: 1001 },
+    { page: 2, limit: 100, _ts: 1002 },
+  ]);
+});
+
 for (const shape of ['docs', 'data.docs']) {
   const listing = (items) => shape === 'docs' ? { docs: items } : { data: { docs: items } };
   test(`${shape} full listings continue to the saved product on page two`, async () => {

@@ -10,7 +10,7 @@ export const verifyProductExtensions = async (payload: unknown, data: FormData, 
   try {
     // Reuse the existing listing route: there is no documented admin detail GET.
     for (let page = 1; page <= 50; page += 1) {
-      const response = await apiClient.get('/admin/products', { params: { page, limit: 100 } });
+      const response = await apiClient.get('/admin/products', { params: { page, limit: 100, _ts: Date.now() } });
       const product = findProductRecord(response.data, id);
       if (product) {
         const field = extensionPersistenceError(product, data);
