@@ -20,17 +20,23 @@ const server = createServer(async (request, response) => {
   } catch { response.writeHead(404); response.end(); }
 });
 await new Promise((done) => server.listen(4175, '127.0.0.1', done));
-const targets = await (await fetch(`${process.env.BROWSER_DEBUG_URL || 'http://127.0.0.1:9229'}/json/list`)).json();
-const socket = new WebSocket(targets.find((target) => target.type === 'page').webSocketDebuggerUrl);
+const debugUrl = process.env.BROWSER_DEBUG_URL || 'http://127.0.0.1:9229';
+// A fresh page prevents init scripts and buffered errors leaking across reruns.
+const target = await (await fetch(`${debugUrl}/json/new?about:blank`, { method: 'PUT' })).json();
+const socket = new WebSocket(target.webSocketDebuggerUrl);
 await new Promise((done, fail) => { socket.onopen = done; socket.onerror = fail; });
 let sequence = 0;
 const pending = new Map(); const browserErrors = []; const requests = [];
 const categoryCreateRequests = [];
 let ignoreProductExtensions = false;
+let initScriptId;
 const send = (method, params = {}) => new Promise((done, fail) => {
+  if (socket.readyState !== WebSocket.OPEN) { fail(new Error('CDP socket is not open')); return; }
   const id = ++sequence;
   const timer = setTimeout(() => { pending.delete(id); fail(new Error(`CDP timeout: ${method}`)); }, 20000);
-  pending.set(id, { done, fail, timer }); socket.send(JSON.stringify({ id, method, params }));
+  pending.set(id, { done, fail, timer });
+  try { socket.send(JSON.stringify({ id, method, params })); }
+  catch (error) { clearTimeout(timer); pending.delete(id); fail(error); }
 });
 const categories = [
   { _id: '111111111111111111111111', name: 'Standee', slug: 'standee', isActive: true },
@@ -116,17 +122,21 @@ const screenshotDir = resolve(tmpdir(), 'inkart-ui-checks');
 await mkdir(screenshotDir, { recursive: true });
 try {
   await send('Page.enable'); await send('Runtime.enable');
+  await send('Page.bringToFront');
   await send('Page.handleJavaScriptDialog', { accept: false }).catch(() => {});
   await send('Fetch.enable', { patterns: [{ urlPattern: '*' }] });
   await send('Network.setCookie', { url: 'http://127.0.0.1:4175', name: 'user', value: encodeURIComponent(JSON.stringify({ _id: 'test-admin', name: 'Test Admin', role: 'admin', email: 'test@example.test' })) });
   await send('Network.setCookie', { url: 'http://127.0.0.1:4175', name: 'token', value: `test.${Buffer.from(JSON.stringify({ exp: Math.floor(Date.now()/1000)+3600 })).toString('base64url')}.test` });
-  await send('Page.addScriptToEvaluateOnNewDocument', { source: `localStorage.setItem('printfrint-dashboard-theme','dark');` });
+  const initScript = await send('Page.addScriptToEvaluateOnNewDocument', { source: `if(location.origin==='http://127.0.0.1:4175')localStorage.setItem('printfrint-dashboard-theme','dark');` });
+  initScriptId = initScript.identifier;
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await send('Page.navigate', { url: 'http://127.0.0.1:4175/admin/products' });
   await waitFor(`!!document.querySelector('[aria-label="Edit product"]')`);
   await evaluate(`document.querySelector('[aria-label="Close notifications panel"]')?.click();document.querySelector('[aria-label="Close notification panel"]')?.click()`);
   await evaluate(`document.querySelector('[aria-label="Edit product"]').click()`);
   await waitFor(`!!document.querySelector('#edit-product-name')`);
+  assert.equal(await evaluate(`document.body.textContent.includes('Default Package Details')`), false);
+  assert.equal(await evaluate(`[...document.querySelectorAll('#edit-product-name')][0].closest('form').querySelectorAll('input[id$="-weight"]').length`), 0);
   assert.equal(await evaluate(`document.querySelector('[value="size"]').readOnly`), true);
   assert.deepEqual(await evaluate(`[...document.querySelector('#edit-product-category').options].map(option=>option.value)`), categories.filter((category) => category.isActive).map((category) => category._id));
   assert.equal(await evaluate(`document.querySelector('.product-configuration-option label:nth-child(2) input').readOnly`), true);
@@ -171,7 +181,6 @@ try {
   await waitFor(`document.querySelector('.product-extension-section legend').textContent==='Menu Card Configuration'`);
   assert.equal(await evaluate(`document.querySelector('.product-configuration-option input[type="number"]').value`), '37.5');
   await fill('#edit-product-category', categories[0]._id);
-  await fill('fieldset.product-extension-section:last-of-type .product-extension-grid > div:nth-child(1) input', '.75');
   await evaluate(`document.querySelector('.product-extension-section').scrollIntoView({block:'start'});`);
   await new Promise((done) => setTimeout(done, 500));
   const darkShot = await send('Page.captureScreenshot', { format: 'png' });
@@ -179,11 +188,11 @@ try {
   await clickText('Save Changes');
   await waitFor(`!document.querySelector('#edit-product-name')`);
   assert.equal(products[0].configuration.fields[0].options[0].priceModifier, 37.5);
-  assert.equal(products[0].packageDetails.weight, .75);
+  assert.equal(products[0].packageDetails.weight, .5);
   await evaluate(`document.querySelector('[aria-label="Edit product"]').click()`);
   await waitFor(`!!document.querySelector('#edit-product-name')`);
   assert.equal(await evaluate(`document.querySelector('.product-configuration-option input[type="number"]').value`), '37.5');
-  assert.equal(await evaluate(`Number(document.querySelector('fieldset.product-extension-section:last-of-type .product-extension-grid > div:nth-child(1) input').value)`), .75);
+  assert.equal(await evaluate(`document.querySelector('#edit-product-name').closest('form').querySelectorAll('input[id$="-weight"]').length`), 0);
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
   await evaluate(`document.querySelector('[aria-label="Switch to light mode"]')?.click();document.querySelector('.product-extension-section').scrollIntoView({block:'start'});`);
   await new Promise((done) => setTimeout(done, 500));
@@ -208,6 +217,7 @@ try {
   assert.equal(products[1].category, categories[3]._id);
   await clickText('Create Product');
   await waitFor(`!!document.querySelector('#create-product-name')`);
+  assert.equal(await evaluate(`document.querySelector('#create-product-name').closest('form').querySelectorAll('input[id$="-weight"]').length`), 0);
   await fill('#create-product-name', 'Smoke Menu');
   await fill('#create-product-price', '150');
   await fill('#create-product-base-price', '150');
@@ -221,7 +231,6 @@ try {
   await clickText('Add option');
   await fill('.product-configuration-option label:nth-child(1) input', 'A4');
   await fill('.product-configuration-option label:nth-child(2) input', 'a4');
-  for (const [index, value] of ['.25', '20', '15', '2'].entries()) await fill(`fieldset.product-extension-section:last-of-type .product-extension-grid > div:nth-child(${index + 1}) input`, value);
   await evaluate(`(() => { const bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='),c=>c.charCodeAt(0));const transfer=new DataTransfer();transfer.items.add(new File([bytes],'smoke.png',{type:'image/png'}));const input=document.querySelector('#create-product-images');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
   await clickText('Create Product');
   await waitFor(`!document.querySelector('#create-product-name')`);
@@ -229,18 +238,45 @@ try {
   const createdProduct = products.at(-1);
   assert.equal(createdProduct.category, categories[2]._id);
   assert.equal(createdProduct.configuration.fields[0].key, 'menuSize');
-  assert.equal(createdProduct.packageDetails.weight, .25);
+  assert.equal(Object.hasOwn(createdProduct, 'packageDetails'), false);
   assert.ok(requests.some((request) => request.method === 'PATCH' && request.path.endsWith(createdProduct._id)));
   await send('Page.navigate', { url: 'http://127.0.0.1:4175/admin/orders' });
   await waitFor(`document.body.textContent.includes('SMOKE-001')`);
   await clickText('View');
   await waitFor(`!!document.querySelector('[aria-label="Order parcel details"]')`);
   assert.equal(await evaluate(`document.querySelector('[aria-label="Order parcel details"] button').disabled`), true);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Order parcel details"] fieldset').disabled`), false);
+  assert.equal(await evaluate(`document.querySelectorAll('[aria-label="Order parcel details"] input[type="number"]').length`), 4);
+  await fill('[aria-label="Order parcel details"] input[id$="-weight"]', '0');
+  await evaluate(`const weight=document.querySelector('[aria-label="Order parcel details"] input[id$="-weight"]');weight.dispatchEvent(new FocusEvent('focusout',{bubbles:true}));`);
+  await waitFor(`document.querySelector('[aria-label="Order parcel details"]').textContent.includes('Weight must be a positive')`);
+  for (const [key, value] of Object.entries({ weight: '.75', length: '25', breadth: '18', height: '7' })) await fill(`[aria-label="Order parcel details"] input[id$="-${key}"]`, value);
+  await waitFor(`!document.querySelector('[aria-label="Order parcel details"] [role="alert"]')`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Order parcel details"]').textContent.includes('Measurements have not been saved.')`), true);
+  assert.equal(await evaluate(`document.querySelectorAll('[aria-label="Order parcel details"] input[type="radio"]').length`), 0);
+  assert.equal(await evaluate(`[...document.querySelectorAll('[aria-label="Order parcel details"] button')].every(button=>button.disabled)`), true);
+  assert.equal(requests.some((request) => request.method === 'POST' && /shipments/.test(request.path)), false);
+  await evaluate(`document.querySelector('[aria-label="Order parcel details"]').scrollIntoView({block:'start'});`);
+  await new Promise((done) => setTimeout(done, 400));
+  const orderDesktopShot = await send('Page.captureScreenshot', { format: 'png' });
+  await writeFile(resolve(screenshotDir, 'order-parcel-desktop.png'), Buffer.from(orderDesktopShot.data, 'base64'));
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await evaluate(`document.querySelector('[aria-label="Switch to light mode"]')?.click();document.querySelector('[aria-label="Order parcel details"]').scrollIntoView({block:'start'});`);
+  await new Promise((done) => setTimeout(done, 400));
+  assert.equal(await evaluate(`document.querySelector('.order-parcel-workflow').scrollWidth<=document.querySelector('.order-parcel-workflow').clientWidth+1`), true);
+  const orderMobileShot = await send('Page.captureScreenshot', { format: 'png' });
+  await writeFile(resolve(screenshotDir, 'order-parcel-mobile.png'), Buffer.from(orderMobileShot.data, 'base64'));
+  await evaluate(`document.querySelector('[aria-label="Close order details"]').click()`);
+  await waitFor(`!document.querySelector('[aria-label="Order parcel details"]')`);
+  await clickText('View');
+  await waitFor(`!!document.querySelector('[aria-label="Order parcel details"]')`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Order parcel details"] input[id$="-weight"]').value`), '');
   assert.equal(await evaluate(`document.body.textContent.includes('Delivery charge (charged at checkout)')`), true);
   assert.equal(await evaluate(`document.body.textContent.includes('tall')`), true);
-  await clickText('Approve Order');
-  await waitFor(`!([...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Approve Order'))`);
+  await clickText('Approve Order (existing flow)');
+  await waitFor(`!([...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Approve Order (existing flow)'))`);
   assert.equal(orders[0].orderStatus, 'confirmed');
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Order parcel details"] fieldset').disabled`), true);
   await send('Page.navigate', { url: 'http://127.0.0.1:4175/admin/categories' });
   await waitFor(`document.body.textContent.includes('menu-cards-1')`);
   await clickText('Add Category');
@@ -254,12 +290,19 @@ try {
   assert.equal(Object.hasOwn(categoryCreateRequests[0], 'slug'), false);
   assert.deepEqual(browserErrors, []);
   assert.equal(requests.some((request) => /sync-shipment/.test(request.path)), false);
-  console.log('PASS: create/edit products with configuration, parcel defaults and image upload; saved option locks; active category assignments and existing fallback; add/remove fields/options; category switching; save/reload; duplicate categories with omitted slug; order parcel limitation and legacy approval; dark desktop and light mobile.');
+  console.log('PASS: product configuration and image uploads without parcel inputs; saved option locks; active category assignments; order-level parcel entry/validation, pending courier quote and approval controls, reset on close and read-only approved orders; existing approval; duplicate categories with omitted slug; dark/light responsive layouts.');
   console.log(`Screenshots: ${screenshotDir}`);
 } catch (error) {
-  console.error(await evaluate(`JSON.stringify({alerts:[...document.querySelectorAll('[role="alert"],[data-sonner-toast]')].map(node=>node.textContent),invalid:[...document.querySelectorAll('input:invalid,select:invalid,textarea:invalid')].map(node=>({id:node.id,value:node.value,message:node.validationMessage})),text:document.body.innerText.slice(-1800)})`));
+  console.error(await evaluate(`JSON.stringify({alerts:[...document.querySelectorAll('[role="alert"],[data-sonner-toast]')].map(node=>node.textContent),invalid:[...document.querySelectorAll('input:invalid,select:invalid,textarea:invalid')].map(node=>({id:node.id,value:node.value,message:node.validationMessage})),text:document.body.innerText.slice(-1800)})`).catch(() => 'Browser diagnostics unavailable; preserving the original test failure.'));
   throw error;
 } finally {
+  if (initScriptId) await send('Page.removeScriptToEvaluateOnNewDocument', { identifier: initScriptId }).catch(() => {});
   await send('Page.navigate', { url: 'about:blank' }).catch(() => {});
-  socket.close(); server.close();
+  const disconnected = socket.readyState === WebSocket.CLOSED
+    ? Promise.resolve()
+    : new Promise((done) => socket.addEventListener('close', done, { once: true }));
+  socket.close();
+  await disconnected;
+  server.close();
+  await fetch(`${debugUrl}/json/close/${target.id}`).catch(() => {});
 }

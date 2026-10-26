@@ -3433,6 +3433,7 @@ const OrderDetailModal: React.FC<{
   const [frontPreviewSize, setFrontPreviewSize] = useState<{ width: number; height: number } | null>(null);
   const [fetchedCustomization, setFetchedCustomization] = useState<OrderCustomization | null>(null);
   const [isDesignPreviewLoading, setIsDesignPreviewLoading] = useState(false);
+  const [isPreparingShipment, setIsPreparingShipment] = useState(false);
   const {
     deliveryDate,
     deliveryNote,
@@ -3446,7 +3447,7 @@ const OrderDetailModal: React.FC<{
     isResendConfirmOpen,
     computedEstimate,
   } = detailState;
-  const isAnyRequestInFlight = isApproving || isSavingEstimate || isResending;
+  const isAnyRequestInFlight = isApproving || isSavingEstimate || isResending || isPreparingShipment;
   const hasEstimate = Boolean(order.estimatedDeliveryDate);
   const canApprove = order.orderStatus === 'placed';
   const standardPreviewImage = order.items.find((item) => item.product.image)?.product.image;
@@ -4100,7 +4101,6 @@ const OrderDetailModal: React.FC<{
             />
             {order.shippingCharge !== undefined && <InfoRow label="Delivery charge (charged at checkout)" value={formatCurrency(order.shippingCharge)} />}
             <InfoRow label="Total paid" value={formatCurrency(order.totalAmount)} />
-            <OrderParcelDetails value={order.packageDetails} />
             <InfoRow label="Payment ID" value={order.paymentId || 'N/A'} mono={Boolean(order.paymentId)} />
             <div className="detail-row">
               <span className="form-label" style={{ margin: 0 }}>Payment Status</span>
@@ -4146,6 +4146,11 @@ const OrderDetailModal: React.FC<{
           </div>
         </div>
 
+        <OrderParcelDetails key={order._id} orderId={order._id} value={order.packageDetails}
+          paymentStatus={order.paymentStatus} orderStatus={order.orderStatus} disabled={isAnyRequestInFlight}
+          onBusyChange={setIsPreparingShipment}
+          onApproved={() => onOrderUpdated({ ...order, orderStatus: 'confirmed' })} />
+
         <ShipmentWorkspace order={order} />
 
         <div className="orders-actions-section">
@@ -4167,7 +4172,7 @@ const OrderDetailModal: React.FC<{
                 disabled={isAnyRequestInFlight}
               >
                 {isApproving ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle size={16} />}
-                Approve Order
+                Approve Order (existing flow)
               </button>
             ) : null}
 
@@ -4210,6 +4215,8 @@ const OrderDetailModal: React.FC<{
               ) : null}
             </div>
           </div>
+
+          {canApprove && <p className="product-extension-help">The existing approval action does not save parcel measurements or select a courier. The parcel-and-courier approval flow above is awaiting backend integration.</p>}
 
           <ComputedDeliveryEstimatePanel
             estimate={computedEstimate}

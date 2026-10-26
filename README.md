@@ -6,7 +6,7 @@ Admin changes are live business data changes. Product, category, coupon, custome
 
 ## Overview
 
-Product configuration and parcel-default controls are now available in the existing product create/edit forms. Categories can share display names and are identified by ID in product selection. Product saves refetch new nested fields and warn if persistence cannot be confirmed. Order details display backend delivery charges and selected options; actual order-parcel saving remains unavailable until a backend contract is documented, so existing approval and shipping behavior is preserved.
+Product configuration controls are available in the existing product create/edit forms. Parcel measurements belong to each order and are entered in Orders → View, in the Parcel & courier selection section before the Shiprocket workspace. Product forms no longer show or submit parcel measurements; existing product package data is preserved. The order UI includes measurement validation, courier service/rate presentation and selection, and a courier-based approval action. Save, quote and courier-based approval remain disabled until the backend contract is connected; local entries are explicitly unsaved. Existing approval remains available separately as “Approve Order (existing flow)”. Categories can share display names and are identified by ID in product selection. Configuration saves are refetched and checked for persistence.
 
 See [the implementation report](docs/product-fulfillment-implementation.md) for per-feature status, API payloads, changed files, verification results and backend requirements. **BACKEND INTEGRATION NOT LIVE-VERIFIED** for these additions; automated and browser checks use mocked APIs.
 

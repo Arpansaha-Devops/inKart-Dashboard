@@ -5,9 +5,8 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { createProduct, updateProduct, verifyProductExtensions } from '../services/productService';
 import ProductConfigurationFields from './ProductConfigurationFields';
-import PackageDetailsForm from './PackageDetailsForm';
 import { categoryOptionLabel, configurationTitle, resolveCategoryOption } from '../lib/categoryOptions';
-import { appendProductExtensions, emptyPackageDraft, validateConfiguration, validatePackage } from '../lib/productConfiguration';
+import { appendProductExtensions, validateConfiguration } from '../lib/productConfiguration';
 import apiClient from '../lib/apiClient';
 import {
   formatProductImageBytes,
@@ -40,7 +39,6 @@ interface FormErrors {
   quantityPricing?: string;
   variants?: string;
   configuration?: string;
-  packageDetails?: string;
 }
 
 interface CategoryLookupItem {
@@ -325,7 +323,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
   const [images, setImages] = useState<File[]>([]);
   const [configuration, setConfiguration] = useState<ProductConfiguration>({ enabled: false, fields: [] });
   const [configurationDirty, setConfigurationDirty] = useState(false);
-  const [parcel, setParcel] = useState(emptyPackageDraft);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
   const [variants, setVariants] = useState<ProductVariantForm[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -437,7 +434,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
   const validate = (): QuantityPricingTier[] | null => {
     const newErrors: FormErrors = {};
     if (configurationDirty) newErrors.configuration = validateConfiguration(configuration) ?? undefined;
-    newErrors.packageDetails = validatePackage(parcel) ?? undefined;
 
     if (!name.trim()) {
       newErrors.name = 'Product name is required';
@@ -682,7 +678,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
   const resetForm = useCallback(() => {
     setConfiguration({ enabled: false, fields: [] });
     setConfigurationDirty(false);
-    setParcel(emptyPackageDraft());
     dispatch({ type: 'RESET_FORM' });
     setImages([]);
     imagePreview.forEach((preview) => URL.revokeObjectURL(preview));
@@ -812,8 +807,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
       }
       formData.append('gstPercentage', String(gstPercentage ?? 5));
       formData.append('quantityPricing', JSON.stringify(sortedPricingTiers));
-      appendProductExtensions(formData, configurationDirty ? configuration : undefined,
-        Object.values(parcel).some((value) => value.trim()) ? parcel : undefined);
+      appendProductExtensions(formData, configurationDirty ? configuration : undefined);
 
       const response = await createProduct(formData);
       if (response.data?.success === false) throw new Error(response.data?.message || 'Product creation was rejected.');
@@ -1782,7 +1776,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                   <ProductConfigurationFields value={configuration} disabled={isSubmitting} error={errors.configuration}
                     title={configurationTitle(resolveCategoryId(category) ?? category, knownCategories)}
                     onChange={(value) => { setConfiguration(value); setConfigurationDirty(true); }} />
-                  <PackageDetailsForm value={parcel} disabled={isSubmitting} error={errors.packageDetails} onChange={setParcel} />
                   <label className="form-label" htmlFor="create-product-images">Product images ({images.length}/5)</label>
                   <div
                     onDragOver={handleDragOver}

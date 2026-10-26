@@ -19,8 +19,7 @@ import { m, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
 import { deleteProduct, updateProduct, verifyProductExtensions } from '../services/productService';
 import ProductConfigurationFields from '../components/ProductConfigurationFields';
-import PackageDetailsForm from '../components/PackageDetailsForm';
-import { appendProductExtensions, emptyPackageDraft, packageDraft, validateConfiguration, validatePackage } from '../lib/productConfiguration';
+import { appendProductExtensions, validateConfiguration } from '../lib/productConfiguration';
 import { categoryOptionLabel, configurationTitle, resolveCategoryOption, type CategoryOption } from '../lib/categoryOptions';
 import { getCategories } from '../services/categoryService';
 import { getVisibleProductName } from '../lib/productNames';
@@ -235,7 +234,6 @@ type ProductFormErrors = {
   description?: string;
   quantityPricing?: string;
   configuration?: string;
-  packageDetails?: string;
 };
 
 type StockFormData = {
@@ -481,8 +479,6 @@ const Products: React.FC = () => {
   const deleteModalContentRef = useRef<HTMLDivElement>(null);
   const [configuration, setConfiguration] = useState<ProductConfiguration>({ enabled: false, fields: [] });
   const [configurationDirty, setConfigurationDirty] = useState(false);
-  const [parcel, setParcel] = useState(emptyPackageDraft);
-  const [parcelDirty, setParcelDirty] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
   const savingProductRef = useRef(false);
   const [categoryMetadata, setCategoryMetadata] = useState<CategoryOption[]>([]);
@@ -678,8 +674,6 @@ const Products: React.FC = () => {
   const handleOpenModal = (product: Product) => {
     setConfiguration(product.configuration ?? { enabled: false, fields: [] });
     setConfigurationDirty(false);
-    setParcel(packageDraft(product.packageDetails));
-    setParcelDirty(false);
     const categoryValue =
       typeof product.category === 'object' && product.category !== null
         ? product.category._id || ''
@@ -787,21 +781,19 @@ const Products: React.FC = () => {
     e.preventDefault();
     if (savingProductRef.current) return;
     const configurationError = configurationDirty ? validateConfiguration(configuration) : null;
-    const packageError = parcelDirty ? validatePackage(parcel, true) : null;
     const descriptionError = getProductDescriptionError(formData.description);
     const pricingTiers = formData.quantityPricing.map(({ minQty, pricePerUnit }) => ({
       minQty,
       pricePerUnit,
     }));
     const quantityPricingError = validateQuantityPricing(pricingTiers);
-    if (descriptionError || quantityPricingError || configurationError || packageError) {
+    if (descriptionError || quantityPricingError || configurationError) {
       dispatch({
         type: 'SET_FORM_ERRORS',
         payload: {
           description: descriptionError ?? undefined,
           quantityPricing: quantityPricingError ?? undefined,
           configuration: configurationError ?? undefined,
-          packageDetails: packageError ?? undefined,
         },
       });
       return;
@@ -830,7 +822,7 @@ const Products: React.FC = () => {
     data.set('description', normalizeProductDescription(formData.description));
     data.set('category', resolvedCategoryId);
     data.set('quantityPricing', JSON.stringify(sortedPricingTiers));
-    appendProductExtensions(data, configurationDirty ? configuration : undefined, parcelDirty ? parcel : undefined);
+    appendProductExtensions(data, configurationDirty ? configuration : undefined);
 
     try {
       // This legacy modal is edit-only; product creation is handled by CreateProductModal.
@@ -1500,8 +1492,6 @@ const Products: React.FC = () => {
                       savedKeys={Array.isArray(editingProduct?.configuration?.fields) ? editingProduct.configuration.fields.filter(Boolean).map((field) => field.key) : []}
                       title={configurationTitle(formData.category, categoryMetadata)} error={formErrors.configuration}
                       onChange={(value) => { setConfiguration(value); setConfigurationDirty(true); }} />
-                    <PackageDetailsForm value={parcel} disabled={savingProduct} error={formErrors.packageDetails}
-                      onChange={(value) => { setParcel(value); setParcelDirty(true); }} />
                     <label className="form-label" htmlFor="edit-product-image">Product image</label>
                     <div
                       style={{
