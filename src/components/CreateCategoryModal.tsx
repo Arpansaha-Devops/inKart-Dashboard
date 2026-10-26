@@ -4,19 +4,13 @@ import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { createCategory } from '../services/categoryService';
 import type { CreateCategoryPayload } from '../types';
+import { categoryErrorMessage } from '../lib/categoryOptions';
 
 type CreateCategoryModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
 };
-
-const slugify = (value: string) =>
-  value
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '');
 
 const defaultForm: CreateCategoryPayload = {
   name: '',
@@ -126,7 +120,6 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
     setFormData((prev) => ({
       ...prev,
       name: value,
-      slug: isSlugEditedRef.current ? prev.slug : slugify(value),
     }));
   };
 
@@ -140,8 +133,11 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
 
     const payload: CreateCategoryPayload = {
       ...formData,
-      slug: formData.slug?.trim() ? formData.slug : slugify(formData.name),
+      name: formData.name.trim(),
     };
+    // Let the backend generate a unique slug, unless the admin explicitly sets one.
+    if (!isSlugEditedRef.current || !formData.slug?.trim()) delete payload.slug;
+    else payload.slug = formData.slug.trim();
 
     setIsSubmitting(true);
     try {
@@ -151,7 +147,7 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
       onCloseRef.current();
       onSuccess();
     } catch (error: any) {
-      toast.error(error?.response?.data?.message || 'Failed to create category');
+      toast.error(categoryErrorMessage(error, 'Failed to create category'), { duration: 12000 });
     } finally {
       setIsSubmitting(false);
     }
@@ -229,7 +225,7 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label" htmlFor="create-category-slug">Slug</label>
+                  <label className="form-label" htmlFor="create-category-slug">Slug (optional)</label>
                   <input
                     id="create-category-slug"
                     type="text"
@@ -239,7 +235,7 @@ const CreateCategoryModal: React.FC<CreateCategoryModalProps> = ({ isOpen, onClo
                       setFormData((prev) => ({ ...prev, slug: e.target.value }));
                     }}
                     className="input-field"
-                    placeholder="electronics"
+                    placeholder="Generated uniquely by the server"
                   />
                 </div>
 

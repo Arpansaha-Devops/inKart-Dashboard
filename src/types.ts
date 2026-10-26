@@ -22,10 +22,41 @@ export interface Product {
   hsnCode?: string;
   gstPercentage?: number;
   quantityPricing?: QuantityPricingTier[];
+  configuration?: ProductConfiguration;
+  packageDetails?: PackageDetails;
+  isActive?: boolean;
   variants?: ProductVariant[];
   image?: string;
   images?: Array<string | { url?: string; secure_url?: string; path?: string; image?: string; src?: string }>;
   createdAt: string;
+}
+
+export interface ProductConfigurationOption {
+  label: string;
+  value: string;
+  priceModifier: number;
+  isActive: boolean;
+}
+
+export interface ProductConfigurationField {
+  key: string;
+  label: string;
+  type: 'select';
+  required: boolean;
+  isActive: boolean;
+  options: ProductConfigurationOption[];
+}
+
+export interface ProductConfiguration {
+  enabled: boolean;
+  fields: ProductConfigurationField[];
+}
+
+export interface PackageDetails {
+  weight: number;
+  length: number;
+  breadth: number;
+  height: number;
 }
 
 export interface ProductVariantSize {
@@ -59,6 +90,8 @@ export interface CreateProductPayload {
   hsnCode?: string;
   gstPercentage?: number;
   quantityPricing?: QuantityPricingTier[];
+  configuration?: ProductConfiguration;
+  packageDetails?: PackageDetails;
   variants?: Omit<ProductVariant, '_id' | 'colorFront' | 'colorBack'>[];
 }
 

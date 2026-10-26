@@ -6,6 +6,10 @@ Admin changes are live business data changes. Product, category, coupon, custome
 
 ## Overview
 
+Product configuration and parcel-default controls are now available in the existing product create/edit forms. Categories can share display names and are identified by ID in product selection. Product saves refetch new nested fields and warn if persistence cannot be confirmed. Order details display backend delivery charges and selected options; actual order-parcel saving remains unavailable until a backend contract is documented, so existing approval and shipping behavior is preserved.
+
+See [the implementation report](docs/product-fulfillment-implementation.md) for per-feature status, API payloads, changed files, verification results and backend requirements. **BACKEND INTEGRATION NOT LIVE-VERIFIED** for these additions; automated and browser checks use mocked APIs.
+
 Current functionality:
 
 - Admin login with password flow and optional OTP verification flow
@@ -72,6 +76,8 @@ npm run preview  # preview production build
 npm run lint     # TypeScript check with tsc --noEmit
 npm run clean    # remove dist with rm -rf
 npm run doctor   # run react-doctor
+npm test         # focused tests (Node 24; no additional dependencies)
+npm run test:browser # optional isolated Chromium checks; see implementation report
 ```
 
 Note: `npm run clean` uses Unix-style `rm -rf`, so it may not work in a plain Windows shell.

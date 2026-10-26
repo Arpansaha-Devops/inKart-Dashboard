@@ -138,7 +138,8 @@ const Categories: React.FC = () => {
 
   const handleCategoryDeleted = useCallback((categoryId: string) => {
     dispatch({ type: 'REMOVE_CATEGORY', payload: categoryId });
-  }, []);
+    void fetchCategoriesData();
+  }, [fetchCategoriesData]);
   return (
     <div className="page-wrapper">
       <div style={{ display: 'grid', gap: '24px' }}>
@@ -211,7 +212,7 @@ const Categories: React.FC = () => {
                 ) : (
                   paginatedCategories.map((category) => (
                     <tr key={category._id} className="group">
-                      <td style={{ fontWeight: 500 }}>{category.name}</td>
+                      <td style={{ fontWeight: 500 }}>{category.name}<small style={{ display: 'block', color: 'var(--text-muted)', fontWeight: 400, overflowWrap: 'anywhere' }}>{category.slug ? `${category.slug} · ` : ''}{category._id}</small></td>
                       <td
                         style={{
                           color: 'var(--text-secondary)',

@@ -14,10 +14,12 @@ export const getCategories = async (): Promise<Category[]> => {
 export const createCategory = async (payload: CreateCategoryPayload): Promise<Category> => {
   const formData = new FormData();
   Object.entries(payload).forEach(([key, value]) => {
+    if (value === undefined || value === null) return;
     formData.append(key, String(value));
   });
 
   const res = await apiClient.post('/admin/categories', formData);
+  if (res.data?.success === false) throw new Error(res.data?.message || 'Category creation was rejected.');
   return res.data;
 };
 
@@ -26,11 +28,13 @@ export const updateCategory = async (
   payload: Partial<CreateCategoryPayload>
 ): Promise<Category> => {
   const res = await apiClient.patch(`/admin/categories/${id}`, payload);
+  if (res.data?.success === false) throw new Error(res.data?.message || 'Category update was rejected.');
   return res.data;
 };
 
 export const deleteCategory = async (id: string): Promise<void> => {
-  await apiClient.delete(`/admin/categories/${id}`);
+  const res = await apiClient.delete(`/admin/categories/${id}`);
+  if (res.data?.success === false) throw new Error(res.data?.message || 'Category deletion was rejected.');
 };
 
 export function extractCategories(data: unknown): Category[] {

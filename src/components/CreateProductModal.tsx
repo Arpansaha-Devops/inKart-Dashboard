@@ -3,7 +3,11 @@ import { ArrowDown, ArrowUp, Plus, Trash2, X, Upload, Loader2, Calculator } from
 import { m, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { createProduct, updateProduct } from '../services/productService';
+import { createProduct, updateProduct, verifyProductExtensions } from '../services/productService';
+import ProductConfigurationFields from './ProductConfigurationFields';
+import PackageDetailsForm from './PackageDetailsForm';
+import { categoryOptionLabel, configurationTitle, resolveCategoryOption } from '../lib/categoryOptions';
+import { appendProductExtensions, emptyPackageDraft, validateConfiguration, validatePackage } from '../lib/productConfiguration';
 import apiClient from '../lib/apiClient';
 import {
   formatProductImageBytes,
@@ -16,7 +20,7 @@ import {
   normalizeProductDescription,
   PRODUCT_DESCRIPTION_MAX_LENGTH,
 } from '../lib/productValidation';
-import type { QuantityPricingTier } from '../types';
+import type { ProductConfiguration, QuantityPricingTier } from '../types';
 
 interface CreateProductModalProps {
   onClose: () => void;
@@ -35,12 +39,18 @@ interface FormErrors {
   stock?: string;
   quantityPricing?: string;
   variants?: string;
+  configuration?: string;
+  packageDetails?: string;
 }
 
 interface CategoryLookupItem {
   _id: string;
   name: string;
   isActive: boolean;
+  slug?: string;
+  parent?: unknown;
+  parentCategory?: unknown;
+  aliases?: string[];
 }
 
 type QuantityPricingTierForm = QuantityPricingTier & {
@@ -313,9 +323,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     knownCategories,
   } = state;
   const [images, setImages] = useState<File[]>([]);
+  const [configuration, setConfiguration] = useState<ProductConfiguration>({ enabled: false, fields: [] });
+  const [configurationDirty, setConfigurationDirty] = useState(false);
+  const [parcel, setParcel] = useState(emptyPackageDraft);
   const [imagePreview, setImagePreview] = useState<string[]>([]);
   const [variants, setVariants] = useState<ProductVariantForm[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const submittingRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -337,7 +351,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
         typeof node.name === 'string' &&
         node.isActive === true
       ) {
-        items.push({ _id: node._id, name: node.name, isActive: true });
+        items.push({ _id: node._id, name: node.name, isActive: true, slug: node.slug, parent: node.parent, parentCategory: node.parentCategory, aliases: Array.isArray(node.aliases) ? node.aliases.filter((alias: unknown) => typeof alias === 'string') : undefined });
       }
 
       if (node.category && typeof node.category === 'object') {
@@ -413,10 +427,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
       return knownCategories.some((entry) => entry._id === normalized) ? normalized : null;
     }
 
-    const match = knownCategories.find(
-      (entry) => entry.name.trim().toLowerCase() === normalized.toLowerCase(),
-    );
-    return match?._id ?? null;
+    return resolveCategoryOption(normalized, knownCategories);
   };
 
   useEffect(() => {
@@ -425,6 +436,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
 
   const validate = (): QuantityPricingTier[] | null => {
     const newErrors: FormErrors = {};
+    if (configurationDirty) newErrors.configuration = validateConfiguration(configuration) ?? undefined;
+    newErrors.packageDetails = validatePackage(parcel) ?? undefined;
 
     if (!name.trim()) {
       newErrors.name = 'Product name is required';
@@ -462,7 +475,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     }
 
     dispatch({ type: 'SET_ERRORS', payload: newErrors });
-    return Object.keys(newErrors).length === 0 ? sortQuantityPricing(pricingTiers) : null;
+    return Object.values(newErrors).every((error) => !error) ? sortQuantityPricing(pricingTiers) : null;
   };
 
   const updatePricingTier = (
@@ -667,6 +680,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
   };
 
   const resetForm = useCallback(() => {
+    setConfiguration({ enabled: false, fields: [] });
+    setConfigurationDirty(false);
+    setParcel(emptyPackageDraft());
     dispatch({ type: 'RESET_FORM' });
     setImages([]);
     imagePreview.forEach((preview) => URL.revokeObjectURL(preview));
@@ -744,6 +760,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current) return;
 
     const sortedPricingTiers = validate();
     if (!sortedPricingTiers) return;
@@ -762,6 +779,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     }
 
     dispatch({ type: 'SET_SUBMITTING', payload: true });
+    submittingRef.current = true;
 
     try {
       const variantImageFiles = variants.flatMap((variant) => [
@@ -794,8 +812,11 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
       }
       formData.append('gstPercentage', String(gstPercentage ?? 5));
       formData.append('quantityPricing', JSON.stringify(sortedPricingTiers));
+      appendProductExtensions(formData, configurationDirty ? configuration : undefined,
+        Object.values(parcel).some((value) => value.trim()) ? parcel : undefined);
 
       const response = await createProduct(formData);
+      if (response.data?.success === false) throw new Error(response.data?.message || 'Product creation was rejected.');
       let createdProductPayload = response.data;
 
       if (optimizedImages.length > 0) {
@@ -840,6 +861,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
 
         try {
           const updateResponse = await updateProduct(productId, updateFormData);
+          if (updateResponse.data?.success === false) throw new Error(updateResponse.data?.message || 'Image upload was rejected.');
           createdProductPayload = updateResponse.data;
         } catch (variantError) {
           toast.error(
@@ -854,7 +876,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
         }
       }
 
-      toast.success('Product created successfully!');
+      const persistenceWarning = await verifyProductExtensions(createdProductPayload, formData, getCreatedProductId(response.data) ?? undefined);
+      if (persistenceWarning) toast.warning(persistenceWarning, { duration: 12000 });
+      else toast.success('Product created successfully!');
       resetForm();
       onClose();
       onSuccess(createdProductPayload);
@@ -865,6 +889,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
       }
       toast.error(getCreateProductErrorMessage(error));
     } finally {
+      submittingRef.current = false;
       dispatch({ type: 'SET_SUBMITTING', payload: false });
     }
   };
@@ -1333,7 +1358,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                   />
                   <datalist id={categoryListId}>
                     {knownCategories.map((entry) => (
-                      <option key={entry._id} value={entry.name} />
+                      <option key={entry._id} value={categoryOptionLabel(entry)} />
                     ))}
                   </datalist>
                   {errors.category ? (
@@ -1754,6 +1779,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                 </section>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
+                  <ProductConfigurationFields value={configuration} disabled={isSubmitting} error={errors.configuration}
+                    title={configurationTitle(resolveCategoryId(category) ?? category, knownCategories)}
+                    onChange={(value) => { setConfiguration(value); setConfigurationDirty(true); }} />
+                  <PackageDetailsForm value={parcel} disabled={isSubmitting} error={errors.packageDetails} onChange={setParcel} />
                   <label className="form-label" htmlFor="create-product-images">Product images ({images.length}/5)</label>
                   <div
                     onDragOver={handleDragOver}

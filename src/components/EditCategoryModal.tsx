@@ -4,6 +4,7 @@ import { X } from 'lucide-react';
 import { toast } from 'sonner';
 import { updateCategory } from '../services/categoryService';
 import type { Category, CreateCategoryPayload } from '../types';
+import { categoryErrorMessage } from '../lib/categoryOptions';
 
 type EditCategoryModalProps = {
   isOpen: boolean;
@@ -11,13 +12,6 @@ type EditCategoryModalProps = {
   onClose: () => void;
   onSuccess: () => void;
 };
-
-const slugify = (value: string) =>
-  value
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '');
 
 const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
   const selector = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -145,7 +139,6 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
     setFormData((prev) => ({
       ...prev,
       name: value,
-      slug: isSlugEditedRef.current ? prev.slug : slugify(value),
     }));
   };
 
@@ -160,8 +153,10 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
 
     const payload: Partial<CreateCategoryPayload> = {
       ...formData,
-      slug: formData.slug?.trim() ? formData.slug : slugify(formData.name),
+      name: formData.name.trim(),
     };
+    if (!isSlugEditedRef.current || !formData.slug?.trim()) delete payload.slug;
+    else payload.slug = formData.slug.trim();
 
     setIsSubmitting(true);
     try {
@@ -170,7 +165,7 @@ const EditCategoryModal: React.FC<EditCategoryModalProps> = ({
       handleClose();
       onSuccess();
     } catch (error: any) {
-      toast.error(error?.response?.data?.message || 'Failed to update category');
+      toast.error(categoryErrorMessage(error, 'Failed to update category'), { duration: 12000 });
     } finally {
       setIsSubmitting(false);
     }

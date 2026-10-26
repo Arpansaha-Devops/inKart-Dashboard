@@ -33,6 +33,9 @@ import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
+import OrderParcelDetails from '../components/OrderParcelDetails';
+import type { PackageDetails } from '../types';
+import { normalizeSelectedOptions, reportedPackage, reportedShippingCharge } from '../lib/orderPresentation';
 import {
   approveOrder,
   cancelShipment,
@@ -122,6 +125,8 @@ interface Order {
   items: OrderItem[];
   customization?: OrderCustomization;
   totalAmount: number;
+  shippingCharge?: number;
+  packageDetails?: PackageDetails;
   orderStatus: OrderStatus;
   paymentStatus: PaymentStatus;
   paymentId?: string;
@@ -715,20 +720,7 @@ const normalizeCustomizationResponse = (
 };
 
 const normalizeItemOptions = (value: unknown): Record<string, string> | undefined => {
-  if (!isRecord(value)) return undefined;
-
-  const options = Object.entries(value).reduce<Record<string, string>>((result, [key, optionValue]) => {
-    if (typeof optionValue === 'string' && optionValue.trim()) {
-      result[key] = optionValue.trim();
-    } else if (typeof optionValue === 'number' && Number.isFinite(optionValue)) {
-      result[key] = String(optionValue);
-    } else if (typeof optionValue === 'boolean') {
-      result[key] = optionValue ? 'Yes' : 'No';
-    }
-    return result;
-  }, {});
-
-  return Object.keys(options).length > 0 ? options : undefined;
+  return normalizeSelectedOptions(value);
 };
 
 const normalizeItem = (value: unknown): OrderItem | null => {
@@ -913,6 +905,8 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
           }
         : undefined,
     totalAmount: getNumber(value, ['totalAmount', 'amount', 'total', 'paidAmount']),
+    shippingCharge: reportedShippingCharge(value.shippingCharge),
+    packageDetails: reportedPackage(value.packageDetails),
     orderStatus: resolveOrderStatus(value),
     paymentStatus: normalizePaymentStatus(
       value.paymentStatus ?? value.payment_status ?? payment.status
@@ -2790,6 +2784,12 @@ const DeleteOrderDialog: React.FC<{
   );
 };
 
+const SelectedProductOptions: React.FC<{ options?: Record<string, string> }> = ({ options }) => options ? (
+  <div className="orders-item-options" aria-label="Selected product options">
+    {Object.entries(options).map(([key, value]) => <span key={key}><b>{key}:</b> {value}</span>)}
+  </div>
+) : null;
+
 const PurchasedItemsSummary: React.FC<{ items: OrderItem[] }> = ({ items }) => {
   const totalQuantity = items.reduce((total, item) => total + item.quantity, 0);
 
@@ -2819,13 +2819,7 @@ const PurchasedItemsSummary: React.FC<{ items: OrderItem[] }> = ({ items }) => {
               <div className="orders-purchased-item-content">
                 <strong>{item.product.name}</strong>
                 <span>{formatCurrency(item.price)} per unit</span>
-                {item.options ? (
-                  <div className="orders-item-options" aria-label="Selected product options">
-                    {Object.entries(item.options).map(([key, value]) => (
-                      <span key={key}><b>{key}:</b> {value}</span>
-                    ))}
-                  </div>
-                ) : null}
+                <SelectedProductOptions options={item.options} />
               </div>
               <div className="orders-purchased-item-quantity">
                 <span>Quantity</span>
@@ -4021,6 +4015,7 @@ const OrderDetailModal: React.FC<{
                             <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: 12 }}>
                               Qty {item.quantity} x {formatCurrency(item.price)}
                             </p>
+                            <SelectedProductOptions options={item.options} />
                           </div>
                           <strong>{formatCurrency(item.quantity * item.price)}</strong>
                         </div>
@@ -4103,7 +4098,9 @@ const OrderDetailModal: React.FC<{
               label="Coupon"
               value={order.coupon ? `${order.coupon.code} - ${formatCurrency(order.coupon.discountValue)}` : 'N/A'}
             />
+            {order.shippingCharge !== undefined && <InfoRow label="Delivery charge (charged at checkout)" value={formatCurrency(order.shippingCharge)} />}
             <InfoRow label="Total paid" value={formatCurrency(order.totalAmount)} />
+            <OrderParcelDetails value={order.packageDetails} />
             <InfoRow label="Payment ID" value={order.paymentId || 'N/A'} mono={Boolean(order.paymentId)} />
             <div className="detail-row">
               <span className="form-label" style={{ margin: 0 }}>Payment Status</span>

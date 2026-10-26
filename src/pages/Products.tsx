@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useReducer, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import apiClient from '../lib/apiClient';
-import type { Product, QuantityPricingTier } from '../types';
+import type { Product, QuantityPricingTier, ProductConfiguration } from '../types';
 import {
   ArrowDown,
   ArrowUp,
@@ -17,7 +17,12 @@ import {
 import { toast } from 'sonner';
 import { m, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
-import { deleteProduct, updateProduct } from '../services/productService';
+import { deleteProduct, updateProduct, verifyProductExtensions } from '../services/productService';
+import ProductConfigurationFields from '../components/ProductConfigurationFields';
+import PackageDetailsForm from '../components/PackageDetailsForm';
+import { appendProductExtensions, emptyPackageDraft, packageDraft, validateConfiguration, validatePackage } from '../lib/productConfiguration';
+import { categoryOptionLabel, configurationTitle, resolveCategoryOption, type CategoryOption } from '../lib/categoryOptions';
+import { getCategories } from '../services/categoryService';
 import { getVisibleProductName } from '../lib/productNames';
 import {
   getProductDescriptionError,
@@ -200,8 +205,6 @@ const getProductImageUrl = (product: any): string => {
   return PRODUCT_PLACEHOLDER_IMAGE;
 };
 
-const isObjectId = (value: string) => /^[0-9a-fA-F]{24}$/.test(value.trim());
-
 const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
   const selector =
     'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
@@ -231,6 +234,8 @@ type QuantityPricingTierForm = QuantityPricingTier & {
 type ProductFormErrors = {
   description?: string;
   quantityPricing?: string;
+  configuration?: string;
+  packageDetails?: string;
 };
 
 type StockFormData = {
@@ -474,6 +479,13 @@ const Products: React.FC = () => {
 
   const deleteModalOverlayRef = useRef<HTMLDivElement>(null);
   const deleteModalContentRef = useRef<HTMLDivElement>(null);
+  const [configuration, setConfiguration] = useState<ProductConfiguration>({ enabled: false, fields: [] });
+  const [configurationDirty, setConfigurationDirty] = useState(false);
+  const [parcel, setParcel] = useState(emptyPackageDraft);
+  const [parcelDirty, setParcelDirty] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const savingProductRef = useRef(false);
+  const [categoryMetadata, setCategoryMetadata] = useState<CategoryOption[]>([]);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
   const getCategoryLabel = (product: any): string => {
@@ -489,27 +501,26 @@ const Products: React.FC = () => {
   const resolveCategoryId = (input: string): string | null => {
     const normalized = input.trim();
     if (!normalized) return null;
-    if (isObjectId(normalized)) return normalized;
-    const match = Object.entries(categoryNameById).find(
-      ([, name]) => name?.trim().toLowerCase() === normalized.toLowerCase()
-    );
-    return match?.[0] ?? null;
+    const currentCategory = typeof editingProduct?.category === 'object' ? editingProduct.category?._id : editingProduct?.category;
+    if (normalized === currentCategory) return normalized;
+    return resolveCategoryOption(normalized, categoryOptions);
   };
 
   const categoryOptions = useMemo(
-    () => Array.from(new Set(Object.values(categoryNameById).filter((name): name is string => Boolean(name)))).sort(),
-    [categoryNameById]
+    () => categoryMetadata.filter((category) => category.isActive === true),
+    [categoryMetadata]
   );
 
   const fetchCategoryLookup = useCallback(async () => {
     try {
-      const response = await apiClient.get('/admin/categories');
-      const categories = extractCategoriesFromPayload(response.data);
+      const list = await getCategories();
+      setCategoryMetadata(list);
+      const categories = extractCategoriesFromPayload(list);
       if (Object.keys(categories).length > 0) {
         dispatch({ type: 'MERGE_CATEGORY_NAMES', payload: categories });
       }
     } catch (error) {
-      // Silently fail - categories will be extracted from product data
+      // Product-derived category names remain display-only; assignments require active metadata.
     }
   }, []);
 
@@ -642,7 +653,7 @@ const Products: React.FC = () => {
     if (!isModalOpen) return;
 
     const handleEscapeKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !savingProductRef.current) {
         dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
       }
     };
@@ -665,11 +676,15 @@ const Products: React.FC = () => {
   }, [isStockModalOpen]);
 
   const handleOpenModal = (product: Product) => {
+    setConfiguration(product.configuration ?? { enabled: false, fields: [] });
+    setConfigurationDirty(false);
+    setParcel(packageDraft(product.packageDetails));
+    setParcelDirty(false);
     const categoryValue =
       typeof product.category === 'object' && product.category !== null
-        ? product.category.name || categoryNameById[product.category._id] || product.category._id || ''
+        ? product.category._id || ''
         : typeof product.category === 'string'
-        ? categoryNameById[product.category] || product.category
+        ? product.category
         : '';
 
     dispatch({
@@ -770,18 +785,23 @@ const Products: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savingProductRef.current) return;
+    const configurationError = configurationDirty ? validateConfiguration(configuration) : null;
+    const packageError = parcelDirty ? validatePackage(parcel, true) : null;
     const descriptionError = getProductDescriptionError(formData.description);
     const pricingTiers = formData.quantityPricing.map(({ minQty, pricePerUnit }) => ({
       minQty,
       pricePerUnit,
     }));
     const quantityPricingError = validateQuantityPricing(pricingTiers);
-    if (descriptionError || quantityPricingError) {
+    if (descriptionError || quantityPricingError || configurationError || packageError) {
       dispatch({
         type: 'SET_FORM_ERRORS',
         payload: {
           description: descriptionError ?? undefined,
           quantityPricing: quantityPricingError ?? undefined,
+          configuration: configurationError ?? undefined,
+          packageDetails: packageError ?? undefined,
         },
       });
       return;
@@ -791,7 +811,7 @@ const Products: React.FC = () => {
 
     const resolvedCategoryId = resolveCategoryId(formData.category);
     if (!resolvedCategoryId) {
-      toast.error('Category not recognized. Use an active category name or a valid category ID.');
+      toast.error('Select an active category or keep this product’s existing category.');
       return;
     }
 
@@ -800,7 +820,7 @@ const Products: React.FC = () => {
       if (key === 'quantityPricing') return;
       if (key !== 'category' && value !== null && value !== undefined) {
         if (value instanceof File) {
-          data.append(key === 'image' ? 'images' : key, value);
+          data.append(key === 'image' ? 'productImages' : key, value);
         } else {
           data.append(key, String(value));
         }
@@ -810,6 +830,7 @@ const Products: React.FC = () => {
     data.set('description', normalizeProductDescription(formData.description));
     data.set('category', resolvedCategoryId);
     data.set('quantityPricing', JSON.stringify(sortedPricingTiers));
+    appendProductExtensions(data, configurationDirty ? configuration : undefined, parcelDirty ? parcel : undefined);
 
     try {
       // This legacy modal is edit-only; product creation is handled by CreateProductModal.
@@ -822,12 +843,20 @@ const Products: React.FC = () => {
         toast.error('Product ID is missing');
         return;
       }
-      await updateProduct(editingProductId, data);
-      toast.success('Product updated successfully');
+      savingProductRef.current = true;
+      setSavingProduct(true);
+      const response = await updateProduct(editingProductId, data);
+      if (response.data?.success === false) throw new Error(response.data?.message || 'Product update was rejected.');
+      const warning = await verifyProductExtensions(response.data, data, editingProductId);
+      if (warning) toast.warning(warning, { duration: 12000 });
+      else toast.success('Product updated successfully');
       dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
       fetchProducts();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Action failed');
+      toast.error(error.response?.data?.message || error.message || 'Action failed');
+    } finally {
+      savingProductRef.current = false;
+      setSavingProduct(false);
     }
   };
 
@@ -1103,7 +1132,8 @@ const Products: React.FC = () => {
             <button
               type="button"
               className="modal-backdrop-dismiss"
-              onClick={() => dispatch({ type: 'CLOSE_PRODUCT_MODAL' })}
+              onClick={() => { if (!savingProductRef.current) dispatch({ type: 'CLOSE_PRODUCT_MODAL' }); }}
+              disabled={savingProduct}
               aria-label="Close product modal"
             />
             <m.div
@@ -1116,6 +1146,7 @@ const Products: React.FC = () => {
               aria-labelledby="product-edit-title"
             >
               <form onSubmit={handleSubmit}>
+                <fieldset disabled={savingProduct} style={{ border: 0, margin: 0, padding: 0, minWidth: 0 }}>
                 <div
                   style={{
                     display: 'flex',
@@ -1206,10 +1237,8 @@ const Products: React.FC = () => {
 
                   <div className="form-group">
                     <label className="form-label" htmlFor="edit-product-category">Category</label>
-                    <input
+                    <select
                       id="edit-product-category"
-                      type="text"
-                      list="product-category-options"
                       required
                       className="input-field"
                       value={formData.category}
@@ -1219,12 +1248,12 @@ const Products: React.FC = () => {
                           payload: { ...formData, category: event.target.value },
                         })
                       }
-                    />
-                    <datalist id="product-category-options">
-                      {categoryOptions.map((name) => (
-                        <option key={name} value={name} />
+                    >
+                      {!categoryOptions.some((category) => category._id === formData.category) && <option value={formData.category}>{getCategoryLabel(editingProduct)}</option>}
+                      {categoryOptions.map((category) => (
+                        <option key={category._id} value={category._id}>{categoryOptionLabel(category)}</option>
                       ))}
-                    </datalist>
+                    </select>
                   </div>
 
                   <div className="form-group">
@@ -1467,6 +1496,12 @@ const Products: React.FC = () => {
                   </div>
 
                   <div className="form-group" style={{ gridColumn: '1 / -1' }}>
+                    <ProductConfigurationFields key={editingProduct?._id} value={configuration} disabled={savingProduct}
+                      savedKeys={Array.isArray(editingProduct?.configuration?.fields) ? editingProduct.configuration.fields.filter(Boolean).map((field) => field.key) : []}
+                      title={configurationTitle(formData.category, categoryMetadata)} error={formErrors.configuration}
+                      onChange={(value) => { setConfiguration(value); setConfigurationDirty(true); }} />
+                    <PackageDetailsForm value={parcel} disabled={savingProduct} error={formErrors.packageDetails}
+                      onChange={(value) => { setParcel(value); setParcelDirty(true); }} />
                     <label className="form-label" htmlFor="edit-product-image">Product image</label>
                     <div
                       style={{
@@ -1516,10 +1551,11 @@ const Products: React.FC = () => {
                   <button type="button" className="btn-ghost" onClick={() => dispatch({ type: 'CLOSE_PRODUCT_MODAL' })}>
                     Cancel
                   </button>
-                  <button type="submit" className="btn-primary">
-                    Save Changes
+                  <button type="submit" className="btn-primary" disabled={savingProduct}>
+                    {savingProduct ? 'Saving and verifying…' : 'Save Changes'}
                   </button>
                 </div>
+                </fieldset>
               </form>
             </m.div>
           </div>

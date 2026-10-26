@@ -1,4 +1,31 @@
 import apiClient from '../lib/apiClient';
+import { extensionPersistenceError, findProductRecord } from '../lib/productConfiguration';
+
+export const verifyProductExtensions = async (payload: unknown, data: FormData, productId?: string): Promise<string | null> => {
+  if (!data.has('configuration') && !data.has('packageDetails')) return null;
+  const saved = findProductRecord(payload, productId);
+  const id = productId || String(saved?._id ?? saved?.id ?? '');
+  const pending = 'Product save completed, but configuration/package persistence could not be verified. Refresh and review the saved product before retrying.';
+  if (!id) return pending;
+  try {
+    // Reuse the existing listing route: there is no documented admin detail GET.
+    for (let page = 1; page <= 50; page += 1) {
+      const response = await apiClient.get('/admin/products', { params: { page, limit: 100 } });
+      const product = findProductRecord(response.data, id);
+      if (product) {
+        const field = extensionPersistenceError(product, data);
+        return field ? `Product save completed, but the backend did not return the submitted ${field}. Its persistence is unconfirmed; review the product before retrying.` : null;
+      }
+      // A short/empty listing cannot contain further pages. Bound reads for older APIs.
+      const root = response.data;
+      const items = [root, root?.products, root?.data?.products, root?.data?.items, root?.data?.docs, root?.docs, root?.data].find(Array.isArray);
+      if (!Array.isArray(items) || items.length < 100) break;
+    }
+  } catch {
+    return pending;
+  }
+  return pending;
+};
 
 const PRODUCT_DELETE_VERIFY_LIMIT = 200;
 

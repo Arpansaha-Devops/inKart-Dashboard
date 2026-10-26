@@ -3470,3 +3470,15 @@ button.orders-summary-row:focus-visible {
     padding: 14px;
   }
 }
+/* Product configuration and parcel forms share the dashboard theme tokens. */
+.product-extension-section { min-width: 0; margin: 16px 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-md); grid-column: 1 / -1; }
+.product-extension-section legend { padding: 0 6px; font-weight: 600; color: var(--text-primary); }
+.product-extension-help { font-size: 12px; line-height: 1.6; color: var(--text-secondary); margin: 8px 0 14px; }
+.product-extension-error { color: var(--danger); font-size: 13px; margin: 10px 0 0; }
+.product-extension-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); gap: 12px; }
+.product-extension-check { display: inline-flex; gap: 8px; align-items: center; font-size: 13px; color: var(--text-primary); }
+.product-extension-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin: 8px 0 12px; }
+.product-configuration-field { padding: 12px; margin: 14px 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-surface); }
+.product-configuration-option { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(80px, .7fr) auto auto; gap: 10px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+.product-extension-section .form-label .input-field { margin-top: 6px; }
+@media (max-width: 600px) { .product-configuration-option { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
