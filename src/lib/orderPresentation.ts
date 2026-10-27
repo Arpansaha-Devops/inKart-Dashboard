@@ -28,3 +28,6 @@ export function normalizeSelectedOptions(value: unknown): Record<string, string>
   }));
   return Object.keys(options).length ? options : undefined;
 }
+
+export const normalizeOrderItemOptions = (item: { selectedOptions?: unknown; options?: unknown }) =>
+  normalizeSelectedOptions(item.selectedOptions) ?? normalizeSelectedOptions(item.options);

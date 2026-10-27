@@ -5,8 +5,9 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { createProduct, updateProduct, verifyProductExtensions } from '../services/productService';
 import ProductConfigurationFields from './ProductConfigurationFields';
-import { categoryOptionLabel, configurationTitle, resolveCategoryOption } from '../lib/categoryOptions';
+import { categoryOptionLabel, resolveCategoryOption } from '../lib/categoryOptions';
 import { appendProductExtensions, validateConfiguration } from '../lib/productConfiguration';
+import { createProductConfigurationDraft, productConfigurationDraftReducer } from '../lib/productConfigurationDrafts';
 import apiClient from '../lib/apiClient';
 import {
   formatProductImageBytes,
@@ -19,7 +20,7 @@ import {
   normalizeProductDescription,
   PRODUCT_DESCRIPTION_MAX_LENGTH,
 } from '../lib/productValidation';
-import type { ProductConfiguration, QuantityPricingTier } from '../types';
+import type { QuantityPricingTier } from '../types';
 
 interface CreateProductModalProps {
   onClose: () => void;
@@ -321,11 +322,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     knownCategories,
   } = state;
   const [images, setImages] = useState<File[]>([]);
-  const [configuration, setConfiguration] = useState<ProductConfiguration>({ enabled: false, fields: [] });
-  const [configurationDirty, setConfigurationDirty] = useState(false);
+  const [configurationDraft, dispatchConfiguration] = useReducer(productConfigurationDraftReducer, undefined, createProductConfigurationDraft);
+  const { configuration, dirty: configurationDirty } = configurationDraft;
   const [imagePreview, setImagePreview] = useState<string[]>([]);
   const [variants, setVariants] = useState<ProductVariantForm[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const inventoryRef = useRef<HTMLDetailsElement>(null);
   const submittingRef = useRef(false);
   const overlayRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -427,9 +429,24 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     return resolveCategoryOption(normalized, knownCategories);
   };
 
+  const selectedCategoryId = resolveCategoryId(category) ?? '';
+  const selectedCategory = knownCategories.find((entry) => entry._id === selectedCategoryId);
+  useEffect(() => {
+    dispatchConfiguration({ type: 'selectCategory', categoryId: selectedCategoryId });
+  }, [selectedCategoryId]);
+  const changeCategory = (input: string) => {
+    dispatchConfiguration({ type: 'selectCategory', categoryId: resolveCategoryId(input) ?? '' });
+    dispatch({ type: 'SET_FIELD', payload: { category: input } });
+    dispatch({ type: 'SET_ERRORS', payload: (previous) => ({ ...previous, category: undefined, configuration: undefined }) });
+  };
+
   useEffect(() => {
     void fetchKnownCategories();
   }, [fetchKnownCategories]);
+
+  useEffect(() => {
+    if ((errors.stock || errors.variants) && inventoryRef.current) inventoryRef.current.open = true;
+  }, [errors.stock, errors.variants]);
 
   const validate = (): QuantityPricingTier[] | null => {
     const newErrors: FormErrors = {};
@@ -438,7 +455,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     if (!name.trim()) {
       newErrors.name = 'Product name is required';
     }
-    if (!price || price <= 0) {
+    if (!Number.isFinite(price) || price <= 0) {
       newErrors.price = 'Price must be greater than 0';
     }
     const descriptionError = getProductDescriptionError(description);
@@ -446,12 +463,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     if (!category.trim()) {
       newErrors.category = 'Category is required';
     }
-    if (!basePrice || basePrice <= 0) {
+    if (!Number.isFinite(basePrice) || basePrice <= 0) {
       newErrors.basePrice = 'Base price must be greater than 0';
     }
-    if (stock < 0) {
-      newErrors.stock = 'Stock cannot be negative';
+    if (!Number.isInteger(stock) || stock < 0) {
+      newErrors.stock = 'Stock must be a non-negative whole number';
     }
+    if (!Number.isFinite(gstPercentage) || gstPercentage < 0 || gstPercentage > 100) newErrors.gstPercentage = 'GST must be between 0 and 100 percent';
     if (images.length === 0) {
       newErrors.images = 'At least one product image is required';
     }
@@ -537,10 +555,10 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
 
   const handleImageChange = (newFiles: FileList | null) => {
     if (!newFiles || newFiles.length === 0) return;
-    
+
     const filesToAdd: File[] = [];
     const newPreviews: string[] = [...imagePreview];
-    
+
     for (let i = 0; i < newFiles.length; i++) {
       const file = newFiles[i];
       if (images.length + filesToAdd.length >= 5) {
@@ -554,7 +572,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
       filesToAdd.push(file);
       newPreviews.push(URL.createObjectURL(file));
     }
-    
+
     if (filesToAdd.length > 0) {
       setImages([...images, ...filesToAdd]);
       setImagePreview(newPreviews);
@@ -563,7 +581,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
         payload: (prev) => ({ ...prev, images: undefined }),
       });
     }
-    
+
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -676,8 +694,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
   };
 
   const resetForm = useCallback(() => {
-    setConfiguration({ enabled: false, fields: [] });
-    setConfigurationDirty(false);
+    dispatchConfiguration({ type: 'reset' });
     dispatch({ type: 'RESET_FORM' });
     setImages([]);
     imagePreview.forEach((preview) => URL.revokeObjectURL(preview));
@@ -770,6 +787,11 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
             'Category not recognized. Use an active category name or paste its 24-character active category ID.',
         }),
       });
+      return;
+    }
+
+    if (configurationDraft.categoryId !== resolvedCategoryId) {
+      dispatch({ type: 'SET_ERRORS', payload: (previous) => ({ ...previous, category: 'Please wait for the selected category’s options to finish loading.' }) });
       return;
     }
 
@@ -904,12 +926,15 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="modal-box modal-box-lg"
+            className="modal-box modal-box-lg product-create-modal"
             role="dialog"
             aria-modal="true"
             aria-labelledby="create-product-title"
           >
-            <form onSubmit={handleSubmit}>
+            <form onSubmit={handleSubmit} onInvalidCapture={(event) => {
+              const panel = (event.target as HTMLElement).closest('details');
+              if (panel) panel.open = true;
+            }}>
               <div
                 style={{
                   display: 'flex',
@@ -941,7 +966,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                 </button>
               </div>
 
-              <div style={{ display: 'grid', gap: '16px' }}>
+            <div className="product-create-sections">
+              <section className="product-create-section" aria-label="Product information">
+                <header className="product-create-section-heading"><h3>1. Product information</h3><p>Set the product name, prices and tax details.</p></header>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label" htmlFor="create-product-name">Product name</label>
                   <input
@@ -968,7 +995,6 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                     </p>
                   ) : null}
                 </div>
-
                 <div
                   style={{
                     display: 'grid',
@@ -1098,6 +1124,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                         disabled={isSubmitting}
                         className="input-field"
                         style={{ paddingRight: 30 }}
+                        aria-invalid={!!errors.gstPercentage}
+                        aria-describedby={errors.gstPercentage ? 'create-product-gst-error' : undefined}
                         placeholder="5"
                         value={gstPercentage ?? 5}
                         onChange={(e) => {
@@ -1123,9 +1151,9 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                         %
                       </span>
                     </div>
+                    {errors.gstPercentage && <p id="create-product-gst-error" className="product-extension-error" role="alert">{errors.gstPercentage}</p>}
                   </div>
                 </div>
-
                 {price > 0 && (
                   <div
                     style={{
@@ -1163,7 +1191,43 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                     </div>
                   </div>
                 )}
+              </section>
 
+              <section className="product-create-section" aria-label="Category and product options">
+                <header className="product-create-section-heading"><h3>2. Category & product options</h3><p>Choose the category, then define the choices customers can select for this product.</p></header>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" htmlFor="create-product-category">Category</label>
+                  <input
+                    id="create-product-category"
+                    type="text"
+                    list={categoryListId}
+                    disabled={isSubmitting}
+                    className="input-field"
+                    style={errors.category ? { borderColor: 'var(--danger)' } : undefined}
+                    placeholder="Type existing category name (or paste category ID)"
+                    value={category}
+                    onChange={(e) => changeCategory(e.target.value)}
+                  />
+                  <datalist id={categoryListId}>
+                    {knownCategories.map((entry) => (
+                      <option key={entry._id} value={categoryOptionLabel(entry)} />
+                    ))}
+                  </datalist>
+                  {errors.category ? (
+                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                      {errors.category}
+                    </p>
+                  ) : null}
+                </div>
+                <div className="product-create-options">
+                  {selectedCategoryId && configurationDraft.categoryId === selectedCategoryId ? <ProductConfigurationFields key={selectedCategoryId} value={configuration} disabled={isSubmitting} error={errors.configuration}
+                    title={selectedCategory ? `${selectedCategory.name} options` : 'Product options'}
+                    onChange={(value) => dispatchConfiguration({ type: 'update', configuration: value })} /> : <p className="product-create-empty">{selectedCategoryId ? 'Preparing this category’s product options…' : 'Choose a category to add this product’s options. Quantity and pricing are available for every category.'}</p>}
+                </div>
+              </section>
+
+              <section className="product-create-section" aria-label="Quantity and pricing">
+                <header className="product-create-section-heading"><h3>3. Quantity & pricing</h3><p>Required for every category. Set the unit price for each minimum quantity.</p></header>
                 <div
                   className="form-group"
                   style={{
@@ -1296,149 +1360,84 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                     </p>
                   ) : null}
                 </div>
+              </section>
 
+              <details ref={inventoryRef} className="product-create-section product-create-inventory"><summary>Inventory & mockups <span>Optional color/size stock and fulfillment settings</span></summary><div className="product-create-inventory-body"><div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+                  gap: '16px',
+                }}
+              >
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label" htmlFor="create-product-description">Description</label>
-                  <textarea
-                    id="create-product-description"
-                    rows={3}
-                    maxLength={PRODUCT_DESCRIPTION_MAX_LENGTH}
-                    disabled={isSubmitting}
+                  <label className="form-label" htmlFor="create-product-type">Product type</label>
+                  <select
+                    id="create-product-type"
                     className="input-field"
-                    style={errors.description ? { borderColor: 'var(--danger)' } : undefined}
-                    placeholder="Enter product description..."
-                    value={description}
-                    onChange={(e) => {
-                      dispatch({ type: 'SET_FIELD', payload: { description: e.target.value } });
-                      if (errors.description) {
-                        dispatch({
-                          type: 'SET_ERRORS',
-                          payload: (prev) => ({ ...prev, description: undefined }),
-                        });
-                      }
-                    }}
-                  />
-                  {errors.description ? (
-                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
-                      {errors.description}
-                    </p>
-                  ) : (
-                    <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: '6px 0 0', textAlign: 'right' }}>
-                      {description.length.toLocaleString()} / {PRODUCT_DESCRIPTION_MAX_LENGTH.toLocaleString()}
-                    </p>
-                  )}
+                    disabled={isSubmitting}
+                    value={productType}
+                    onChange={(event) =>
+                      dispatch({
+                        type: 'SET_FIELD',
+                        payload: { productType: event.target.value as 'stocked' | 'on_demand' },
+                      })
+                    }
+                  >
+                    <option value="on_demand">On demand</option>
+                    <option value="stocked">Stock</option>
+                  </select>
                 </div>
 
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <label className="form-label" htmlFor="create-product-category">Category</label>
+                  <label className="form-label" htmlFor="create-product-stock">Initial stock</label>
                   <input
-                    id="create-product-category"
-                    type="text"
-                    list={categoryListId}
+                    id="create-product-stock"
+                    type="number"
+                    min="0"
+                    step="1"
                     disabled={isSubmitting}
                     className="input-field"
-                    style={errors.category ? { borderColor: 'var(--danger)' } : undefined}
-                    placeholder="Type existing category name (or paste category ID)"
-                    value={category}
-                    onChange={(e) => {
-                      dispatch({ type: 'SET_FIELD', payload: { category: e.target.value } });
-                      if (errors.category) {
+                    style={errors.stock ? { borderColor: 'var(--danger)' } : undefined}
+                    value={stock}
+                    onChange={(event) => {
+                      dispatch({
+                        type: 'SET_FIELD',
+                        payload: { stock: Number(event.target.value) },
+                      });
+                      if (errors.stock) {
                         dispatch({
                           type: 'SET_ERRORS',
-                          payload: (prev) => ({ ...prev, category: undefined }),
+                          payload: (prev) => ({ ...prev, stock: undefined }),
                         });
                       }
                     }}
                   />
-                  <datalist id={categoryListId}>
-                    {knownCategories.map((entry) => (
-                      <option key={entry._id} value={categoryOptionLabel(entry)} />
-                    ))}
-                  </datalist>
-                  {errors.category ? (
+                  {errors.stock ? (
                     <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
-                      {errors.category}
+                      {errors.stock}
                     </p>
                   ) : null}
                 </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                    gap: '16px',
-                  }}
-                >
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" htmlFor="create-product-type">Product type</label>
-                    <select
-                      id="create-product-type"
-                      className="input-field"
-                      disabled={isSubmitting}
-                      value={productType}
-                      onChange={(event) =>
-                        dispatch({
-                          type: 'SET_FIELD',
-                          payload: { productType: event.target.value as 'stocked' | 'on_demand' },
-                        })
-                      }
-                    >
-                      <option value="on_demand">On demand</option>
-                      <option value="stocked">Stock</option>
-                    </select>
-                  </div>
-
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" htmlFor="create-product-stock">Initial stock</label>
-                    <input
-                      id="create-product-stock"
-                      type="number"
-                      min="0"
-                      step="1"
-                      disabled={isSubmitting}
-                      className="input-field"
-                      style={errors.stock ? { borderColor: 'var(--danger)' } : undefined}
-                      value={stock}
-                      onChange={(event) => {
-                        dispatch({
-                          type: 'SET_FIELD',
-                          payload: { stock: parseInt(event.target.value, 10) || 0 },
-                        });
-                        if (errors.stock) {
-                          dispatch({
-                            type: 'SET_ERRORS',
-                            payload: (prev) => ({ ...prev, stock: undefined }),
-                          });
-                        }
-                      }}
-                    />
-                    {errors.stock ? (
-                      <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
-                        {errors.stock}
-                      </p>
-                    ) : null}
-                  </div>
-
-                  <div className="form-group" style={{ marginBottom: 0 }}>
-                    <label className="form-label" htmlFor="create-product-customizable">Customizable</label>
-                    <select
-                      id="create-product-customizable"
-                      className="input-field"
-                      disabled={isSubmitting}
-                      value={String(isCustomizable)}
-                      onChange={(event) =>
-                        dispatch({
-                          type: 'SET_FIELD',
-                          payload: { isCustomizable: event.target.value === 'true' },
-                        })
-                      }
-                    >
-                      <option value="true">True</option>
-                      <option value="false">False</option>
-                    </select>
-                  </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" htmlFor="create-product-customizable">Customizable</label>
+                  <select
+                    id="create-product-customizable"
+                    className="input-field"
+                    disabled={isSubmitting}
+                    value={String(isCustomizable)}
+                    onChange={(event) =>
+                      dispatch({
+                        type: 'SET_FIELD',
+                        payload: { isCustomizable: event.target.value === 'true' },
+                      })
+                    }
+                  >
+                    <option value="true">True</option>
+                    <option value="false">False</option>
+                  </select>
                 </div>
-
+              </div>
                 <section
                   aria-labelledby="create-product-variants-title"
                   style={{
@@ -1648,9 +1647,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                                       {preview ? (
                                         <img
                                           src={preview}
-                                          alt={`${variant.colorName || `Color ${variantIndex + 1}`} ${
-                                            isFront ? 'front' : 'back'
-                                          } preview`}
+                                          alt={`${variant.colorName || `Color ${variantIndex + 1}`} ${isFront ? 'front' : 'back'
+                                            } preview`}
                                           style={{ width: '100%', height: '142px', objectFit: 'contain' }}
                                         />
                                       ) : (
@@ -1689,7 +1687,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                                   onClick={() => addVariantSize(variant.id)}
                                 >
                                   <Plus size={14} /> Add size
-                               </button>
+                                </button>
                               </div>
                               {variant.sizes.map((sizeEntry, sizeIndex) => (
                                 <div
@@ -1736,7 +1734,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                                       value={sizeEntry.stock}
                                       onChange={(event) =>
                                         updateVariantSize(variant.id, sizeEntry.id, {
-                                          stock: Number.parseInt(event.target.value, 10) || 0,
+                                          stock: Number(event.target.value),
                                         })
                                       }
                                     />
@@ -1770,12 +1768,47 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                       Initial stock will be calculated from all variant sizes when the product is created.
                     </p>
                   ) : null}
-                </section>
+                </section></div></details>
 
+              <section className="product-create-section" aria-label="Product description">
+                <header className="product-create-section-heading"><h3>4. Description</h3><p>Explain the product, materials and available choices.</p></header>
                 <div className="form-group" style={{ marginBottom: 0 }}>
-                  <ProductConfigurationFields value={configuration} disabled={isSubmitting} error={errors.configuration}
-                    title={configurationTitle(resolveCategoryId(category) ?? category, knownCategories)}
-                    onChange={(value) => { setConfiguration(value); setConfigurationDirty(true); }} />
+                  <label className="form-label" htmlFor="create-product-description">Description</label>
+                  <textarea
+                    id="create-product-description"
+                    rows={3}
+                    maxLength={PRODUCT_DESCRIPTION_MAX_LENGTH}
+                    disabled={isSubmitting}
+                    className="input-field"
+                    style={errors.description ? { borderColor: 'var(--danger)' } : undefined}
+                    placeholder="Enter product description..."
+                    value={description}
+                    onChange={(e) => {
+                      dispatch({ type: 'SET_FIELD', payload: { description: e.target.value } });
+                      if (errors.description) {
+                        dispatch({
+                          type: 'SET_ERRORS',
+                          payload: (prev) => ({ ...prev, description: undefined }),
+                        });
+                      }
+                    }}
+                  />
+                  {errors.description ? (
+                    <p style={{ color: 'var(--danger)', fontSize: '12px', margin: '6px 0 0' }}>
+                      {errors.description}
+                    </p>
+                  ) : (
+                    <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: '6px 0 0', textAlign: 'right' }}>
+                      {description.length.toLocaleString()} / {PRODUCT_DESCRIPTION_MAX_LENGTH.toLocaleString()}
+                    </p>
+                  )}
+                </div>
+              </section>
+
+              <section className="product-create-section" aria-label="Product images">
+                <header className="product-create-section-heading"><h3>5. Product images</h3><p>Add the gallery customers will see on the product page.</p></header>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+
                   <label className="form-label" htmlFor="create-product-images">Product images ({images.length}/5)</label>
                   <div
                     onDragOver={handleDragOver}
@@ -1901,7 +1934,8 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                     </p>
                   ) : null}
                 </div>
-              </div>
+              </section>
+            </div>
 
               <div
                 style={{

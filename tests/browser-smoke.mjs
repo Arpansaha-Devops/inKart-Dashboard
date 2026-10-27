@@ -29,6 +29,7 @@ let sequence = 0;
 const pending = new Map(); const browserErrors = []; const requests = [];
 const categoryCreateRequests = [];
 let ignoreProductExtensions = false;
+let categoryLookupGate = null;
 let initScriptId;
 const send = (method, params = {}) => new Promise((done, fail) => {
   if (socket.readyState !== WebSocket.OPEN) { fail(new Error('CDP socket is not open')); return; }
@@ -53,7 +54,7 @@ products.push(
   { ...products[0], _id: 'ffffffffffffffffffffffff', name: 'Legacy product', category: { _id: '555555555555555555555555', name: 'Legacy category', isActive: false } },
 );
 const orders = [{ _id: 'bbbbbbbbbbbbbbbbbbbbbbbb', orderNumber: 'SMOKE-001', customer: { _id: 'customer', name: 'Test Customer', email: 'test@example.test' },
-  items: [{ _id: 'item', product: products[0], quantity: 1, price: 100, selectedOptions: [{ key: 'size', value: 'tall' }] }],
+  items: [{ _id: 'item', product: products[0], quantity: 1, price: 100, options: {}, selectedOptions: [{ key: 'size', value: 'tall' }] }],
   paymentStatus: 'paid', orderStatus: 'placed', totalAmount: 199, shippingCharge: 99, createdAt: '2026-10-26T00:00:00Z' }];
 const fields = (request) => {
   const body = request.postData || '';
@@ -74,7 +75,10 @@ async function intercept(event) {
   const path = url.pathname.replace(/^\/api\/v1/, '');
   requests.push({ method: request.method, path });
   if (request.method === 'OPTIONS') data = {};
-  else if (path === '/admin/categories' && request.method === 'GET') data = { categories };
+  else if (path === '/admin/categories' && request.method === 'GET') {
+    if (categoryLookupGate) await categoryLookupGate;
+    data = { categories };
+  }
   else if (path === '/admin/categories' && request.method === 'POST') {
     const submittedFields = fields(request);
     categoryCreateRequests.push(submittedFields);
@@ -215,29 +219,75 @@ try {
   await clickText('Save Changes');
   await waitFor(`!document.querySelector('#edit-product-name')`);
   assert.equal(products[1].category, categories[3]._id);
+  let releaseCategoryLookup;
+  categoryLookupGate = new Promise((resolve) => { releaseCategoryLookup = resolve; });
   await clickText('Create Product');
   await waitFor(`!!document.querySelector('#create-product-name')`);
+  assert.equal(await evaluate(`document.querySelectorAll('.product-create-options .product-extension-section').length`), 0);
+  assert.deepEqual(await evaluate(`[...document.querySelectorAll('.product-create-sections > section')].map(section=>section.getAttribute('aria-label'))`), ['Product information', 'Category and product options', 'Quantity and pricing', 'Product description', 'Product images']);
   assert.equal(await evaluate(`document.querySelector('#create-product-name').closest('form').querySelectorAll('input[id$="-weight"]').length`), 0);
-  await fill('#create-product-name', 'Smoke Menu');
+  await fill('#create-product-name', 'Smoke Configured Product');
   await fill('#create-product-price', '150');
   await fill('#create-product-base-price', '150');
-  await fill('#create-product-description', 'Menu card configured by admin');
-  await fill('#create-product-category', categories[2]._id);
+  await fill('#create-product-description', 'Product configured after a delayed category lookup');
+  await fill('#create-product-category', categories[0].name);
+  assert.equal(await evaluate(`document.querySelectorAll('.product-create-options .product-extension-section').length`), 0);
+  categoryLookupGate = null;
+  releaseCategoryLookup();
+  await waitFor(`!!document.querySelector('.product-create-options .product-extension-section')`);
   await fill('[id^="create-tier-price-"]', '150');
-  await evaluate(`document.querySelector('.product-extension-section input[type="checkbox"]').click()`);
+  assert.equal(await evaluate(`document.querySelector('.product-extension-section input[type="checkbox"]').checked`), true);
   await clickText('Add field');
-  await fill('.product-configuration-field > .product-extension-grid label:nth-child(1) input', 'Menu Size');
-  await fill('.product-configuration-field > .product-extension-grid label:nth-child(2) input', 'menuSize');
+  await fill('.product-configuration-field > .product-extension-grid label:nth-child(1) input', 'Finish');
+  await fill('.product-configuration-field > .product-extension-grid label:nth-child(2) input', 'finish');
   await clickText('Add option');
-  await fill('.product-configuration-option label:nth-child(1) input', 'A4');
-  await fill('.product-configuration-option label:nth-child(2) input', 'a4');
+  await fill('.product-configuration-option label:nth-child(1) input', 'Matte');
+  await fill('.product-configuration-option label:nth-child(2) input', 'matte');
+  await fill('.product-configuration-option input[type="number"]', '.5');
+  await fill('#create-product-category', categories[2]._id);
+  await waitFor(`document.querySelectorAll('.product-create-options .product-configuration-field').length===0`);
+  assert.equal(await evaluate(`document.querySelector('[id^="create-tier-price-"]').value`), '150');
+  await fill('#create-product-category', categories[0]._id);
+  await waitFor(`document.querySelectorAll('.product-create-options .product-configuration-field').length===1`);
+  assert.equal(await evaluate(`document.querySelector('.product-configuration-option input[type="number"]').value`), '0.5');
+  assert.equal(await evaluate(`document.querySelector('.product-configuration-field > .product-extension-grid label:nth-child(2) input').value`), 'finish');
+  assert.equal(await evaluate(`document.querySelector('.product-create-inventory').open`), false);
+  await fill('#create-product-stock', '1.5');
+  assert.equal(await evaluate(`document.querySelector('#create-product-stock').value`), '1.5');
+  const productsBeforeFractionalStock = products.length;
+  await evaluate(`document.querySelector('#create-product-name').closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);
+  await waitFor(`document.body.textContent.includes('Stock must be a non-negative whole number')`);
+  assert.equal(products.length, productsBeforeFractionalStock);
+  await fill('#create-product-stock', '0');
+  await clickText('Add color');
+  await fill('[id^="variant-stock-"]', '1.5');
+  assert.equal(await evaluate(`document.querySelector('[id^="variant-stock-"]').value`), '1.5');
+  assert.equal(await evaluate(`document.querySelector('[id^="variant-stock-"]').validity.stepMismatch`), true);
+  await evaluate(`document.querySelector('[aria-label="Remove color 1"]').click()`);
+  await fill('#create-product-stock', '-1');
+  await evaluate(`document.querySelector('#create-product-stock').reportValidity()`);
+  assert.equal(await evaluate(`document.querySelector('.product-create-inventory').open`), true);
+  await fill('#create-product-stock', '0');
+  await evaluate(`document.querySelector('.product-create-inventory').open=false`);
+  await evaluate(`document.querySelector('[aria-label="Switch to dark mode"]')?.click();document.querySelectorAll('[data-sonner-toast] [data-close-button]').forEach(button=>button.click());document.querySelector('.product-create-options').scrollIntoView({block:'start'})`);
+  await new Promise((done) => setTimeout(done, 300));
+  await writeFile(resolve(screenshotDir, 'product-create-category-options.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
+  await evaluate(`document.querySelector('[aria-label="Switch to light mode"]')?.click();document.querySelector('.product-create-options').scrollIntoView({block:'start'})`);
+  await new Promise((done) => setTimeout(done, 300));
+  assert.equal(await evaluate(`document.querySelector('.product-create-modal').scrollWidth<=document.querySelector('.product-create-modal').clientWidth+1`), true);
+  await writeFile(resolve(screenshotDir, 'product-create-mobile.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+  await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await evaluate(`(() => { const bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='),c=>c.charCodeAt(0));const transfer=new DataTransfer();transfer.items.add(new File([bytes],'smoke.png',{type:'image/png'}));const input=document.querySelector('#create-product-images');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
   await clickText('Create Product');
   await waitFor(`!document.querySelector('#create-product-name')`);
   assert.equal(products.length, 4);
   const createdProduct = products.at(-1);
-  assert.equal(createdProduct.category, categories[2]._id);
-  assert.equal(createdProduct.configuration.fields[0].key, 'menuSize');
+  assert.equal(createdProduct.category, categories[0]._id);
+  assert.equal(createdProduct.configuration.fields[0].key, 'finish');
+  assert.equal(createdProduct.configuration.enabled, true);
+  assert.equal(createdProduct.configuration.fields[0].options[0].priceModifier, .5);
+  assert.deepEqual(createdProduct.quantityPricing, [{ minQty: 1, pricePerUnit: 150 }]);
   assert.equal(Object.hasOwn(createdProduct, 'packageDetails'), false);
   assert.ok(requests.some((request) => request.method === 'PATCH' && request.path.endsWith(createdProduct._id)));
   await send('Page.navigate', { url: 'http://127.0.0.1:4175/admin/orders' });

@@ -35,7 +35,7 @@ import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
 import OrderParcelDetails from '../components/OrderParcelDetails';
 import type { PackageDetails } from '../types';
-import { normalizeSelectedOptions, reportedPackage, reportedShippingCharge } from '../lib/orderPresentation';
+import { normalizeOrderItemOptions, reportedPackage, reportedShippingCharge } from '../lib/orderPresentation';
 import {
   approveOrder,
   cancelShipment,
@@ -719,10 +719,6 @@ const normalizeCustomizationResponse = (
   return customization ? normalizeCustomization(customization, fallbackId) : null;
 };
 
-const normalizeItemOptions = (value: unknown): Record<string, string> | undefined => {
-  return normalizeSelectedOptions(value);
-};
-
 const normalizeItem = (value: unknown): OrderItem | null => {
   if (!isRecord(value)) return null;
   const productValue = value.product;
@@ -748,7 +744,7 @@ const normalizeItem = (value: unknown): OrderItem | null => {
     },
     quantity: getNumber(value, ['quantity', 'qty'], 1),
     price,
-    options: normalizeItemOptions(value.options ?? value.selectedOptions),
+    options: normalizeOrderItemOptions(value),
   };
 };
 

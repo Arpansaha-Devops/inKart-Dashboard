@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { normalizeSelectedOptions, reportedPackage, reportedShippingCharge } from '../src/lib/orderPresentation.ts';
+import { normalizeOrderItemOptions, normalizeSelectedOptions, reportedPackage, reportedShippingCharge } from '../src/lib/orderPresentation.ts';
 import OrderParcelDetails, { CourierQuoteOptions } from '../src/components/OrderParcelDetails.tsx';
 import { approveOrder, syncShipment, getShipmentDetails, getShiprocketTracking, getShipmentLabel, getShipmentManifest, schedulePickup, cancelShipment } from '../src/services/orderService.ts';
 import { calls, mockApi } from './mockApiClient.mjs';
@@ -14,6 +14,12 @@ test('renders the backend delivery charge including zero without calculating a f
 test('selectedOptions arrays display stable keys and values, preserving existing map responses', () => {
   assert.deepEqual(normalizeSelectedOptions([{ key: 'printingSides', value: 'double' }, { key: 'menuSize', value: 'a4' }]), { printingSides: 'double', menuSize: 'a4' });
   assert.deepEqual(normalizeSelectedOptions({ size: '3x6', count: 8, finish: true }), { size: '3x6', count: '8', finish: 'Yes' });
+});
+
+test('documented selections take priority over empty legacy options without losing legacy support', () => {
+  const selectedOptions = [{ key: 'printingSides', value: 'double' }, { key: 'customFinish', value: 'custom' }];
+  assert.deepEqual(normalizeOrderItemOptions({ options: {}, selectedOptions }), { printingSides: 'double', customFinish: 'custom' });
+  assert.deepEqual(normalizeOrderItemOptions({ options: { size: 'legacy' }, selectedOptions: [] }), { size: 'legacy' });
 });
 test('pending backend permits order measurements without pretending to save, quote or approve', () => {
   const value = { weight: .25, length: 10, breadth: 5, height: 2 };

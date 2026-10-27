@@ -2,6 +2,8 @@
 
 Date: 26 October 2026.
 
+Product-form update, 27 October 2026: filters are authored per product in Create Product after category selection. Category-wide filter persistence is not documented and was not introduced. The modal now orders product information, category/options, common quantity pricing, description and images; optional inventory/mockups are collapsible. Category switches keep separate unsaved product-filter drafts and restore them when returning. See [the product-filter workflow](product-filter-workflow.md) for the final scope and backend/storefront limitations.
+
 **BACKEND INTEGRATION NOT LIVE-VERIFIED.** All mutation verification used mocks, including an isolated real browser. No production products, categories, payments, orders, emails or shipments were changed. A passing mock proves frontend behavior, not deployed backend persistence or storefront rendering.
 
 ## Architecture reviewed
@@ -82,6 +84,7 @@ The optional `OrderFulfillmentAdapter` boundary and courier types in `src/lib/or
 | --- | --- |
 | `src/types.ts` | Product configuration/option/field and package interfaces; optional product/payload fields |
 | `src/lib/productConfiguration.ts` | Nested validation, canonical payloads, package drafts, response lookup and persistence comparison |
+| `src/lib/productConfigurationDrafts.ts` | Isolates unsaved product-filter drafts by selected category; restores and resets drafts without category persistence |
 | `src/lib/categoryOptions.ts` | ID-based duplicate-name resolution, contextual titles and actionable backend errors |
 | `src/lib/orderPresentation.ts` | Safe display normalization for returned parcels, shipping charges and selected options |
 | `src/lib/orderFulfillment.ts` | Frontend adapter/view models; parcel/save/quote validation; matching order and parcel; expiry and courier-selection guards |
@@ -101,6 +104,7 @@ The optional `OrderFulfillmentAdapter` boundary and courier types in `src/lib/or
 | `tests/register.mjs` | Load TS/TSX through installed compiler; isolate shared client with mocks |
 | `tests/mockApiClient.mjs` | In-memory request stubs, only in tests |
 | `tests/productConfiguration.test.mjs` | Validation, serialization, field preservation and persistence mismatches |
+| `tests/productConfigurationDrafts.test.mjs` | Category draft switching, no hardcoded choices, common pricing preservation and exact decimal modifier serialization |
 | `tests/productService.test.mjs` | Multipart methods/paths and read-back success/failure |
 | `tests/productForms.test.mjs` | Rendered saved fields, stable keys, unit labels and accessible errors |
 | `tests/categoryManagement.test.mjs` | Duplicate names, ID CRUD/assignment, slug omission and backend rejection |
@@ -114,7 +118,7 @@ The optional `OrderFulfillmentAdapter` boundary and courier types in `src/lib/or
 ## Checks and limits
 
 - Baseline: `npm run lint` passed. Initial sandbox build could not read parent directories; the approved build outside the sandbox passed.
-- `npm test`: 41 focused automated tests passed. Tests use Node 24 and the installed TypeScript compiler, with no added dependencies. Includes parcel validation; paid-pending eligibility; save-before-quote sequencing; failed/mismatched saves; quote failures; same-order and same-parcel enforcement; expired quotes; missing selection; invalid or duplicate courier rates; backend-pending UI; read-only orders; courier name/service/charge/estimate rendering; configuration persistence and cache-busting regressions; and four browser-harness cleanup/error-preservation cases. `node --check tests/browser-smoke.mjs` also passed after the cleanup change; the UI browser suite was not rerun for that test-only change.
+- `npm test`: 46 focused automated tests passed. Tests use Node 24 and the installed TypeScript compiler, with no added dependencies. Includes category-specific unsaved product drafts, decimal modifiers, common quantity pricing, selected-options precedence over empty legacy maps, parcel validation, paid-pending eligibility, verified save-before-quote sequencing, quote order/parcel/expiry/selection guards, pending UI, configuration persistence/cache-busting, and four browser-harness cleanup/error-preservation cases. The browser suite has been rerun for the redesigned product modal.
 - `npm run lint`: TypeScript passed.
 - `npm run build`: production build passed. The existing >500 kB main-chunk advisory remains; it was present before these changes.
 - `npm run test:browser`: checks product configuration/image flows without parcel inputs or package writes; preservation of existing product package data; saved-option protections; category restrictions and slug omission; order-only parcel entry and numeric validation; no invented courier rows; save/quote/courier-approval buttons disabled while backend is pending; no parcel write or shipment creation on local entry; draft reset after closing/reopening the order; approved-order read-only controls; existing approval; and dark/light responsive layouts. PASS is printed only after the final browser-error and shipment assertions. Courier response/selection rendering and adapter sequencing use focused mocked tests; live provider integration is not verified.

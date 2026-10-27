@@ -10,6 +10,8 @@ Product configuration controls are available in the existing product create/edit
 
 See [the implementation report](docs/product-fulfillment-implementation.md) for per-feature status, API payloads, changed files, verification results and backend requirements. **BACKEND INTEGRATION NOT LIVE-VERIFIED** for these additions; automated and browser checks use mocked APIs.
 
+The Create Product modal now follows product information → category and product-specific filters → quantity pricing → description → images. Filters are authored per product, appear after selecting a category, and have separate unsaved drafts when switching categories. Quantity pricing is always available. Optional inventory/mockup controls remain in a collapsible section. See [the product-filter workflow](docs/product-filter-workflow.md) for payload compatibility and storefront verification limits.
+
 Current functionality:
 
 - Admin login with password flow and optional OTP verification flow
