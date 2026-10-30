@@ -4,6 +4,69 @@ const MAX_IMAGE_DIMENSION = 1600;
 const MIN_IMAGE_DIMENSION = 480;
 
 export const PRODUCT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export const MAX_PRODUCT_IMAGES = 5;
+
+export function getProductGalleryUrls(product: unknown): string[] {
+  if (!product || typeof product !== 'object') return [];
+  const record = product as Record<string, unknown>;
+  for (const candidate of [record.images, record.imageUrls, record.productImages]) {
+    if (!Array.isArray(candidate)) continue;
+    const urls = candidate.flatMap((image) => {
+      const url = typeof image === 'string' ? image : image?.url || image?.secure_url || image?.path || image?.image || image?.src;
+      return typeof url === 'string' && url.trim() ? [url.trim()] : [];
+    });
+    if (urls.length || candidate.length) return urls;
+  }
+  const legacy = [record.image, record.imageUrl, record.thumbnail, record.thumbnailUrl]
+    .find((url) => typeof url === 'string' && url.trim());
+  return typeof legacy === 'string' ? [legacy.trim()] : [];
+}
+
+export function validateProductGalleryFiles(files: File[]): string | null {
+  if (files.length > MAX_PRODUCT_IMAGES) return `Select up to ${MAX_PRODUCT_IMAGES} product images. The previous selection has been kept.`;
+  for (const file of files) {
+    if (!PRODUCT_IMAGE_TYPES.includes(file.type as (typeof PRODUCT_IMAGE_TYPES)[number])) return `${file.name} must be a JPG, PNG, or WebP image.`;
+    if (file.size === 0) return `${file.name} is empty. Choose a different image.`;
+  }
+  return null;
+}
+
+export function planProductGallery(existingUrls: string[], newFiles: File[]) {
+  return {
+    retainedUrls: existingUrls.slice(0, Math.max(0, existingUrls.length - newFiles.length)),
+    newFiles,
+    totalCount: Math.max(existingUrls.length, newFiles.length),
+  };
+}
+
+// The existing PATCH contract accepts files, not a documented retained-URL list.
+// Re-submit the complete planned gallery so uploads replace its last slots.
+export async function prepareProductGalleryUpload(existingUrls: string[], newFiles: File[]): Promise<File[]> {
+  if (newFiles.length === 0) return [];
+  const error = validateProductGalleryFiles(newFiles);
+  if (error) throw new Error(error);
+  const plan = planProductGallery(existingUrls, newFiles);
+  if (plan.totalCount > MAX_PRODUCT_IMAGES) throw new Error(`This saved gallery exceeds ${MAX_PRODUCT_IMAGES} images. Its upload limit needs backend confirmation before replacing images.`);
+  const retainedFiles: File[] = [];
+  for (const [index, url] of plan.retainedUrls.entries()) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 20_000);
+    try {
+      const response = await fetch(url, { credentials: 'omit', mode: 'cors', referrerPolicy: 'no-referrer', signal: controller.signal });
+      if (!response.ok) throw new Error('Image download failed');
+      const blob = await response.blob();
+      const mimeType = blob.type.split(';')[0].toLowerCase();
+      if (!blob.size || !PRODUCT_IMAGE_TYPES.includes(mimeType as (typeof PRODUCT_IMAGE_TYPES)[number])) throw new Error('Unsupported saved image');
+      const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1];
+      retainedFiles.push(new File([blob], `retained-product-image-${index + 1}.${extension}`, { type: mimeType }));
+    } catch {
+      throw new Error(`Could not load current image ${index + 1}. No product changes were submitted. Retry when the existing image is available, or select ${MAX_PRODUCT_IMAGES} new images to replace the full gallery.`);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return optimizeProductImages([...retainedFiles, ...newFiles]);
+}
 
 const canvasToBlob = (
   canvas: HTMLCanvasElement,

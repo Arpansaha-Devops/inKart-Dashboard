@@ -4,6 +4,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ProductConfigurationFields from '../src/components/ProductConfigurationFields.tsx';
 import PackageDetailsForm from '../src/components/PackageDetailsForm.tsx';
+import ProductGalleryEditor from '../src/components/ProductGalleryEditor.tsx';
 import { emptyPackageDraft } from '../src/lib/productConfiguration.ts';
 
 test('configuration UI locks saved field keys and option values while keeping labels and prices editable', () => {
@@ -39,4 +40,17 @@ test('malformed saved configuration stays accessible and is preserved', () => {
     const html = renderToStaticMarkup(React.createElement(ProductConfigurationFields, { value, onChange() { throw new Error('Should not mutate'); } }));
     assert.match(html, /unsupported structure/); assert.match(html, /preserved during unrelated edits/);
   }
+});
+
+test('edit gallery allows multiple files and previews the retained prefix followed by new slots', () => {
+  const html = renderToStaticMarkup(React.createElement(ProductGalleryEditor, {
+    existingUrls: Array.from({ length: 5 }, (_, index) => `https://images.example.test/old-${index + 1}.png`),
+    files: [new File(['new'], 'a.png', { type: 'image/png' }), new File(['new'], 'b.png', { type: 'image/png' })], onChange() {},
+  }));
+  assert.match(html, /type="file" multiple=""/);
+  assert.equal((html.match(/data-gallery-kind="current"/g) || []).length, 3);
+  assert.equal((html.match(/data-gallery-kind="new"/g) || []).length, 2);
+  assert.doesNotMatch(html, /old-(?:4|5)\.png/);
+  assert.match(html, /3 current \+ 2 new = 5 images/);
+  assert.match(html, /Use current images/);
 });

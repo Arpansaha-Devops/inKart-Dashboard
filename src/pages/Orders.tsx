@@ -34,8 +34,9 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
 import OrderParcelDetails from '../components/OrderParcelDetails';
+import { reportedOrderParcel } from '../lib/orderFulfillment';
 import type { PackageDetails } from '../types';
-import { normalizeOrderItemOptions, reportedPackage, reportedShippingCharge } from '../lib/orderPresentation';
+import { normalizeOrderItemOptions, reportedShippingCharge } from '../lib/orderPresentation';
 import {
   approveOrder,
   cancelShipment,
@@ -902,7 +903,7 @@ const normalizeOrder = (value: unknown, source: OrderSource): Order | null => {
         : undefined,
     totalAmount: getNumber(value, ['totalAmount', 'amount', 'total', 'paidAmount']),
     shippingCharge: reportedShippingCharge(value.shippingCharge),
-    packageDetails: reportedPackage(value.packageDetails),
+    packageDetails: reportedOrderParcel(value),
     orderStatus: resolveOrderStatus(value),
     paymentStatus: normalizePaymentStatus(
       value.paymentStatus ?? value.payment_status ?? payment.status
@@ -1778,7 +1779,7 @@ const Orders: React.FC = () => {
     document.body.style.overflow = 'hidden';
 
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
 
       if (summaryModal) {
         setSummaryModal(null);
@@ -3768,9 +3769,16 @@ const OrderDetailModal: React.FC<{
       ref={dialogRef}
       className="modal-backdrop orders-modal-backdrop"
       aria-labelledby="order-detail-title"
-      onCancel={(event) => {
-        if (openDesignPreviewSide) {
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && isAnyRequestInFlight) {
           event.preventDefault();
+          event.stopPropagation();
+        }
+      }}
+      onCancel={(event) => {
+        event.preventDefault();
+        if (isAnyRequestInFlight) return;
+        if (openDesignPreviewSide) {
           closeDesignPreview();
           return;
         }
@@ -3804,7 +3812,7 @@ const OrderDetailModal: React.FC<{
           <div className="orders-detail-header-actions">
             <PaymentStatusBadge status={order.paymentStatus} />
             <OrderStatusBadge status={displayedStatus} />
-            <button type="button" className="action-icon-button" onClick={onClose} aria-label="Close order details">
+            <button type="button" className="action-icon-button" onClick={onClose} disabled={isAnyRequestInFlight} aria-label="Close order details">
               <X size={20} />
             </button>
           </div>
@@ -4143,9 +4151,23 @@ const OrderDetailModal: React.FC<{
         </div>
 
         <OrderParcelDetails key={order._id} orderId={order._id} value={order.packageDetails}
-          paymentStatus={order.paymentStatus} orderStatus={order.orderStatus} disabled={isAnyRequestInFlight}
+          paymentStatus={order.paymentStatus} orderStatus={order.orderStatus}
+          hasShipment={Boolean(order.shiprocket?.shipmentId || order.shiprocket?.awbCode)}
+          disabled={isApproving || isSavingEstimate || isResending}
           onBusyChange={setIsPreparingShipment}
-          onApproved={() => onOrderUpdated({ ...order, orderStatus: 'confirmed' })} />
+          onApproved={({ shipment, approvalFailed }) => {
+            onOrderUpdated({
+              ...order,
+              orderStatus: !approvalFailed && order.orderStatus === 'placed' ? 'confirmed' : order.orderStatus,
+              shiprocket: {
+                ...order.shiprocket,
+                ...(shipment.shipmentId !== undefined ? { shipmentId: String(shipment.shipmentId) } : {}),
+                ...(shipment.awb ? { awbCode: shipment.awb } : {}),
+                ...(shipment.courierName ? { courierName: shipment.courierName } : {}),
+              },
+            });
+            onClose();
+          }} />
 
         <ShipmentWorkspace order={order} />
 
@@ -4212,7 +4234,7 @@ const OrderDetailModal: React.FC<{
             </div>
           </div>
 
-          {canApprove && <p className="product-extension-help">The existing approval action does not save parcel measurements or select a courier. The parcel-and-courier approval flow above is awaiting backend integration.</p>}
+          {canApprove && <p className="product-extension-help">The existing approval action approves the order separately. Use Parcel &amp; courier selection above to save measurements and book a selected courier.</p>}
 
           <ComputedDeliveryEstimatePanel
             estimate={computedEstimate}

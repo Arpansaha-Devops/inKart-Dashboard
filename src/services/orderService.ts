@@ -1,4 +1,5 @@
 import apiClient from '../lib/apiClient';
+import type { ConfirmCourierResponse, CourierOption, PackageDetails } from '../types';
 
 export interface DeliveryEstimatePayload {
   estimatedDeliveryDate: string;
@@ -366,7 +367,12 @@ const normalizeOrderStatusResponse = (payload: unknown): OrderStatusResult => ({
 });
 
 export async function approveOrder(orderId: string): Promise<void> {
-  await apiClient.patch(`/admin/orders/${orderId}/approve`);
+  const response = await apiClient.patch(`/admin/orders/${orderId}/approve`);
+  const root = isRecord(response.data) ? response.data : {};
+  const data = isRecord(root.data) ? root.data : root;
+  if (root.success === false || data.success === false) {
+    throw new Error(getStr(data, ['message']) || getStr(root, ['message']) || 'Order approval was rejected.');
+  }
 }
 
 export async function setDeliveryEstimate(
@@ -446,4 +452,60 @@ export async function cancelShipment(orderId: string): Promise<void> {
 export async function getShiprocketTracking(orderId: string): Promise<ShiprocketTrackingResult> {
   const response = await apiClient.get(`/shipments/${encodeURIComponent(orderId)}/track`);
   return normalizeShiprocketTracking(response.data);
+}
+
+// The backend reads the saved order address and owns Shiprocket authentication,
+// pickup details, rates, wallet charges and shipment creation.
+const courierResponseData = (payload: unknown): Record<string, unknown> => {
+  if (!isRecord(payload)) throw new Error('The courier response could not be read. Please refresh the order.');
+  const data = isRecord(payload.data) ? payload.data : payload;
+  if (payload.success === false || data.success === false) {
+    throw new Error(getStr(data, ['message']) || getStr(payload, ['message']) || 'The courier request was rejected.');
+  }
+  return data;
+};
+
+const validCourierId = (value: unknown): value is string | number =>
+  (typeof value === 'string' && !!value.trim()) || (typeof value === 'number' && Number.isFinite(value));
+
+export async function getCourierQuotes(orderId: string, parcel: PackageDetails): Promise<CourierOption[]> {
+  const response = await apiClient.post(`/admin/orders/${encodeURIComponent(orderId)}/courier-quotes`, parcel);
+  const data = courierResponseData(response.data);
+  const raw = data.couriers ?? response.data.couriers ?? (Array.isArray(response.data.data) ? response.data.data : undefined);
+  if (!Array.isArray(raw)) throw new Error('The courier list could not be read. Please request fresh quotes.');
+  const ids = new Set<string>();
+  return raw.map((item) => {
+    if (!isRecord(item)) throw new Error('A courier quote is missing valid identification or pricing.');
+    const rate = typeof item.rate === 'number' ? item.rate
+      : typeof item.rate === 'string' && item.rate.trim() ? Number(item.rate) : NaN;
+    const key = `${typeof item.courierId}:${item.courierId}`;
+    if (!validCourierId(item.courierId) || ids.has(key) ||
+      typeof item.courierName !== 'string' || !item.courierName.trim() ||
+      !Number.isFinite(rate) || rate < 0 || (item.currency !== undefined && item.currency !== 'INR')) {
+      throw new Error('A courier quote is missing valid identification or INR pricing. Please request fresh quotes.');
+    }
+    ids.add(key);
+    return {
+      courierId: item.courierId,
+      courierName: item.courierName.trim(),
+      rate,
+      currency: 'INR',
+      ...(typeof item.serviceType === 'string' && item.serviceType.trim() ? { serviceType: item.serviceType.trim() } : {}),
+      ...((typeof item.estimatedDays === 'string' && item.estimatedDays.trim()) ||
+        (typeof item.estimatedDays === 'number' && Number.isFinite(item.estimatedDays)) ? { estimatedDays: item.estimatedDays as string | number } : {}),
+    };
+  });
+}
+
+export async function confirmCourier(orderId: string, courierId: string | number): Promise<NonNullable<ConfirmCourierResponse['data']>> {
+  if (!validCourierId(courierId)) throw new Error('Select an available courier service before confirming.');
+  const response = await apiClient.post(`/admin/orders/${encodeURIComponent(orderId)}/confirm-courier`, { courierId });
+  const data = courierResponseData(response.data);
+  return {
+    awb: getStr(data, ['awb', 'awbCode', 'awb_code']) || undefined,
+    shipmentId: validCourierId(data.shipmentId) ? data.shipmentId : undefined,
+    orderId: typeof data.orderId === 'string' ? data.orderId : undefined,
+    courierName: getStr(data, ['courierName']) || undefined,
+    message: getStr(data, ['message']) || undefined,
+  };
 }

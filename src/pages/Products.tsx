@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  Upload,
   Package,
   AlertTriangle,
 } from 'lucide-react';
@@ -19,6 +18,8 @@ import { m, AnimatePresence } from 'motion/react';
 import CreateProductModal from '../components/CreateProductModal';
 import { deleteProduct, updateProduct, verifyProductExtensions } from '../services/productService';
 import ProductConfigurationFields from '../components/ProductConfigurationFields';
+import ProductGalleryEditor from '../components/ProductGalleryEditor';
+import { getProductGalleryUrls, prepareProductGalleryUpload, validateProductGalleryFiles } from '../lib/productImages';
 import { appendProductExtensions, validateConfiguration } from '../lib/productConfiguration';
 import { categoryOptionLabel, configurationTitle, resolveCategoryOption, type CategoryOption } from '../lib/categoryOptions';
 import { getCategories } from '../services/categoryService';
@@ -177,32 +178,8 @@ const extractCategoriesFromPayload = (payload: any): Record<string, string> => {
   return byId;
 };
 
-const getProductImageUrl = (product: any): string => {
-  const directCandidates = [product?.image, product?.imageUrl, product?.thumbnail, product?.thumbnailUrl];
-  for (const candidate of directCandidates) {
-    if (typeof candidate === 'string' && candidate.trim()) {
-      return candidate;
-    }
-  }
-
-  const arrayCandidates = [product?.images, product?.imageUrls, product?.productImages];
-  for (const candidate of arrayCandidates) {
-    if (Array.isArray(candidate) && candidate.length > 0) {
-      const first = candidate[0];
-      if (typeof first === 'string' && first.trim()) {
-        return first;
-      }
-      if (first && typeof first === 'object') {
-        const nested = first.url || first.secure_url || first.path || first.image || first.src;
-        if (typeof nested === 'string' && nested.trim()) {
-          return nested;
-        }
-      }
-    }
-  }
-
-  return PRODUCT_PLACEHOLDER_IMAGE;
-};
+const getProductImageUrl = (product: unknown): string =>
+  getProductGalleryUrls(product)[0] || PRODUCT_PLACEHOLDER_IMAGE;
 
 const getFocusableElements = (container: HTMLElement): HTMLElement[] => {
   const selector =
@@ -223,7 +200,7 @@ type ProductFormData = {
   hsnCode: string;
   gstPercentage: number;
   quantityPricing: QuantityPricingTierForm[];
-  image: File | null;
+  images: File[];
 };
 
 type QuantityPricingTierForm = QuantityPricingTier & {
@@ -234,6 +211,8 @@ type ProductFormErrors = {
   description?: string;
   quantityPricing?: string;
   configuration?: string;
+  stock?: string;
+  images?: string;
 };
 
 type StockFormData = {
@@ -337,7 +316,7 @@ const defaultProductFormData = (): ProductFormData => ({
   hsnCode: '',
   gstPercentage: 5,
   quantityPricing: [emptyPricingTier()],
-  image: null,
+  images: [],
 });
 
 const productsInitialState: ProductsState = {
@@ -404,7 +383,7 @@ function productsReducer(state: ProductsState, action: ProductsAction): Products
         isModalOpen: true,
       };
     case 'CLOSE_PRODUCT_MODAL':
-      return { ...state, isModalOpen: false, formErrors: {} };
+      return { ...state, isModalOpen: false, formErrors: {}, formData: { ...state.formData, images: [] } };
     case 'OPEN_STOCK_MODAL':
       return {
         ...state,
@@ -481,6 +460,8 @@ const Products: React.FC = () => {
   const [configurationDirty, setConfigurationDirty] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
   const savingProductRef = useRef(false);
+  const updatingStockRef = useRef(false);
+  const [updatingStock, setUpdatingStock] = useState(false);
   const [categoryMetadata, setCategoryMetadata] = useState<CategoryOption[]>([]);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
 
@@ -662,7 +643,7 @@ const Products: React.FC = () => {
     if (!isStockModalOpen) return;
 
     const handleEscapeKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !updatingStockRef.current) {
         dispatch({ type: 'CLOSE_STOCK_MODAL' });
       }
     };
@@ -690,13 +671,13 @@ const Products: React.FC = () => {
           description: product.description || '',
           category: categoryValue,
           productType: product.productType || 'on_demand',
-          stock: product.stock || 0,
+          stock: Number(product.stock ?? 0),
           isCustomizable: product.isCustomizable ?? true,
           basePrice: product.basePrice || 0,
           hsnCode: product.hsnCode || '',
           gstPercentage: product.gstPercentage ?? 5,
           quantityPricing: toPricingTierFormRows(product.quantityPricing),
-          image: null,
+          images: [],
         },
       },
     });
@@ -787,13 +768,17 @@ const Products: React.FC = () => {
       pricePerUnit,
     }));
     const quantityPricingError = validateQuantityPricing(pricingTiers);
-    if (descriptionError || quantityPricingError || configurationError) {
+    const stockError = !Number.isInteger(formData.stock) || formData.stock < 0 ? 'Stock must be a non-negative whole number' : null;
+    const imagesError = validateProductGalleryFiles(formData.images);
+    if (descriptionError || quantityPricingError || configurationError || stockError || imagesError) {
       dispatch({
         type: 'SET_FORM_ERRORS',
         payload: {
           description: descriptionError ?? undefined,
           quantityPricing: quantityPricingError ?? undefined,
           configuration: configurationError ?? undefined,
+          stock: stockError ?? undefined,
+          images: imagesError ?? undefined,
         },
       });
       return;
@@ -809,13 +794,9 @@ const Products: React.FC = () => {
 
     const data = new FormData();
     Object.entries(formData).forEach(([key, value]) => {
-      if (key === 'quantityPricing') return;
+      if (key === 'quantityPricing' || key === 'images') return;
       if (key !== 'category' && value !== null && value !== undefined) {
-        if (value instanceof File) {
-          data.append(key === 'image' ? 'productImages' : key, value);
-        } else {
-          data.append(key, String(value));
-        }
+        data.append(key, String(value));
       }
     });
     data.set('name', formData.name.trim());
@@ -837,9 +818,15 @@ const Products: React.FC = () => {
       }
       savingProductRef.current = true;
       setSavingProduct(true);
+      const previousUrls = getProductGalleryUrls(editingProduct);
+      if (formData.images.length > 0) {
+        const galleryFiles = await prepareProductGalleryUpload(previousUrls, formData.images);
+        galleryFiles.forEach((file) => data.append('productImages', file));
+      }
       const response = await updateProduct(editingProductId, data);
       if (response.data?.success === false) throw new Error(response.data?.message || 'Product update was rejected.');
-      const warning = await verifyProductExtensions(response.data, data, editingProductId);
+      const warning = await verifyProductExtensions(response.data, data, editingProductId,
+        formData.images.length ? { previousUrls, newImageCount: formData.images.length } : undefined);
       if (warning) toast.warning(warning, { duration: 12000 });
       else toast.success('Product updated successfully');
       dispatch({ type: 'CLOSE_PRODUCT_MODAL' });
@@ -854,7 +841,11 @@ const Products: React.FC = () => {
 
   const handleUpdateStock = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!stockProduct) return;
+    if (!stockProduct || updatingStockRef.current) return;
+    if (!Number.isInteger(stockData.quantity) || stockData.quantity <= 0) {
+      toast.error('Stock quantity must be a positive whole number');
+      return;
+    }
 
     try {
       const stockProductId = getProductId(stockProduct);
@@ -862,12 +853,20 @@ const Products: React.FC = () => {
         toast.error('Product ID is missing');
         return;
       }
-      await apiClient.patch(`/admin/products/${stockProductId}/stock`, stockData);
+      updatingStockRef.current = true;
+      setUpdatingStock(true);
+      const response = await apiClient.patch(`/admin/products/${stockProductId}/stock`, stockData);
+      if (response.data?.success === false || response.data?.data?.success === false) {
+        throw new Error(response.data?.data?.message || response.data?.message || 'Stock update was rejected.');
+      }
       toast.success('Stock updated successfully');
       dispatch({ type: 'CLOSE_STOCK_MODAL' });
       fetchProducts();
     } catch (error: any) {
-      toast.error(error.response?.data?.message || 'Stock update failed');
+      toast.error(error.response?.data?.message || error.message || 'Stock update failed');
+    } finally {
+      updatingStockRef.current = false;
+      setUpdatingStock(false);
     }
   };
 
@@ -1279,13 +1278,16 @@ const Products: React.FC = () => {
                       step="1"
                       className="input-field"
                       value={formData.stock}
+                      aria-invalid={!!formErrors.stock}
+                      aria-describedby={formErrors.stock ? 'edit-product-stock-error' : undefined}
                       onChange={(event) =>
                         dispatch({
                           type: 'SET_FORM_DATA',
-                          payload: { ...formData, stock: parseInt(event.target.value, 10) || 0 },
+                          payload: { ...formData, stock: Number(event.target.value) },
                         })
                       }
                     />
+                    {formErrors.stock && <p id="edit-product-stock-error" className="product-extension-error" role="alert">{formErrors.stock}</p>}
                   </div>
 
                   <div className="form-group">
@@ -1492,39 +1494,12 @@ const Products: React.FC = () => {
                       savedKeys={Array.isArray(editingProduct?.configuration?.fields) ? editingProduct.configuration.fields.filter(Boolean).map((field) => field.key) : []}
                       title={configurationTitle(formData.category, categoryMetadata)} error={formErrors.configuration}
                       onChange={(value) => { setConfiguration(value); setConfigurationDirty(true); }} />
-                    <label className="form-label" htmlFor="edit-product-image">Product image</label>
-                    <div
-                      style={{
-                        border: '1px dashed var(--border-active)',
-                        borderRadius: 'var(--radius-md)',
-                        padding: '24px',
-                        textAlign: 'center',
-                        background: 'var(--bg-surface)',
-                        position: 'relative',
-                      }}
-                    >
-                      <input
-                        id="edit-product-image"
-                        type="file"
-                        aria-label="Upload product image"
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          opacity: 0,
-                          cursor: 'pointer',
-                        }}
-                        onChange={(event) =>
-                          dispatch({
-                            type: 'SET_FORM_DATA',
-                            payload: { ...formData, image: event.target.files?.[0] || null },
-                          })
-                        }
-                      />
-                      <Upload size={24} color="var(--text-muted)" style={{ marginBottom: 8 }} />
-                      <p style={{ margin: 0, color: 'var(--text-secondary)', fontSize: '13px' }}>
-                        {formData.image ? formData.image.name : 'Click or drag image to upload'}
-                      </p>
-                    </div>
+                    <ProductGalleryEditor key={editingProduct?._id} existingUrls={getProductGalleryUrls(editingProduct)}
+                      files={formData.images} disabled={savingProduct} error={formErrors.images}
+                      onChange={(images) => {
+                        dispatch({ type: 'SET_FORM_DATA', payload: (previous) => ({ ...previous, images }) });
+                        dispatch({ type: 'SET_FORM_ERRORS', payload: (previous) => ({ ...previous, images: undefined }) });
+                      }} />
                   </div>
                 </div>
 
@@ -1560,7 +1535,7 @@ const Products: React.FC = () => {
             <button
               type="button"
               className="modal-backdrop-dismiss"
-              onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}
+              onClick={() => { if (!updatingStockRef.current) dispatch({ type: 'CLOSE_STOCK_MODAL' }); }}
               aria-label="Close stock modal"
             />
             <m.div
@@ -1595,7 +1570,8 @@ const Products: React.FC = () => {
                   </h2>
                   <button
                     type="button"
-                    onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}
+                    onClick={() => { if (!updatingStockRef.current) dispatch({ type: 'CLOSE_STOCK_MODAL' }); }}
+                    disabled={updatingStock}
                     className="action-icon-button"
                     aria-label="Close stock modal"
                   >
@@ -1640,6 +1616,7 @@ const Products: React.FC = () => {
                         })
                       }
                       className={stockData.operation === 'add' ? 'btn-primary' : 'btn-ghost'}
+                      disabled={updatingStock}
                     >
                       Add
                     </button>
@@ -1652,6 +1629,7 @@ const Products: React.FC = () => {
                         })
                       }
                       className={stockData.operation === 'subtract' ? 'btn-danger' : 'btn-ghost'}
+                      disabled={updatingStock}
                     >
                       Subtract
                     </button>
@@ -1663,14 +1641,16 @@ const Products: React.FC = () => {
                   <input
                     id="stock-quantity"
                     type="number"
+                    step="1"
                     required
                     min="1"
+                    disabled={updatingStock}
                     className="input-field"
                     value={stockData.quantity}
                     onChange={(event) =>
                       dispatch({
                         type: 'SET_STOCK_DATA',
-                        payload: { ...stockData, quantity: parseInt(event.target.value, 10) || 0 },
+                        payload: { ...stockData, quantity: Number(event.target.value) },
                       })
                     }
                   />
@@ -1686,11 +1666,11 @@ const Products: React.FC = () => {
                     borderTop: '1px solid var(--border)',
                   }}
                 >
-                  <button type="button" className="btn-ghost" onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}>
+                  <button type="button" className="btn-ghost" disabled={updatingStock} onClick={() => dispatch({ type: 'CLOSE_STOCK_MODAL' })}>
                     Cancel
                   </button>
-                  <button type="submit" className="btn-primary">
-                    Update
+                  <button type="submit" className="btn-primary" disabled={updatingStock}>
+                    {updatingStock ? 'Updating…' : 'Update'}
                   </button>
                 </div>
               </form>

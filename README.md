@@ -6,11 +6,11 @@ Admin changes are live business data changes. Product, category, coupon, custome
 
 ## Overview
 
-Product configuration controls are available in the existing product create/edit forms. Parcel measurements belong to each order and are entered in Orders → View, in the Parcel & courier selection section before the Shiprocket workspace. Product forms no longer show or submit parcel measurements; existing product package data is preserved. The order UI includes measurement validation, courier service/rate presentation and selection, and a courier-based approval action. Save, quote and courier-based approval remain disabled until the backend contract is connected; local entries are explicitly unsaved. Existing approval remains available separately as “Approve Order (existing flow)”. Categories can share display names and are identified by ID in product selection. Configuration saves are refetched and checked for persistence.
+Product configuration controls are available in the existing product create/edit forms. Parcel measurements belong to each order and are entered in Orders → View, before the Shiprocket workspace. Product forms do not submit parcel measurements. The order modal now saves measurements and loads dynamic courier quotes through `POST /admin/orders/:id/courier-quotes`. Clicking a returned courier opens a wallet-charge confirmation dialog. Confirming calls `POST /admin/orders/:id/confirm-courier`, followed by the unchanged `PATCH` approval call only for `placed` orders, then refreshes the list. Errors, empty results, partial approval failure, duplicate clicks and per-order state are handled. Existing tracking, pickup and label actions remain available; “Approve Order (existing flow)” is retained separately. Categories can share display names and are identified by ID in product selection. Configuration saves are refetched and checked for persistence.
 
 See [the implementation report](docs/product-fulfillment-implementation.md) for per-feature status, API payloads, changed files, verification results and backend requirements. **BACKEND INTEGRATION NOT LIVE-VERIFIED** for these additions; automated and browser checks use mocked APIs.
 
-The Create Product modal now follows product information → category and product-specific filters → quantity pricing → description → images. Filters are authored per product, appear after selecting a category, and have separate unsaved drafts when switching categories. Quantity pricing is always available. Optional inventory/mockup controls remain in a collapsible section. See [the product-filter workflow](docs/product-filter-workflow.md) for payload compatibility and storefront verification limits.
+The Create Product modal now follows product information → category and product-specific filters → quantity pricing → description → images. Filters are authored per product, appear after selecting a category, and have separate unsaved drafts when switching categories. Quantity pricing is always available. Optional inventory/mockup controls remain in a collapsible section. See [the implementation report](docs/product-fulfillment-implementation.md#api-integration) for payload compatibility and storefront verification limits.
 
 Current functionality:
 
@@ -201,6 +201,8 @@ All backend endpoints referenced by current source:
 | `GET` | `/admin/orders` | Orders |
 | `GET` | `/admin/orders/:id/status` | Order detail status refresh |
 | `PATCH` | `/admin/orders/:id/approve` | Order detail actions |
+| `POST` | `/admin/orders/:id/courier-quotes` | Order modal: save actual parcel and load available couriers/rates |
+| `POST` | `/admin/orders/:id/confirm-courier` | Order modal: confirm the returned courier ID and create shipment |
 | `PATCH` | `/admin/orders/:id/delivery-estimate` | Order detail actions |
 | `POST` | `/admin/orders/:id/resend-confirmation` | Order detail actions |
 | `DELETE` | `/orders/:id/history` | Order-history delete workflow; currently not usable for admin-owned deletion of customer orders |
@@ -376,7 +378,10 @@ Implementation notes:
 - The page fetches a large product set and paginates client-side.
 - Category labels are resolved from `/admin/categories` and nested product category data.
 - Product display names are cleaned with [src/lib/productNames.ts](src/lib/productNames.ts) so hidden uniqueness markers are not shown to admins.
-- Edit submits `FormData` with name, description, category, product type, stock, customizable flag, base price, HSN code, GST percentage, optional image, and sorted `quantityPricing`.
+- Edit submits `FormData` with name, description, category, product type, stock, customizable flag, base price, HSN code, GST percentage, optional gallery files, and sorted `quantityPricing`.
+- Image editing supports selecting or dropping up to five JPG/PNG/WebP files together, with previews and removal/reset of pending selections. Two new images keep the first three of an existing five-image gallery; three keep the first two; five replace all five. Empty selection and Cancel preserve the current gallery.
+- The existing multipart `productImages` field receives the complete planned gallery. Retained images are downloaded without credentials and re-uploaded ahead of the new files, using the existing optimizer/upload-size budget. A failed download aborts before the product PATCH. A fresh product read checks gallery length and whether old replacement-slot URLs remain; backend mismatch produces a warning rather than full success.
+- The frontend gallery limit remains five; 6–10 files are rejected. A higher backend file-count limit, gallery-replacement semantics and deletion of old storage assets are not live-verified. Retained images may receive new storage IDs/URLs because they are re-uploaded.
 - Quantity pricing tiers must have non-negative whole-number `minQty`, positive `pricePerUnit`, and unique minimum quantities.
 - Delete verifies removal by refetching `/admin/products`; if the admin delete still appears to leave the product, it attempts the public `/products/:id` delete fallback.
 

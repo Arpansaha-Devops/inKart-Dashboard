@@ -1,179 +1,249 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { CheckCircle2, Loader2, Package, Truck } from 'lucide-react';
+import { CheckCircle2, ChevronRight, Info, Loader2, Package, Truck } from 'lucide-react';
+import { toast } from 'sonner';
 import PackageDetailsForm from './PackageDetailsForm';
-import { packageDraft, validatePackage, type PackageDraft } from '../lib/productConfiguration';
-import {
-  canPrepareOrderShipment,
-  courierApprovalSelection,
-  parcelFromDraft,
-  saveParcelAndLoadQuotes,
-  type OrderCourierQuotes,
-  type OrderFulfillmentAdapter,
-} from '../lib/orderFulfillment';
-import type { PackageDetails } from '../types';
+import { packageDraft, type PackageDraft } from '../lib/productConfiguration';
+import { canPrepareOrderShipment, confirmCourierAndApprove, courierDeliveryEstimate, parcelErrors, parcelFromDraft, sameParcel } from '../lib/orderFulfillment';
+import { getCourierQuotes } from '../services/orderService';
+import type { CourierOption, PackageDetails } from '../types';
 
 const currency = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
 
-export function CourierQuoteOptions({ quotes, selectedId, onSelect, disabled = false }: {
-  quotes: OrderCourierQuotes; selectedId: string; onSelect: (id: string) => void; disabled?: boolean;
+export function CourierQuoteOptions({ couriers, selectedCourier, onSelect, disabled = false }: {
+  couriers: CourierOption[]; selectedCourier: CourierOption | null; onSelect: (courier: CourierOption) => void; disabled?: boolean;
 }) {
-  const id = useId();
-  return <fieldset className="order-courier-options" disabled={disabled}>
-    <legend className="sr-only">Available courier services</legend>
-    {quotes.couriers.map((courier) => <label className={`order-courier-option${selectedId === courier.id ? ' is-selected' : ''}`} key={courier.id}>
-      <input type="radio" name={`${id}-courier`} value={courier.id} checked={selectedId === courier.id} onChange={() => onSelect(courier.id)} />
-      <span className="order-courier-service"><strong>{courier.courierName}</strong><span>{courier.serviceName}</span><small>{courier.estimatedDelivery || 'Delivery estimate not provided'}</small></span>
-      <span className="order-courier-charge"><small>Delivery charge</small><strong>{currency.format(courier.deliveryCharge)}</strong></span>
-    </label>)}
-  </fieldset>;
+  return <div className="order-courier-options" role="group" aria-label="Available courier services">
+    {couriers.map((courier) => <button type="button" disabled={disabled}
+      className={`card card-hover order-courier-option${selectedCourier?.courierId === courier.courierId ? ' is-selected' : ''}`}
+      key={`${typeof courier.courierId}:${courier.courierId}`} aria-pressed={selectedCourier?.courierId === courier.courierId}
+      onClick={() => onSelect(courier)}>
+      <Truck size={20} aria-hidden="true" />
+      <span className="order-courier-service"><strong>{courier.courierName}</strong><span>{courier.serviceType || 'Service type not provided'}</span><small>{courierDeliveryEstimate(courier)}</small></span>
+      <span className="order-courier-charge"><small>Delivery charge</small><strong>{currency.format(courier.rate)}</strong></span>
+      <ChevronRight size={18} aria-hidden="true" />
+    </button>)}
+  </div>;
 }
 
-function errorMessage(error: unknown, fallback: string) {
-  const issue = error as { response?: { data?: { message?: unknown } }; message?: unknown };
+function requestError(error: unknown, fallback: string, quoteRequest = false) {
+  const issue = error as { response?: { status?: number; data?: { message?: unknown } }; message?: unknown };
+  if (quoteRequest && (issue?.response?.status ?? 0) >= 500) return 'Server error. Please try again.';
   const message = issue?.response?.data?.message ?? issue?.message;
   return typeof message === 'string' && message.trim() ? message : fallback;
 }
 
-export default function OrderParcelDetails({ orderId, value, paymentStatus, orderStatus, disabled = false, adapter, onApproved, onBusyChange }: {
-  orderId: string;
-  value?: PackageDetails;
-  paymentStatus: string;
-  orderStatus: string;
-  disabled?: boolean;
-  // Supply only after the backend contract is documented and connected.
-  adapter?: OrderFulfillmentAdapter;
-  onApproved?: () => void;
+function CourierConfirmation({ courier, busy, error, onCancel, onConfirm }: {
+  courier: CourierOption; busy: boolean; error: string; onCancel: () => void; onConfirm: () => void;
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const id = useId();
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  return <dialog ref={dialogRef} className="modal-backdrop orders-delete-modal-backdrop"
+    aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`}
+    onCancel={(event) => { event.preventDefault(); event.stopPropagation(); if (!busy) onCancel(); }}
+    onKeyDown={(event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation();
+        if (!busy) onCancel();
+      }
+    }}>
+    <div className="modal-box">
+      <h3 id={`${id}-title`} className="section-title">Confirm Courier Selection</h3>
+      <p id={`${id}-description`} className="product-extension-help">You’re about to assign this shipment to a courier partner. Shiprocket will charge your connected wallet when the backend books the shipment. The quote below is the returned delivery charge; final billing follows Shiprocket’s terms.</p>
+      <dl className="order-courier-summary">
+        <div><dt>Courier</dt><dd>{courier.courierName}</dd></div>
+        <div><dt>Service</dt><dd>{courier.serviceType || 'Not provided'} · {courierDeliveryEstimate(courier)}</dd></div>
+        <div><dt>Charge</dt><dd className="order-courier-price">{currency.format(courier.rate)}</dd></div>
+      </dl>
+      <p className="product-extension-help" style={{ color: 'var(--warning)' }}>Confirming creates a shipment and can incur wallet charges. Cancel here to keep reviewing services.</p>
+      {error && <p className="product-extension-error" role="alert">{error}</p>}
+      <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap', marginTop: 20 }}>
+        <button type="button" className="btn-ghost" disabled={busy} onClick={onCancel} autoFocus>Cancel</button>
+        <button type="button" className="btn-primary" disabled={busy} onClick={onConfirm}>
+          {busy && <Loader2 size={16} className="animate-spin" />}{busy ? 'Processing...' : 'Yes, confirm & ship'}
+        </button>
+      </div>
+    </div>
+  </dialog>;
+}
+
+type BookingResult = Awaited<ReturnType<typeof confirmCourierAndApprove>>;
+
+export default function OrderParcelDetails({ orderId, value, paymentStatus, orderStatus, hasShipment = false, disabled = false, onApproved, onBusyChange }: {
+  orderId: string; value?: PackageDetails; paymentStatus: string; orderStatus: string;
+  hasShipment?: boolean; disabled?: boolean;
+  onApproved?: (result: BookingResult) => void;
   onBusyChange?: (busy: boolean) => void;
 }) {
   const id = useId();
   const [draft, setDraft] = useState(() => packageDraft(value));
-  const [touched, setTouched] = useState(false);
-  const [savedParcel, setSavedParcel] = useState<PackageDetails | null>(null);
-  const [quotes, setQuotes] = useState<OrderCourierQuotes | null>(null);
-  const [selectedId, setSelectedId] = useState('');
-  const [busy, setBusy] = useState<'preparing' | 'approving' | null>(null);
-  const [error, setError] = useState('');
-  const [approved, setApproved] = useState(false);
-  const [clock, setClock] = useState(() => Date.now());
+  const [touched, setTouched] = useState<Partial<Record<keyof PackageDraft, boolean>>>({});
+  const [savedParcel, setSavedParcel] = useState<PackageDetails | null>(value ?? null);
+  const [quoteParcel, setQuoteParcel] = useState<PackageDetails | null>(null);
+  const [couriers, setCouriers] = useState<CourierOption[]>([]);
+  const [quotesState, setQuotesState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [quotesError, setQuotesError] = useState('');
+  const [selectedCourier, setSelectedCourier] = useState<CourierOption | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [confirmError, setConfirmError] = useState('');
+  const [briefSuccess, setBriefSuccess] = useState(false);
+  const [completed, setCompleted] = useState(false);
   const requestRef = useRef(0);
   const inFlightRef = useRef(false);
   const mountedRef = useRef(true);
-  const eligible = canPrepareOrderShipment(paymentStatus, orderStatus) && !approved;
+  const eligible = canPrepareOrderShipment(paymentStatus, orderStatus, hasShipment) && !completed;
   const eligibleRef = useRef(eligible);
   eligibleRef.current = eligible;
-  const validationError = touched ? validatePackage(draft, true) : null;
-  const quoteExpired = !!quotes && Date.parse(quotes.expiresAt) <= clock;
-  const selectedCourier = quotes?.couriers.find((courier) => courier.id === selectedId);
-  const controlsDisabled = disabled || !eligible || !!busy;
+  const validation = parcelErrors(draft);
+  const invalid = Object.keys(validation).length > 0;
+  const visibleErrors = Object.fromEntries(Object.entries(validation).filter(([key]) => touched[key as keyof PackageDraft]));
+  const busy = quotesState === 'loading' || confirmLoading;
+  const controlsDisabled = disabled || !eligible || busy;
+  const readyToConfirm = !invalid && !!savedParcel && !!quoteParcel && !!selectedCourier &&
+    sameParcel(quoteParcel, parcelFromDraft(draft)) && couriers.includes(selectedCourier);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; requestRef.current += 1; };
   }, []);
-
-  useEffect(() => { onBusyChange?.(busy !== null); }, [busy, onBusyChange]);
+  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
   useEffect(() => () => { onBusyChange?.(false); }, [onBusyChange]);
-
   useEffect(() => {
-    if (!quotes) return;
-    const remaining = Date.parse(quotes.expiresAt) - Date.now();
-    if (remaining <= 0) return;
-    const timer = window.setTimeout(() => setClock(Date.now()), Math.min(Math.max(remaining + 1, 0), 2_147_483_647));
+    if (!briefSuccess) return;
+    const timer = window.setTimeout(() => setBriefSuccess(false), 2000);
     return () => window.clearTimeout(timer);
-  }, [quotes, clock]);
+  }, [briefSuccess]);
+  useEffect(() => {
+    if (!eligible && !confirmLoading) setShowConfirmModal(false);
+  }, [eligible, confirmLoading]);
 
   const updateDraft = (next: PackageDraft) => {
+    if (controlsDisabled || inFlightRef.current) return;
     requestRef.current += 1;
     setDraft(next);
     setSavedParcel(null);
-    setQuotes(null);
-    setSelectedId('');
-    setError('');
+    setQuoteParcel(null);
+    setCouriers([]);
+    setQuotesState('idle');
+    setSelectedCourier(null);
+    setShowConfirmModal(false);
+    setQuotesError('');
+    setConfirmError('');
+    setBriefSuccess(false);
   };
 
   const prepareShipment = async () => {
-    if (!adapter || inFlightRef.current || disabled || !eligibleRef.current) return;
-    setTouched(true);
-    const validation = validatePackage(draft, true);
-    if (validation) return;
+    if (inFlightRef.current || disabled || !eligibleRef.current) return;
+    setTouched({ weight: true, length: true, breadth: true, height: true });
+    if (invalid) return;
+    const parcel = parcelFromDraft(draft);
     const requestId = ++requestRef.current;
     const current = () => mountedRef.current && requestId === requestRef.current && eligibleRef.current;
     inFlightRef.current = true;
-    setBusy('preparing');
-    setError('');
-    setQuotes(null);
-    setSelectedId('');
+    setQuotesState('loading');
+    setQuotesError('');
+    setCouriers([]);
+    setQuoteParcel(null);
+    setSelectedCourier(null);
+    setBriefSuccess(false);
     try {
-      const nextQuotes = await saveParcelAndLoadQuotes(adapter, orderId, parcelFromDraft(draft), (saved) => {
-        if (current()) setSavedParcel(saved);
-      });
+      const options = await getCourierQuotes(orderId, parcel);
       if (!current()) return;
-      setClock(Date.now());
-      setQuotes(nextQuotes);
+      setSavedParcel(parcel);
+      setQuoteParcel(parcel);
+      setCouriers(options);
+      setQuotesState('success');
+      setBriefSuccess(true);
     } catch (issue) {
-      if (current()) setError(errorMessage(issue, 'Could not save the parcel and load courier services. Please try again.'));
+      if (current()) {
+        const message = requestError(issue, 'Could not load courier services. Please try again.', true);
+        setQuotesError(message);
+        setQuotesState('error');
+        toast.error(message);
+      }
     } finally {
       inFlightRef.current = false;
-      if (mountedRef.current) setBusy(null);
+      if (mountedRef.current && requestId === requestRef.current) setQuotesState((state) => state === 'loading' ? 'idle' : state);
     }
   };
 
+  const selectCourier = (courier: CourierOption) => {
+    if (controlsDisabled || !quoteParcel || !couriers.includes(courier)) return;
+    setSelectedCourier(courier);
+    setConfirmError('');
+    setShowConfirmModal(true);
+  };
+
   const approveSelection = async () => {
-    if (!adapter || !quotes || !savedParcel || inFlightRef.current || disabled || !eligibleRef.current) return;
-    setError('');
+    if (inFlightRef.current || disabled || !eligibleRef.current || !readyToConfirm || !showConfirmModal) return;
+    inFlightRef.current = true;
+    setConfirmLoading(true);
+    setConfirmError('');
     try {
-      const selection = courierApprovalSelection(quotes, selectedId, draft, Date.now(), orderId);
-      const requestId = ++requestRef.current;
-      inFlightRef.current = true;
-      setBusy('approving');
-      await adapter.approveWithCourier(orderId, selection);
-      if (!mountedRef.current || requestId !== requestRef.current || !eligibleRef.current) return;
-      setApproved(true);
-      onApproved?.();
+      const result = await confirmCourierAndApprove(orderId, selectedCourier.courierId, orderStatus === 'placed');
+      if (!mountedRef.current) return;
+      setCompleted(true);
+      setShowConfirmModal(false);
+      const summary = `${result.shipment.courierName || selectedCourier.courierName} assigned. AWB: ${result.shipment.awb || 'Pending'}`;
+      if (result.approvalFailed) toast.warning(`Shipment booked (${summary}), but order approval failed. Please approve manually.`);
+      else toast.success(`Order confirmed — ${summary}`);
+      onApproved?.(result);
     } catch (issue) {
-      if (mountedRef.current) setError(errorMessage(issue, 'Could not approve this order with the selected courier.'));
+      if (mountedRef.current) {
+        const message = `Failed to confirm courier: ${requestError(issue, 'Please try again.')}`;
+        setConfirmError(message);
+        toast.error(message);
+      }
     } finally {
       inFlightRef.current = false;
-      if (mountedRef.current) setBusy(null);
+      if (mountedRef.current) setConfirmLoading(false);
     }
   };
 
   return <section className="order-parcel-workflow" aria-labelledby={`${id}-title`} aria-label="Order parcel details">
     <header className="order-parcel-heading">
-      <div><p className="orders-eyebrow">Before order approval</p><h3 id={`${id}-title`}>Parcel & courier selection</h3><p>Prepare this order’s packed parcel, review courier charges, then confirm the service.</p></div>
-      <span className={adapter ? 'badge-active' : 'badge-inactive'}>{adapter ? 'Order shipping' : 'Backend integration pending'}</span>
+      <div><p className="orders-eyebrow">Order shipping</p><h3 id={`${id}-title`}>Parcel & courier selection</h3><p>Prepare this order’s packed parcel, review courier charges, then confirm the service.</p></div>
+      <span className="badge-active">Shiprocket couriers</span>
     </header>
     <ol className="order-parcel-steps" aria-label="Shipping approval steps">
       <li><span>1</span> Packed parcel</li><li><span>2</span> Courier quotes</li><li><span>3</span> Confirm & approve</li>
     </ol>
-    {!adapter && <p className="order-parcel-notice" role="status">You can enter and check the measurements here. Saving them, getting Shiprocket rates and approving with a selected courier will be available after backend integration. Entries remain unsaved and are cleared when this dialog closes.</p>}
-    {!eligible && !approved && <p className="order-parcel-notice">{orderStatus === 'placed' ? 'Payment must be completed before preparing the shipment.' : 'This order is already approved or closed. Parcel and courier approval controls are read-only.'}</p>}
+    {!eligible && <p className="order-parcel-notice">{paymentStatus !== 'paid' ? 'Payment must be completed before preparing the shipment.' : hasShipment || completed ? 'A shipment is already booked for this order. Use the Shiprocket workspace for tracking, pickup and labels.' : 'This order is already approved or closed. Parcel and courier approval controls are read-only.'}</p>}
     <div className="order-parcel-columns">
       <div className="order-parcel-measurements">
         <PackageDetailsForm title="1. Packed parcel measurements" value={draft} required disabled={controlsDisabled}
-          onChange={updateDraft} onBlur={() => setTouched(true)} error={validationError ?? undefined} />
-        <p className="product-extension-help" aria-live="polite">{savedParcel ? 'Parcel measurements saved and verified for this order.' : value && !touched ? 'Measurements returned with this order. Confirm the actual packed parcel before requesting rates.' : 'Measurements have not been saved.'}</p>
-        <button type="button" className="btn-primary" disabled={controlsDisabled || !adapter} onClick={() => void prepareShipment()}>
-          {busy === 'preparing' ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
-          {busy === 'preparing' ? 'Saving parcel & loading couriers…' : 'Save parcel & get courier quotes'}
+          onChange={updateDraft} onBlur={(key) => setTouched((current) => ({ ...current, [key]: true }))} fieldErrors={visibleErrors} />
+        <button type="button" className="btn-primary" disabled={controlsDisabled || invalid} onClick={() => void prepareShipment()}>
+          {quotesState === 'loading' ? <Loader2 size={16} className="animate-spin" /> : <Package size={16} />}
+          {quotesState === 'loading' ? 'Fetching quotes...' : 'Save parcel & get courier quotes'}
         </button>
+        <p className="product-extension-help" aria-live="polite" style={savedParcel ? { color: 'var(--success)' } : undefined}>{savedParcel ? 'Measurements saved ✓' : 'Measurements have not been saved.'}</p>
+        {briefSuccess && <p role="status" className="product-extension-help" style={{ color: 'var(--success)' }}>Parcel saved · quotes loaded</p>}
       </div>
-      <section className="order-parcel-couriers" aria-labelledby={`${id}-couriers`}>
+      <section className="order-parcel-couriers" aria-labelledby={`${id}-couriers`} aria-busy={quotesState === 'loading'}>
         <h4 id={`${id}-couriers`}>2. Available courier services</h4>
         <p className="product-extension-help">Compare the returned delivery charges and services for this packed parcel.</p>
-        {busy === 'preparing' ? <p role="status" className="order-parcel-empty"><Loader2 size={22} className="animate-spin" />Loading courier quotes…</p>
-          : quotes?.couriers.length ? <CourierQuoteOptions quotes={quotes} selectedId={selectedId} onSelect={setSelectedId} disabled={controlsDisabled || quoteExpired} />
-          : <div className="order-parcel-empty"><Truck size={28} /><strong>{quotes ? 'No courier services available' : 'Courier quotes will appear here'}</strong><p>{quotes ? 'No services were returned for this parcel. Review the measurements and destination, then request rates again.' : 'Save the parcel and request rates to see courier providers, service names, delivery charges and estimates.'}</p></div>}
-        {quoteExpired && <p className="product-extension-error" role="alert">Courier quotes have expired. Request fresh quotes before approving.</p>}
+        {quotesState === 'loading' ? <div role="status" className="order-parcel-empty"><Loader2 size={24} className="animate-spin" style={{ color: 'var(--accent)' }} />Fetching available couriers...</div>
+          : quotesState === 'error' ? <div className="order-parcel-empty"><p className="product-extension-error" role="alert">Could not fetch courier quotes. {quotesError}</p><button type="button" className="btn-ghost" disabled={controlsDisabled || invalid} onClick={() => void prepareShipment()}>Try again</button></div>
+          : quotesState === 'success' && couriers.length ? <CourierQuoteOptions couriers={couriers} selectedCourier={selectedCourier} onSelect={selectCourier} disabled={controlsDisabled} />
+          : <div className="order-parcel-empty">{quotesState === 'success' ? <Info size={28} /> : <Truck size={28} />}
+            <strong>{quotesState === 'success' ? 'No courier services available' : 'Courier quotes will appear here'}</strong>
+            <p>{quotesState === 'success' ? 'No courier services are available for this delivery address and parcel size. Please check the dimensions or contact support.' : 'Save the parcel and request rates to see courier providers, service names, delivery charges and estimates.'}</p>
+          </div>}
       </section>
     </div>
-    {error && <p className="product-extension-error" role="alert">{error}</p>}
     <footer className="order-parcel-approval">
-      <div><h4>3. Confirm courier & approve</h4><p>{selectedCourier ? `${selectedCourier.courierName} · ${selectedCourier.serviceName} · ${currency.format(selectedCourier.deliveryCharge)}` : 'Choose a returned courier service after the parcel has been saved.'}</p><small>Carrier charges are separate from the delivery fee already paid by the customer. AWB, pickup and tracking follow approval.</small></div>
-      <button type="button" className="btn-primary" disabled={controlsDisabled || !adapter || !savedParcel || !selectedCourier || quoteExpired} onClick={() => void approveSelection()}>
-        {busy === 'approving' ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-        {approved ? 'Approved with selected courier' : busy === 'approving' ? 'Approving…' : 'Confirm courier & approve order'}
+      <div><h4>3. Confirm courier & approve</h4><p>{selectedCourier ? `${selectedCourier.courierName} · ${currency.format(selectedCourier.rate)}` : 'Choose a returned courier service after the parcel has been saved.'}</p><small>Carrier charges are separate from the delivery fee already paid by the customer. Shipment creation and AWB assignment are handled by the backend.</small></div>
+      <button type="button" className="btn-primary" disabled={controlsDisabled || !readyToConfirm} onClick={() => { setConfirmError(''); setShowConfirmModal(true); }}>
+        <CheckCircle2 size={16} />Confirm courier & approve order
       </button>
     </footer>
+    {showConfirmModal && selectedCourier && <CourierConfirmation courier={selectedCourier} busy={confirmLoading} error={confirmError}
+      onCancel={() => { if (!inFlightRef.current) setShowConfirmModal(false); }} onConfirm={() => void approveSelection()} />}
   </section>;
 }

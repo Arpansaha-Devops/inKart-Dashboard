@@ -3503,13 +3503,20 @@ button.orders-summary-row:focus-visible {
 .order-parcel-empty { display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; padding: 28px 18px; min-height: 205px; text-align: center; border: 1px dashed var(--border-active); border-radius: var(--radius-sm); color: var(--text-muted); }
 .order-parcel-empty strong { color: var(--text-secondary); font-size: 14px; }
 .order-parcel-empty p { margin: 0; font-size: 12px; line-height: 1.7; }
-.order-courier-options { display: grid; gap: 10px; padding: 0; margin: 0; border: 0; min-width: 0; }
-.order-courier-option { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
-.order-courier-option.is-selected { border-color: var(--accent); background: var(--accent-muted); }
+.order-courier-options { display: grid; gap: 10px; padding: 2px; margin: 0; border: 0; min-width: 0; max-height: 420px; overflow-y: auto; }
+.order-courier-option { display: grid; width: 100%; text-align: left; color: var(--text-secondary); grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; padding: 14px; border: 1px solid var(--border); border-left: 3px solid var(--border); border-radius: var(--radius-sm); cursor: pointer; }
+.order-courier-option.is-selected { border-left-color: var(--accent); background: var(--accent-muted); }
+.order-courier-option:disabled { cursor: not-allowed; opacity: .6; transform: none; }
+.order-courier-option:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .order-courier-service, .order-courier-charge { display: grid; gap: 5px; overflow-wrap: anywhere; }
 .order-courier-service strong, .order-courier-charge strong { font-size: 14px; color: var(--text-primary); }
 .order-courier-service span, .order-courier-service small, .order-courier-charge small { font-size: 12px; color: var(--text-secondary); }
 .order-courier-charge { text-align: right; }
+.order-courier-charge strong, .order-courier-price { color: var(--accent-text); }
+.order-courier-summary { display: grid; gap: 12px; margin: 20px 0; padding: 16px 0; border-block: 1px solid var(--border); font-size: 14px; }
+.order-courier-summary > div { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; }
+.order-courier-summary dt { color: var(--text-secondary); }
+.order-courier-summary dd { margin: 0; overflow-wrap: anywhere; }
 .order-parcel-approval { border-top: 1px solid var(--border); margin-top: 22px; padding-top: 20px; align-items: center; }
 .order-parcel-approval small { display: block; margin-top: 8px; font-size: 12px; color: var(--text-muted); line-height: 1.6; }
 .order-parcel-approval > button { max-width: 100%; white-space: normal; }
@@ -3523,6 +3530,7 @@ button.orders-summary-row:focus-visible {
   .order-parcel-measurements .product-extension-grid { grid-template-columns: minmax(0, 1fr); }
   .order-courier-option { grid-template-columns: auto minmax(0, 1fr); }
   .order-courier-charge { grid-column: 2; text-align: left; }
+  .order-courier-option > svg:last-child { display: none; }
 }
 .product-create-modal { width: min(880px, calc(100vw - 32px)); max-width: 880px; }
 .product-create-sections { display: grid; gap: 20px; }
@@ -3536,6 +3544,25 @@ button.orders-summary-row:focus-visible {
 .product-create-inventory > summary { cursor: pointer; color: var(--text-primary); font-size: 14px; font-weight: 600; }
 .product-create-inventory > summary span { display: block; padding-top: 6px; color: var(--text-secondary); font-size: 12px; line-height: 1.6; font-weight: 400; }
 .product-create-inventory-body { display: grid; gap: 18px; margin-top: 18px; }
+.product-gallery-editor { margin-top: 18px; min-width: 0; }
+.product-gallery-editor .product-extension-toolbar { margin-bottom: 8px; }
+.product-gallery-editor .form-label { margin: 0; }
+.product-gallery-picker { position: relative; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 22px 14px; margin: 14px 0; border: 1px dashed var(--border-active); border-radius: var(--radius-sm); background: var(--bg-surface); color: var(--text-secondary); text-align: center; font-size: 13px; cursor: pointer; }
+.product-gallery-picker span { font-size: 12px; }
+.product-gallery-picker input { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; }
+.product-gallery-picker:focus-within { outline: 2px solid var(--accent); outline-offset: -2px; }
+.product-gallery-picker.is-disabled { opacity: .6; cursor: not-allowed; }
+.product-gallery-picker.is-disabled input { cursor: not-allowed; }
+.product-gallery-preview { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 100px), 1fr)); gap: 10px; }
+.product-gallery-preview figure { position: relative; margin: 0; min-width: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--bg-surface); }
+.product-gallery-preview figure[data-gallery-kind="new"] { border-color: var(--accent); }
+.product-gallery-preview img, .product-gallery-loading { display: block; width: 100%; height: 100px; object-fit: contain; }
+.product-gallery-loading { display: grid; place-items: center; color: var(--text-muted); }
+.product-gallery-preview figcaption { display: grid; gap: 4px; padding: 8px; font-size: 11px; color: var(--text-secondary); overflow-wrap: anywhere; }
+.product-gallery-preview figcaption strong { color: var(--accent-text); }
+.product-gallery-preview figcaption span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.product-gallery-remove { position: absolute; top: 4px; right: 4px; display: grid; place-items: center; width: 28px; height: 28px; border-radius: var(--radius-sm); border: 1px solid var(--border-active); background: var(--bg-card); color: var(--danger); cursor: pointer; }
+.product-gallery-remove:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 @media (max-width: 600px) {
   .product-create-modal { width: calc(100vw - 24px); padding: 18px; }
   .product-create-section { padding: 14px; }

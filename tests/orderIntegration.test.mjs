@@ -21,35 +21,42 @@ test('documented selections take priority over empty legacy options without losi
   assert.deepEqual(normalizeOrderItemOptions({ options: {}, selectedOptions }), { printingSides: 'double', customFinish: 'custom' });
   assert.deepEqual(normalizeOrderItemOptions({ options: { size: 'legacy' }, selectedOptions: [] }), { size: 'legacy' });
 });
-test('pending backend permits order measurements without pretending to save, quote or approve', () => {
+test('order measurements are editable, persisted values prepopulate, and no API runs before user action', () => {
   const value = { weight: .25, length: 10, breadth: 5, height: 2 };
   assert.deepEqual(reportedPackage(value), value); assert.equal(reportedPackage({ ...value, weight: 0 }), undefined);
   for (const parcel of [undefined, value]) {
     const html = renderToStaticMarkup(React.createElement(OrderParcelDetails, { orderId: 'order-1', value: parcel, paymentStatus: 'paid', orderStatus: 'placed' }));
     assert.doesNotMatch(html, /fieldset[^>]*disabled/); assert.match(html, /button[^>]*disabled/);
-    assert.match(html, /Backend integration pending/); assert.match(html, /Entries remain unsaved/);
+    assert.doesNotMatch(html, /Backend integration pending/);
+    assert.match(html, parcel ? /Measurements saved/ : /Measurements have not been saved/);
+    if (parcel) assert.match(html, /value="0.25"/);
     assert.match(html, /Available courier services/); assert.match(html, /Confirm courier &amp; approve order/);
     assert.doesNotMatch(html, /localStorage/);
   }
   assert.equal(calls.length, 0);
 });
 
-test('approved, terminal and unpaid orders have read-only parcel controls', () => {
-  for (const [paymentStatus, orderStatus] of [['paid', 'confirmed'], ['paid', 'shipped'], ['paid', 'delivered'], ['paid', 'cancelled'], ['paid', 'returned'], ['pending', 'placed']]) {
+test('terminal, already booked and unpaid orders have read-only parcel controls', () => {
+  for (const [paymentStatus, orderStatus] of [['paid', 'shipped'], ['paid', 'delivered'], ['paid', 'cancelled'], ['paid', 'return_requested'], ['paid', 'returned'], ['pending', 'placed']]) {
     const html = renderToStaticMarkup(React.createElement(OrderParcelDetails, { orderId: 'old-order', paymentStatus, orderStatus }));
     assert.match(html, /fieldset[^>]*disabled/);
   }
+  const booked = renderToStaticMarkup(React.createElement(OrderParcelDetails, { orderId: 'booked', paymentStatus: 'paid', orderStatus: 'confirmed', hasShipment: true }));
+  assert.match(booked, /fieldset[^>]*disabled/);
+  assert.match(booked, /A shipment is already booked/);
 });
 
 test('courier services show returned prices, service names, estimates and selection', () => {
-  const quotes = { orderId: 'order-1', quoteId: 'quote-1', packageDetails: { weight: .5, length: 20, breadth: 15, height: 5 }, currency: 'INR', expiresAt: new Date(Date.now() + 60000).toISOString(), couriers: [
+  const returned = [
     { id: 'service-1', courierName: 'Courier fixture A', serviceName: 'Surface', deliveryCharge: 72.5, estimatedDelivery: '3–5 days' },
     { id: 'service-2', courierName: 'Courier fixture B', serviceName: 'Express', deliveryCharge: 119 },
-  ] };
-  const html = renderToStaticMarkup(React.createElement(CourierQuoteOptions, { quotes, selectedId: 'service-2', onSelect() {} }));
+  ];
+  const couriers = returned.map((courier) => ({ courierId: courier.id, courierName: courier.courierName, serviceType: courier.serviceName, rate: courier.deliveryCharge, estimatedDays: courier.estimatedDelivery }));
+  const html = renderToStaticMarkup(React.createElement(CourierQuoteOptions, { couriers, selectedCourier: couriers[1], onSelect() {} }));
   assert.match(html, /Courier fixture A/); assert.match(html, /Surface/); assert.match(html, /72.50/);
   assert.match(html, /Express/); assert.match(html, /119.00/); assert.match(html, /3–5 days/);
-  assert.match(html, /checked="" value="service-2"/);
+  assert.equal((html.match(/aria-pressed="true"/g) || []).length, 1);
+  assert.doesNotMatch(html, /type="radio"/);
 });
 test('legacy approval and shipment services retain their existing routes and payloads', async () => {
   mockApi(() => ({ data: { data: { awbCode: 'test-awb', labelUrl: 'https://example.test/label', manifestUrl: 'https://example.test/manifest' } } }));

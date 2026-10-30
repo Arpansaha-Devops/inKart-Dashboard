@@ -211,3 +211,33 @@ export interface DashboardStatsResponse {
   data: AnalyticsDashboardStats;
   raw?: unknown;
 }
+
+export interface CourierOption {
+  courierId: string | number;
+  courierName: string;
+  serviceType?: string;
+  estimatedDays?: string | number;
+  rate: number;
+  currency?: string;
+}
+
+export interface CourierQuotesResponse {
+  success: boolean;
+  data?: { couriers?: CourierOption[] };
+  couriers?: CourierOption[];
+}
+
+export interface ConfirmCourierPayload {
+  courierId: string | number;
+}
+
+export interface ConfirmCourierResponse {
+  success: boolean;
+  data?: {
+    awb?: string;
+    shipmentId?: string | number;
+    orderId?: string;
+    courierName?: string;
+    message?: string;
+  };
+}

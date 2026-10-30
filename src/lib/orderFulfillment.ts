@@ -1,88 +1,68 @@
-import type { PackageDetails } from '../types';
-import { packageKeys, validatePackage, type PackageDraft } from './productConfiguration';
+import type { CourierOption, PackageDetails } from '../types';
+import { packageKeys, type PackageDraft } from './productConfiguration';
 import { reportedPackage } from './orderPresentation';
+import { approveOrder, confirmCourier } from '../services/orderService';
 
-// Frontend integration models only. No backend route/response contract has been
-// supplied for saving parcels, fetching order rates or approving a chosen courier.
-export interface OrderCourierQuote {
-  id: string;
-  courierName: string;
-  serviceName: string;
-  deliveryCharge: number;
-  estimatedDelivery?: string;
+export type ParcelErrors = Partial<Record<keyof PackageDetails, string>>;
+
+export function parcelErrors(draft: PackageDraft): ParcelErrors {
+  const errors: ParcelErrors = {};
+  for (const key of packageKeys) {
+    const label = key[0].toUpperCase() + key.slice(1);
+    const value = Number(draft[key]);
+    if (!draft[key].trim()) errors[key] = `${label} is required`;
+    else if (!Number.isFinite(value) || value <= 0) errors[key] = `${label} must be greater than 0`;
+    else if (key === 'weight') {
+      if (value < .1) errors.weight = 'Minimum weight is 0.1 kg';
+      else if (value > 999.99) errors.weight = 'Maximum weight is 999.99 kg';
+      else if (Math.abs(value * 100 - Math.round(value * 100)) > 1e-8) errors.weight = 'Weight can have at most 2 decimal places';
+    }
+  }
+  return errors;
 }
 
-export interface OrderCourierQuotes {
-  orderId: string;
-  quoteId: string;
-  packageDetails: PackageDetails;
-  currency: 'INR';
-  expiresAt: string;
-  couriers: OrderCourierQuote[];
-}
-
-export interface CourierApprovalSelection {
-  quoteId: string;
-  courierId: string;
-  packageDetails: PackageDetails;
-}
-
-export interface OrderFulfillmentAdapter {
-  // Must resolve only after persistence has been verified by a backend read.
-  saveParcel: (orderId: string, parcel: PackageDetails) => Promise<PackageDetails>;
-  getCourierQuotes: (orderId: string, parcel: PackageDetails) => Promise<OrderCourierQuotes>;
-  // Backend must atomically validate quote, parcel, courier and order state.
-  approveWithCourier: (orderId: string, selection: CourierApprovalSelection) => Promise<void>;
+export function parcelFromDraft(draft: PackageDraft): PackageDetails {
+  const errors = parcelErrors(draft);
+  if (Object.keys(errors).length) throw new Error(Object.values(errors)[0]);
+  return Object.fromEntries(packageKeys.map((key) => [key, Number(draft[key])])) as unknown as PackageDetails;
 }
 
 export const sameParcel = (left: PackageDetails, right: PackageDetails) =>
   packageKeys.every((key) => left[key] === right[key]);
 
-export function parcelFromDraft(draft: PackageDraft): PackageDetails {
-  const error = validatePackage(draft, true);
-  if (error) throw new Error(error);
-  return Object.fromEntries(packageKeys.map((key) => [key, Number(draft[key])])) as unknown as PackageDetails;
-}
+// Orders approved through the existing flow can still need their first shipment.
+export const canPrepareOrderShipment = (paymentStatus: string, orderStatus: string, hasShipment = false) =>
+  paymentStatus === 'paid' && ['placed', 'confirmed', 'processing'].includes(orderStatus) && !hasShipment;
 
-export const canPrepareOrderShipment = (paymentStatus: string, orderStatus: string) =>
-  paymentStatus === 'paid' && orderStatus === 'placed';
-
-export function validateCourierQuotes(value: OrderCourierQuotes, parcel: PackageDetails, now = Date.now(), orderId?: string): string | null {
-  if (typeof value?.orderId !== 'string' || !value.orderId.trim() || (orderId && value.orderId !== orderId)) return 'The courier quote does not belong to this order. Request fresh quotes.';
-  const savedParcel = reportedPackage(value?.packageDetails);
-  if (!savedParcel || !sameParcel(savedParcel, parcel)) return 'The courier quote does not match this parcel. Save the measurements and request new quotes.';
-  if (typeof value.quoteId !== 'string' || !value.quoteId.trim() || value.currency !== 'INR') return 'The courier quote response is incomplete.';
-  const expiry = typeof value.expiresAt === 'string' ? Date.parse(value.expiresAt) : NaN;
-  if (!Number.isFinite(expiry) || expiry <= now) return 'The courier quotes have expired. Request fresh quotes.';
-  if (!Array.isArray(value.couriers)) return 'The available courier services could not be read.';
-  const ids = new Set<string>();
-  for (const courier of value.couriers) {
-    if (!courier || typeof courier.id !== 'string' || !courier.id.trim() || ids.has(courier.id) ||
-      typeof courier.courierName !== 'string' || !courier.courierName.trim() ||
-      typeof courier.serviceName !== 'string' || !courier.serviceName.trim() ||
-      typeof courier.deliveryCharge !== 'number' || !Number.isFinite(courier.deliveryCharge) || courier.deliveryCharge < 0 ||
-      (courier.estimatedDelivery !== undefined && typeof courier.estimatedDelivery !== 'string')) {
-      return 'A courier service is missing valid pricing or identification. Request fresh quotes.';
-    }
-    ids.add(courier.id);
+export function reportedOrderParcel(order: Record<string, unknown>): PackageDetails | undefined {
+  const flat = { weight: order.parcelWeight, length: order.parcelLength, breadth: order.parcelBreadth, height: order.parcelHeight };
+  for (const value of [order.packageDetails, order.parcel, order.parcelDetails, flat]) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) continue;
+    const record = value as Record<string, unknown>;
+    const numbers = Object.fromEntries(packageKeys.map((key) => [key,
+      typeof record[key] === 'string' && record[key].trim() ? Number(record[key]) : record[key],
+    ]));
+    const parcel = reportedPackage(numbers);
+    if (parcel) return parcel;
   }
-  return null;
+  return undefined;
 }
 
-export async function saveParcelAndLoadQuotes(adapter: OrderFulfillmentAdapter, orderId: string, parcel: PackageDetails, onSaved?: (value: PackageDetails) => void) {
-  const saved = reportedPackage(await adapter.saveParcel(orderId, parcel));
-  if (!saved || !sameParcel(saved, parcel)) throw new Error('The saved parcel measurements could not be verified. Courier rates were not requested.');
-  onSaved?.(saved);
-  const quotes = await adapter.getCourierQuotes(orderId, saved);
-  const error = validateCourierQuotes(quotes, saved, Date.now(), orderId);
-  if (error) throw new Error(error);
-  return quotes;
-}
+export const courierDeliveryEstimate = (courier: CourierOption) => {
+  if (courier.estimatedDays === undefined) return 'Delivery estimate not provided';
+  const text = String(courier.estimatedDays);
+  return /day/i.test(text) ? text : `${text} days`;
+};
 
-export function courierApprovalSelection(quotes: OrderCourierQuotes, courierId: string, draft: PackageDraft, now = Date.now(), orderId?: string): CourierApprovalSelection {
-  const parcel = parcelFromDraft(draft);
-  const error = validateCourierQuotes(quotes, parcel, now, orderId);
-  if (error) throw new Error(error);
-  if (!quotes.couriers.some((courier) => courier.id === courierId)) throw new Error('Select an available courier service before approving.');
-  return { quoteId: quotes.quoteId, courierId, packageDetails: parcel };
+// A booked shipment must never be repeated because the separate approval failed.
+// Already approved orders only need courier confirmation, without another email.
+export async function confirmCourierAndApprove(orderId: string, courierId: string | number, approve = true) {
+  const shipment = await confirmCourier(orderId, courierId);
+  if (!approve) return { shipment, approvalFailed: false };
+  try {
+    await approveOrder(orderId);
+    return { shipment, approvalFailed: false };
+  } catch {
+    return { shipment, approvalFailed: true };
+  }
 }

@@ -1,20 +1,35 @@
 import apiClient from '../lib/apiClient';
 import { extensionPersistenceError, findProductRecord } from '../lib/productConfiguration';
+import { getProductGalleryUrls } from '../lib/productImages';
 
-export const verifyProductExtensions = async (payload: unknown, data: FormData, productId?: string): Promise<string | null> => {
-  if (!data.has('configuration') && !data.has('packageDetails')) return null;
+export const verifyProductExtensions = async (payload: unknown, data: FormData, productId?: string, galleryChange?: { previousUrls: string[]; newImageCount: number }): Promise<string | null> => {
+  const gallerySize = data.getAll('productImages').filter((value) => typeof value !== 'string').length;
+  if (!data.has('configuration') && !data.has('packageDetails') && gallerySize === 0) return null;
   const saved = findProductRecord(payload, productId);
   const id = productId || String(saved?._id ?? saved?.id ?? '');
-  const pending = 'Product save completed, but configuration/package persistence could not be verified. Refresh and review the saved product before retrying.';
+  const pending = `Product save completed, but ${gallerySize ? 'configuration/package/image gallery' : 'configuration/package'} persistence could not be verified. Refresh and review the saved product before retrying.`;
   if (!id) return pending;
   try {
     // Reuse the existing listing route: there is no documented admin detail GET.
     for (let page = 1; page <= 50; page += 1) {
       const response = await apiClient.get('/admin/products', { params: { page, limit: 100, _ts: Date.now() } });
+      if (response.data?.success === false || response.data?.data?.success === false) return pending;
       const product = findProductRecord(response.data, id);
       if (product) {
         const field = extensionPersistenceError(product, data);
-        return field ? `Product save completed, but the backend did not return the submitted ${field}. Its persistence is unconfirmed; review the product before retrying.` : null;
+        if (field) return `Product save completed, but the backend did not return the submitted ${field}. Its persistence is unconfirmed; review the product before retrying.`;
+        // An explicit empty gallery cannot be verified by an unrelated legacy cover.
+        const reportedImages = [product.images, product.imageUrls, product.productImages].find(Array.isArray);
+        const galleryUrls = getProductGalleryUrls(reportedImages ? { images: reportedImages } : product);
+        if (gallerySize && galleryUrls.length !== gallerySize) {
+          return `Product save completed, but the backend did not return the expected ${gallerySize}-image gallery. The images may have been appended or ignored; refresh and review the product before retrying.`;
+        }
+        if (gallerySize && galleryChange) {
+          const oldTail = galleryChange.previousUrls.slice(Math.max(0, galleryChange.previousUrls.length - galleryChange.newImageCount));
+          const newTail = galleryUrls.slice(Math.max(0, galleryUrls.length - galleryChange.newImageCount));
+          if (newTail.some((url) => oldTail.includes(url))) return 'Product save completed, but the image gallery still contains images from the replaced slots. The replacement is unconfirmed; refresh and review the product before retrying.';
+        }
+        return null;
       }
       // A short/empty listing cannot contain further pages. Bound reads for older APIs.
       const root = response.data;
