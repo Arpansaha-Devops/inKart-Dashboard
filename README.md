@@ -43,11 +43,13 @@ Important API client behavior:
 
 - Trims trailing slashes from `VITE_API_BASE_URL`.
 - Defaults to the live backend URL when `VITE_API_BASE_URL` is not set.
-- Adds a `_ts` cache-busting query param to every GET request.
-- Adds `Authorization: Bearer <token>` to authenticated requests, reading from cookies first and localStorage second.
+- Never caches completed API responses. Every subsequent read fetches from the server with a unique URL; only concurrent identical reads may share a pending request. Reads crossing a mutation are refetched, and responses from a previous account are rejected.
+- Adds `Authorization: Bearer <token>` to authenticated requests, reading from cookies.
 - Skips auth headers for `/auth/login`, `/auth/register`, `/auth/verify-login-otp`, `/auth/verify-otp`, and `/auth/refresh-token`.
 - On a `401`, retries once with `POST /auth/refresh-token` if a refresh token exists.
 - If refresh fails, clears auth storage, shows a session-expired toast, and redirects to `/admin/login`.
+
+Routes load their own JavaScript on demand, with sidebar hover/focus/touch prefetching. Chart rendering code downloads alongside API reads, and dashboard charts load independently of recent activity and each other. See [the performance report](docs/performance-optimization.md) for measured results, cache behavior, and repeatable checks.
 
 [vite.config.ts](vite.config.ts) defines a dev proxy from `/api` to the live backend, but the current API client does not automatically switch to `/api`. To use the proxy locally, set:
 
@@ -128,7 +130,7 @@ Actual frontend runtime usage:
 - Mounts `Toaster`.
 - Defines public and protected routes.
 - Adds the protected `/shipment-tracking` route alongside regular admin pages.
-- Lazy-loads `Dashboard` and `Analytics`.
+- Lazy-loads every page, with sidebar hover/focus/touch prefetching.
 
 ## Route Map
 
@@ -349,7 +351,7 @@ API calls:
 
 Implementation notes:
 
-- Search fetch is debounced by 300 ms.
+- Non-empty searches are debounced by 300 ms; the initial unfiltered fetch starts immediately.
 - Response parsing is recursive and supports multiple payload shapes.
 - Blocks deleting the currently logged-in admin account.
 - Delete modal includes escape close, click-outside close, and focus trapping.
@@ -502,7 +504,7 @@ Implementation notes:
 
 [src/components/DashboardCharts.tsx](src/components/DashboardCharts.tsx):
 
-- Lazy-loads Chart.js/react-chartjs-2 only when charts render.
+- Loads the shared Chart.js runtime alongside chart-route API requests.
 - Supports dashboard doughnut and bar chart variants.
 
 Category modal components:

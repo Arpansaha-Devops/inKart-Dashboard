@@ -383,9 +383,9 @@ const extractStats = (payload: unknown): AnalyticsDashboardStats => {
   };
 };
 
-export const getRevenueOverTime = async (): Promise<RevenueOverTimeResponse> => {
+export const getRevenueOverTime = async (readCache = true): Promise<RevenueOverTimeResponse> => {
   try {
-    const response = await apiClient.get('/admin/analytics/revenue-over-time');
+    const response = await apiClient.get('/admin/analytics/revenue-over-time', { readCache });
     const points = extractRevenuePoints(response.data);
 
     return {
@@ -399,9 +399,9 @@ export const getRevenueOverTime = async (): Promise<RevenueOverTimeResponse> => 
   }
 };
 
-export const getDashboardStats = async (): Promise<DashboardStatsResponse> => {
+export const getDashboardStats = async (readCache = true): Promise<DashboardStatsResponse> => {
   try {
-    const response = await apiClient.get('/admin/analytics/dashboard-stats');
+    const response = await apiClient.get('/admin/analytics/dashboard-stats', { readCache });
     const stats = extractStats(response.data);
 
     return {

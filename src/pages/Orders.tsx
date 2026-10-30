@@ -1035,7 +1035,8 @@ const dedupeAndSortOrders = (orders: Order[]) => {
 };
 
 const fetchPaidOrdersPage = async (
-  params: OrdersQueryParams
+  params: OrdersQueryParams,
+  readCache = true,
 ): Promise<NormalizedOrdersResponse> => {
   const standardParams: OrdersQueryParams = {
     page: params.page,
@@ -1045,7 +1046,7 @@ const fetchPaidOrdersPage = async (
   if (params.status) standardParams.status = params.status;
   if (params.search?.trim()) standardParams.search = params.search.trim();
 
-  const response = await apiClient.get('/admin/orders', { params: standardParams });
+  const response = await apiClient.get('/admin/orders', { params: standardParams, readCache });
   const normalized = normalizeOrdersResponse(response.data, 'standard', params.limit);
 
   return {
@@ -1056,13 +1057,13 @@ const fetchPaidOrdersPage = async (
   };
 };
 
-const fetchAllPaidOrders = async (status?: OrderStatus, search?: string): Promise<Order[]> => {
+const fetchAllPaidOrders = async (status?: OrderStatus, search?: string, readCache = true): Promise<Order[]> => {
   const firstPage = await fetchPaidOrdersPage({
     page: 1,
     limit: SUMMARY_ORDERS_PER_PAGE,
     status,
     search,
-  });
+  }, readCache);
   const pages = [firstPage.orders];
 
   for (let page = 2; page <= firstPage.totalPages; page += 1) {
@@ -1071,7 +1072,7 @@ const fetchAllPaidOrders = async (status?: OrderStatus, search?: string): Promis
       limit: SUMMARY_ORDERS_PER_PAGE,
       status,
       search,
-    });
+    }, readCache);
     pages.push(response.orders);
   }
 
@@ -1623,7 +1624,7 @@ const Orders: React.FC = () => {
         const search = debouncedSearch || undefined;
         const hasDateFilter = Boolean(fromDate || toDate);
         const response = hasDateFilter
-          ? await fetchAllPaidOrders(status, search).then((allOrders) => {
+          ? await fetchAllPaidOrders(status, search, !showRefresh && !background).then((allOrders) => {
               const filteredOrders = allOrders.filter((order) =>
                 matchesDateRange(order, fromDate, toDate)
               );
@@ -1643,7 +1644,7 @@ const Orders: React.FC = () => {
               limit: ORDERS_PER_PAGE,
               status,
               search,
-            });
+            }, !showRefresh && !background);
 
         if (orderListRequestIdRef.current !== requestId) return;
         dispatch({

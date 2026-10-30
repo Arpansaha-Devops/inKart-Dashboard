@@ -1,12 +1,12 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import Cookies from 'js-cookie';
 import { toast } from 'sonner';
+import { createApiReadCache } from './apiReadCache';
 
 const TOKEN_STORAGE_KEY = 'token';
 const USER_STORAGE_KEY = 'user';
 const REFRESH_TOKEN_STORAGE_KEY = 'refreshToken';
 const DEFAULT_API_BASE_URL = 'https://inkart-virid.vercel.app/api/v1';
-const CACHE_BUST_PARAM = '_ts';
 
 const configuredBaseURL = (
   import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL
@@ -93,24 +93,13 @@ const handleExpiredSession = () => {
 const apiClient = axios.create({
   baseURL,
 });
+const readCache = createApiReadCache(axios.getAdapter(apiClient.defaults.adapter));
+apiClient.defaults.adapter = readCache.adapter;
 
 apiClient.interceptors.request.use((config) => {
-  const method = (config.method || 'get').toLowerCase();
-  if (method === 'get') {
-    if (config.params instanceof URLSearchParams) {
-      if (!config.params.has(CACHE_BUST_PARAM)) {
-        config.params.set(CACHE_BUST_PARAM, String(Date.now()));
-      }
-    } else {
-      config.params = {
-        ...(config.params || {}),
-        [CACHE_BUST_PARAM]: (config.params as Record<string, unknown> | undefined)?.[
-          CACHE_BUST_PARAM
-        ] ?? Date.now(),
-      };
-    }
+  if ((config.method || 'get').toLowerCase() === 'get' && !config.timeout) {
+    config.timeout = 20_000;
   }
-
   if (!shouldBypassAuth(config.url)) {
     const token = readToken();
     if (token) {
@@ -126,6 +115,7 @@ apiClient.interceptors.request.use((config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   async (error: AxiosError) => {
+    if (error.response?.status === 401) readCache.clear();
     const originalRequest = error.config as RetryableRequestConfig | undefined;
     const status = error.response?.status;
 

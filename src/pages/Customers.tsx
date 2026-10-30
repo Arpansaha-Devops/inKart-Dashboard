@@ -186,8 +186,10 @@ const Customers: React.FC = () => {
   const deleteModalOverlayRef = useRef<HTMLDivElement>(null);
   const deleteModalContentRef = useRef<HTMLDivElement>(null);
   const previouslyFocusedElementRef = useRef<HTMLElement | null>(null);
+  const usersRequestRef = useRef(0);
 
   const fetchUsers = useCallback(async () => {
+    const requestId = ++usersRequestRef.current;
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const params: any = { page, limit };
@@ -196,25 +198,27 @@ const Customers: React.FC = () => {
       }
 
       const response = await apiClient.get<any>(`/users/all`, { params });
+      if (requestId !== usersRequestRef.current) return;
 
       const usersList = extractUsers(response.data);
       const count = extractTotalUsers(response.data, usersList.length);
 
       dispatch({ type: 'SET_DATA', payload: { users: usersList, totalCount: count } });
     } catch (error: any) {
+      if (requestId !== usersRequestRef.current) return;
       console.error('Error fetching users', error);
       toast.error(error?.response?.data?.message || 'Failed to load customers');
     } finally {
-      dispatch({ type: 'SET_LOADING', payload: false });
+      if (requestId === usersRequestRef.current) dispatch({ type: 'SET_LOADING', payload: false });
     }
   }, [page, search]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
       fetchUsers();
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [fetchUsers]);
+    }, search.trim() ? 300 : 0);
+    return () => { clearTimeout(timer); usersRequestRef.current += 1; };
+  }, [fetchUsers, search]);
 
   useEffect(() => {
     if (!isDeleteModalOpen) return;

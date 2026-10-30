@@ -16,6 +16,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import apiClient from '../lib/apiClient';
 import { toast } from 'sonner';
+import { prefetchRoute } from '../lib/routeLoaders';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -163,6 +164,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen = false, onClose = () => {} })
               key={item.path}
               to={item.path}
               onClick={handleNavClick}
+              onMouseEnter={() => prefetchRoute(item.path)}
+              onFocus={() => prefetchRoute(item.path)}
+              onTouchStart={() => prefetchRoute(item.path)}
               className={({ isActive }) =>
                 `sidebar-nav-item ${isActive ? 'is-active' : ''}`
               }

@@ -58,12 +58,12 @@ export default function ShipmentTracking() {
   const shipmentRequestRef = useRef(0); const ordersRequestRef = useRef(0); const selectedIdRef = useRef(requestedOrderId);
   const selected = orders.find((order) => order._id === selectedId);
 
-  const loadOrders = useCallback(async () => {
+  const loadOrders = useCallback(async (readCache = true) => {
     const requestId = ++ordersRequestRef.current; setOrdersLoading(true);
     try {
       const collected: unknown[] = []; const limit = 100; let page = 1; let totalPages = 1;
       do {
-        const response = await apiClient.get('/admin/orders', { params: { page, limit, paymentStatus: 'paid' } });
+        const response = await apiClient.get('/admin/orders', { params: { page, limit, paymentStatus: 'paid' }, readCache });
         const root = record(response.data); const data = record(root.data);
         const values = Array.isArray(root.orders) ? root.orders : Array.isArray(data.orders) ? data.orders : Array.isArray(root.data) ? root.data : [];
         const pagination = Object.keys(record(root.pagination)).length ? record(root.pagination) : record(data.pagination);
@@ -145,7 +145,7 @@ export default function ShipmentTracking() {
       <aside className='shipment-order-picker'>
         <div className='shipment-picker-head'>
           <strong>Select an order</strong>
-          <button type='button' className='action-icon-button' onClick={() => void loadOrders()} disabled={ordersLoading || busy !== null} aria-label='Refresh paid orders' title='Refresh paid orders'>
+          <button type='button' className='action-icon-button' onClick={() => void loadOrders(false)} disabled={ordersLoading || busy !== null} aria-label='Refresh paid orders' title='Refresh paid orders'>
             {ordersLoading ? <Loader2 size={15} className='animate-spin' /> : <RefreshCw size={15} />}
           </button>
         </div>

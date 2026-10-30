@@ -505,7 +505,7 @@ const Products: React.FC = () => {
     dispatch({ type: 'SET_LOADING', payload: true });
     try {
       const response = await apiClient.get<any>('/admin/products', {
-        params: { page: 1, limit: 500, _ts: Date.now() },
+        params: { page: 1, limit: 500 },
       });
 
       let productsList = extractProducts(response.data);
@@ -513,7 +513,7 @@ const Products: React.FC = () => {
       if (productsList.length === 0) {
         try {
           const publicResponse = await apiClient.get<any>('/products', {
-            params: { page: 1, limit: 500, _ts: Date.now() },
+            params: { page: 1, limit: 500 },
           });
           productsList = extractProducts(publicResponse.data);
         } catch {

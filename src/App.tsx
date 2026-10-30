@@ -5,16 +5,17 @@ import { LazyMotion, domAnimation } from 'motion/react';
 import { AuthProvider } from './context/AuthContext';
 import PrivateRoute from './components/PrivateRoute';
 import Layout from './components/Layout';
-import Login from './pages/Login';
-import Customers from './pages/Customers';
-import Orders from './pages/Orders';
-import Products from './pages/Products';
-import Categories from './pages/Categories';
-import Coupons from './pages/Coupons';
-import ShipmentTracking from './pages/ShipmentTracking';
+import { routeLoaders } from './lib/routeLoaders';
 
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Analytics = lazy(() => import('./pages/Analytics'));
+const Login = lazy(routeLoaders['/login']);
+const Dashboard = lazy(routeLoaders['/dashboard']);
+const Analytics = lazy(routeLoaders['/analytics']);
+const Customers = lazy(routeLoaders['/customers']);
+const Orders = lazy(routeLoaders['/orders']);
+const Products = lazy(routeLoaders['/products']);
+const Categories = lazy(routeLoaders['/categories']);
+const Coupons = lazy(routeLoaders['/coupons']);
+const ShipmentTracking = lazy(routeLoaders['/shipment-tracking']);
 
 const FullScreenLoader = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -28,18 +29,18 @@ export default function App() {
       <AuthProvider>
       <Router basename="/admin">
         <Routes>
-          <Route path="/login" element={<Login />} />
+          <Route path="/login" element={<Suspense fallback={<FullScreenLoader />}><Login /></Suspense>} />
 
           <Route element={<PrivateRoute />}>
             <Route element={<Layout />}>
               <Route path="/dashboard" element={<Suspense fallback={<FullScreenLoader />}><Dashboard /></Suspense>} />
-              <Route path="/orders" element={<Orders />} />
-              <Route path="/shipment-tracking" element={<ShipmentTracking />} />
+              <Route path="/orders" element={<Suspense fallback={<FullScreenLoader />}><Orders /></Suspense>} />
+              <Route path="/shipment-tracking" element={<Suspense fallback={<FullScreenLoader />}><ShipmentTracking /></Suspense>} />
               <Route path="/analytics" element={<Suspense fallback={<FullScreenLoader />}><Analytics /></Suspense>} />
-              <Route path="/customers" element={<Customers />} />
-              <Route path="/products" element={<Products />} />
-              <Route path="/categories" element={<Categories />} />
-              <Route path="/coupons" element={<Coupons />} />
+              <Route path="/customers" element={<Suspense fallback={<FullScreenLoader />}><Customers /></Suspense>} />
+              <Route path="/products" element={<Suspense fallback={<FullScreenLoader />}><Products /></Suspense>} />
+              <Route path="/categories" element={<Suspense fallback={<FullScreenLoader />}><Categories /></Suspense>} />
+              <Route path="/coupons" element={<Suspense fallback={<FullScreenLoader />}><Coupons /></Suspense>} />
               <Route path="/" element={<Navigate to="/dashboard" replace />} />
             </Route>
           </Route>

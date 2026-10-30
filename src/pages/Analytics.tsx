@@ -70,21 +70,11 @@ type RevenueLineChartProps = {
   options: Record<string, unknown>;
 };
 
+// Start downloading the renderer while the API requests are running.
+const chartRuntime = import('../lib/chartRuntime');
+void chartRuntime.catch(() => {}); // Suspense handles a failed import when rendered.
 const LazyRevenueLineChart = lazy(async () => {
-  const [chartComponents, chartJs] = await Promise.all([
-    import('react-chartjs-2'),
-    import('chart.js'),
-  ]);
-
-  chartJs.Chart.register(
-    chartJs.CategoryScale,
-    chartJs.LinearScale,
-    chartJs.PointElement,
-    chartJs.LineElement,
-    chartJs.Tooltip,
-    chartJs.Legend,
-    chartJs.Filler
-  );
+  const chartComponents = await chartRuntime;
 
   return {
     default: ({ data, options }: RevenueLineChartProps) => (
@@ -447,7 +437,7 @@ const Analytics: React.FC = () => {
     points: [],
   });
 
-  const fetchStats = async () => {
+  const fetchStats = async (readCache = false) => {
     setStatsSection((current) => ({
       ...current,
       loading: true,
@@ -455,7 +445,7 @@ const Analytics: React.FC = () => {
     }));
 
     try {
-      const response = await getDashboardStats();
+      const response = await getDashboardStats(readCache);
       setStatsSection({
         loading: false,
         error: null,
@@ -473,7 +463,7 @@ const Analytics: React.FC = () => {
     }
   };
 
-  const fetchRevenue = async () => {
+  const fetchRevenue = async (readCache = false) => {
     setRevenueSection((current) => ({
       ...current,
       loading: true,
@@ -481,7 +471,7 @@ const Analytics: React.FC = () => {
     }));
 
     try {
-      const response = await getRevenueOverTime();
+      const response = await getRevenueOverTime(readCache);
       setRevenueSection({
         loading: false,
         error: null,
@@ -500,7 +490,7 @@ const Analytics: React.FC = () => {
   };
 
   useEffect(() => {
-    void Promise.allSettled([fetchStats(), fetchRevenue()]);
+    void Promise.allSettled([fetchStats(true), fetchRevenue(true)]);
   }, []);
 
   const revenueTrend = useMemo(
@@ -606,13 +596,13 @@ const Analytics: React.FC = () => {
           statsSection={statsSection}
           statsMetrics={statsMetrics}
           themeColors={themeColors}
-          onRefresh={fetchStats}
+          onRefresh={() => void fetchStats()}
         />
         <AnalyticsRevenueSection
           revenueSection={revenueSection}
           chartData={chartData}
           chartOptions={chartOptions}
-          onRefresh={fetchRevenue}
+          onRefresh={() => void fetchRevenue()}
         />
       </div>
       </div>

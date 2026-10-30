@@ -14,7 +14,10 @@ import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
 import { User } from '../types';
 
-const DashboardCharts = lazy(() => import('../components/DashboardCharts'));
+// Fetch the renderer alongside the data, rather than after all API responses.
+const dashboardChartsModule = import('../components/DashboardCharts');
+void dashboardChartsModule.catch(() => {});
+const DashboardCharts = lazy(() => dashboardChartsModule);
 
 type DashboardStats = {
   totalUsers: number;
@@ -37,6 +40,9 @@ type DashboardChartData = {
 type DashboardDataState = {
   stats: DashboardStats;
   isLoading: boolean;
+  productsLoading: boolean;
+  couponsLoading: boolean;
+  activityLoading: boolean;
   recentUsers: User[];
   recentPurchasedOrders: DashboardActivityOrder[];
   recentDeliveredOrders: DashboardActivityOrder[];
@@ -56,7 +62,8 @@ type DashboardDataAction =
     }
   | { type: 'SET_DOUGHNUT_DATA'; payload: DashboardChartData }
   | { type: 'SET_BAR_DATA'; payload: DashboardChartData }
-  | { type: 'SET_LOADING'; payload: boolean };
+  | { type: 'SET_LOADING'; payload: boolean }
+  | { type: 'SET_SECTION_READY'; payload: 'productsLoading' | 'couponsLoading' | 'activityLoading' };
 
 const COMMON_ARRAY_KEYS = ['data', 'users', 'products', 'coupons', 'categories', 'results', 'items', 'list', 'docs'];
 const COMMON_COUNT_KEYS = ['totalCount', 'total', 'count', 'totalResults', 'length'];
@@ -123,6 +130,9 @@ const dashboardDataInitialState: DashboardDataState = {
     activeCategories: 0,
   },
   isLoading: true,
+  productsLoading: true,
+  couponsLoading: true,
+  activityLoading: true,
   recentUsers: [],
   recentPurchasedOrders: [],
   recentDeliveredOrders: [],
@@ -166,6 +176,8 @@ function dashboardDataReducer(
       return { ...state, doughnutData: action.payload };
     case 'SET_BAR_DATA':
       return { ...state, barData: action.payload };
+    case 'SET_SECTION_READY':
+      return { ...state, [action.payload]: false };
     case 'SET_LOADING':
       return { ...state, isLoading: action.payload };
     default:
@@ -467,6 +479,9 @@ const Dashboard: React.FC = () => {
   const {
     stats,
     isLoading,
+    productsLoading,
+    couponsLoading,
+    activityLoading,
     recentUsers,
     recentPurchasedOrders,
     recentDeliveredOrders,
@@ -505,139 +520,56 @@ const Dashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const fetchDashboardData = async () => {
+    let active = true;
+    let running = false;
+    const publishSummary = () => {
+      if (!active) return;
+      const counts = lastKnownCounts.current;
+      dispatch({ type: 'SET_SUMMARY', payload: {
+        stats: { totalUsers: counts.users, totalProducts: counts.products,
+          totalCoupons: counts.coupons, activeCategories: counts.categories },
+        recentUsers: lastKnownRecentUsers.current.slice(0, 5),
+        recentPurchasedOrders: lastKnownPurchasedOrders.current.slice(0, ACTIVITY_ORDER_LIMIT),
+        recentDeliveredOrders: lastKnownDeliveredOrders.current.slice(0, ACTIVITY_ORDER_LIMIT),
+      } });
+    };
+
+    const loadUsers = async () => {
+      const response = await apiClient.get('/users/all', { params: { page: 1, limit: 5 } });
+      if (!active) return;
+      lastKnownRecentUsers.current = extractUsers(response.data);
+      lastKnownCounts.current.users = findCount(response.data) ?? lastKnownCounts.current.users;
+      publishSummary();
+    };
+
+    const loadProducts = async () => {
       try {
-        const [
-          usersRes,
-          productsRes,
-          couponsRes,
-          categoriesRes,
-          purchasedOrdersRes,
-          deliveredOrdersRes,
-        ] = await Promise.allSettled([
-          apiClient.get('/users/all', { params: { page: 1, limit: 5 } }),
-          apiClient.get('/admin/products', {
-            params: { page: 1, limit: PRODUCT_CHART_LIMIT, _ts: Date.now() },
-          }),
-          apiClient.get('/admin/coupons', { params: { page: 1, limit: COUPON_CHART_LIMIT } }),
+        const [productsRes, categoriesRes] = await Promise.allSettled([
+          apiClient.get('/admin/products', { params: { page: 1, limit: PRODUCT_CHART_LIMIT } }),
           apiClient.get('/admin/categories'),
-          apiClient.get('/admin/orders', {
-            params: { page: 1, limit: ACTIVITY_ORDER_LIMIT, paymentStatus: 'paid' },
-          }),
-          apiClient.get('/admin/orders', {
-            params: {
-              page: 1,
-              limit: ACTIVITY_ORDER_LIMIT,
-              paymentStatus: 'paid',
-            },
-          }),
         ]);
-
-        const usersPayload = usersRes.status === 'fulfilled' ? usersRes.value.data : null;
         const productsPayload = productsRes.status === 'fulfilled' ? productsRes.value.data : null;
-        const couponsPayload = couponsRes.status === 'fulfilled' ? couponsRes.value.data : null;
         const categoriesPayload = categoriesRes.status === 'fulfilled' ? categoriesRes.value.data : null;
-        const purchasedOrdersPayload =
-          purchasedOrdersRes.status === 'fulfilled' ? purchasedOrdersRes.value.data : null;
-        const deliveredOrdersPayload =
-          deliveredOrdersRes.status === 'fulfilled' ? deliveredOrdersRes.value.data : null;
-        let chartProductsPayload = productsPayload;
-        const chartCouponsPayload = couponsPayload;
-        const failedCalls = [
-          usersRes,
-          productsRes,
-          couponsRes,
-          categoriesRes,
-          purchasedOrdersRes,
-          deliveredOrdersRes,
-        ].filter(
-          (result) => result.status === 'rejected'
-        ).length;
-
-        const dashboardUsers =
-          usersRes.status === 'fulfilled'
-            ? extractUsers(usersPayload)
-            : lastKnownRecentUsers.current;
-        if (usersRes.status === 'fulfilled') {
-          lastKnownRecentUsers.current = dashboardUsers;
-        }
-
-        const dashboardPurchasedOrders =
-          purchasedOrdersRes.status === 'fulfilled'
-            ? extractActivityOrders(purchasedOrdersPayload)
-            : lastKnownPurchasedOrders.current;
-        if (purchasedOrdersRes.status === 'fulfilled') {
-          lastKnownPurchasedOrders.current = dashboardPurchasedOrders;
-        }
-
-        const dashboardDeliveredOrders =
-          deliveredOrdersRes.status === 'fulfilled'
-            ? extractActivityOrders(deliveredOrdersPayload)
-            : lastKnownDeliveredOrders.current;
-        if (deliveredOrdersRes.status === 'fulfilled') {
-          lastKnownDeliveredOrders.current = dashboardDeliveredOrders;
-        }
-
         const categories = pickBestArray(categoriesPayload, isCategoryLike, [
           (categoriesPayload as any)?.categories,
           (categoriesPayload as any)?.data?.categories,
           (categoriesPayload as any)?.data,
         ]);
-
-        let chartProducts = extractProducts(chartProductsPayload);
-
+        let chartProducts = extractProducts(productsPayload);
         if (chartProducts.length === 0) {
           try {
-            const publicProductsResponse = await apiClient.get('/products', {
-              params: { page: 1, limit: PRODUCT_CHART_LIMIT },
-            });
-            chartProductsPayload = publicProductsResponse.data;
-            chartProducts = extractProducts(chartProductsPayload);
-          } catch {
-            // Keep the admin endpoint result as the dashboard source when public fallback is unavailable.
-          }
+            const response = await apiClient.get('/products', { params: { page: 1, limit: PRODUCT_CHART_LIMIT } });
+            chartProducts = extractProducts(response.data);
+          } catch { /* Preserve the existing public-products fallback behavior. */ }
         }
-
-        const nextCounts = {
-          users: usersRes.status === 'fulfilled'
-            ? findCount(usersPayload) ?? lastKnownCounts.current.users
-            : lastKnownCounts.current.users,
-          products: chartProducts.length > 0
-            ? chartProducts.length
-            : productsRes.status === 'fulfilled'
-              ? findCount(productsPayload) ?? lastKnownCounts.current.products
-            : lastKnownCounts.current.products,
-          coupons: couponsRes.status === 'fulfilled'
-            ? findCount(couponsPayload) ?? lastKnownCounts.current.coupons
-            : lastKnownCounts.current.coupons,
-          categories: categoriesRes.status === 'fulfilled'
-            ? categories.filter((category: any) => category?.isActive === true).length
-            : lastKnownCounts.current.categories,
-        };
-        lastKnownCounts.current = nextCounts;
-        const chartCoupons = pickBestArray(chartCouponsPayload, isCouponLike, [
-          (chartCouponsPayload as any)?.coupons,
-          (chartCouponsPayload as any)?.data?.coupons,
-          (chartCouponsPayload as any)?.data?.items,
-          (chartCouponsPayload as any)?.data?.docs,
-          (chartCouponsPayload as any)?.data,
-        ]);
-
-        dispatch({
-          type: 'SET_SUMMARY',
-          payload: {
-            stats: {
-              totalUsers: nextCounts.users,
-              totalProducts: nextCounts.products,
-              totalCoupons: nextCounts.coupons,
-              activeCategories: nextCounts.categories,
-            },
-            recentUsers: dashboardUsers.slice(0, 5),
-            recentPurchasedOrders: dashboardPurchasedOrders.slice(0, ACTIVITY_ORDER_LIMIT),
-            recentDeliveredOrders: dashboardDeliveredOrders.slice(0, ACTIVITY_ORDER_LIMIT),
-          },
-        });
-
+        if (!active) return;
+        lastKnownCounts.current.products = chartProducts.length > 0 ? chartProducts.length
+          : productsRes.status === 'fulfilled' ? findCount(productsPayload) ?? lastKnownCounts.current.products
+          : lastKnownCounts.current.products;
+        if (categoriesRes.status === 'fulfilled') {
+          lastKnownCounts.current.categories = categories.filter((category: any) => category?.isActive === true).length;
+        }
+        publishSummary();
         if (categories.length > 0 && chartProducts.length > 0) {
           const fullLabels = categories.map((category: any) => category?.name || 'Unnamed');
           const shortenLabel = (s: string, max = 24) =>
@@ -779,6 +711,23 @@ const Dashboard: React.FC = () => {
           });
         }
 
+        if (productsRes.status === 'rejected' && categoriesRes.status === 'rejected') throw productsRes.reason;
+      } finally {
+        if (active) dispatch({ type: 'SET_SECTION_READY', payload: 'productsLoading' });
+      }
+    };
+
+    const loadCoupons = async () => {
+      try {
+        const response = await apiClient.get('/admin/coupons', { params: { page: 1, limit: COUPON_CHART_LIMIT } });
+        if (!active) return;
+        lastKnownCounts.current.coupons = findCount(response.data) ?? lastKnownCounts.current.coupons;
+        publishSummary();
+        const chartCouponsPayload = response.data;
+        const chartCoupons = pickBestArray(chartCouponsPayload, isCouponLike, [
+          chartCouponsPayload?.coupons, chartCouponsPayload?.data?.coupons,
+          chartCouponsPayload?.data?.items, chartCouponsPayload?.data?.docs, chartCouponsPayload?.data,
+        ]);
         const couponRows = chartCoupons.flatMap((coupon: any) => {
           if (typeof coupon?.code !== 'string' || coupon.code.trim().length === 0) {
             return [];
@@ -805,42 +754,50 @@ const Dashboard: React.FC = () => {
           },
         });
 
-        if (
-          failedCalls > 0 &&
-          !usersPayload &&
-          !productsPayload &&
-          !couponsPayload &&
-          !categoriesPayload &&
-          !hasShownDashboardErrorRef.current
-        ) {
-          toast.error('Failed to load dashboard data');
-          hasShownDashboardErrorRef.current = true;
-        }
-
-        if (
-          usersPayload ||
-          productsPayload ||
-          couponsPayload ||
-          categoriesPayload ||
-          purchasedOrdersPayload ||
-          deliveredOrdersPayload
-        ) {
-          hasShownDashboardErrorRef.current = false;
-        }
-      } catch (error: any) {
-        console.error('Error fetching dashboard data', error);
-        toast.error(error?.response?.data?.message || 'Failed to load dashboard');
       } finally {
-        dispatch({ type: 'SET_LOADING', payload: false });
+        if (active) dispatch({ type: 'SET_SECTION_READY', payload: 'couponsLoading' });
       }
     };
 
-    fetchDashboardData();
-    const intervalId = setInterval(fetchDashboardData, 30000);
-
-    return () => {
-      clearInterval(intervalId);
+    const loadActivity = async () => {
+      try {
+        // Both activity lists use the same feed; fetch and normalize it once.
+        const response = await apiClient.get('/admin/orders', {
+          params: { page: 1, limit: ACTIVITY_ORDER_LIMIT, paymentStatus: 'paid' },
+        });
+        if (!active) return;
+        const orders = extractActivityOrders(response.data);
+        lastKnownPurchasedOrders.current = orders;
+        lastKnownDeliveredOrders.current = orders;
+        publishSummary();
+      } catch { /* Keep the last successful activity on transient failures. */ }
+      finally {
+        if (active) dispatch({ type: 'SET_SECTION_READY', payload: 'activityLoading' });
+      }
     };
+
+    const fetchDashboardData = async () => {
+      if (running) return;
+      running = true;
+      try {
+        const activity = loadActivity();
+        const results = await Promise.allSettled([loadUsers(), loadProducts(), loadCoupons()]);
+        if (active) {
+          dispatch({ type: 'SET_LOADING', payload: false });
+          if (results.every(result => result.status === 'rejected')) {
+            if (!hasShownDashboardErrorRef.current) toast.error('Failed to load dashboard data');
+            hasShownDashboardErrorRef.current = true;
+          } else hasShownDashboardErrorRef.current = false;
+        }
+        await activity;
+      } finally { running = false; }
+    };
+
+    void fetchDashboardData();
+    const intervalId = setInterval(() => {
+      if (document.visibilityState === 'visible') void fetchDashboardData();
+    }, 30000);
+    return () => { active = false; clearInterval(intervalId); };
   }, []);
 
   const chartFallback = useMemo(
@@ -983,7 +940,7 @@ const Dashboard: React.FC = () => {
               justifyContent: 'center',
             }}
           >
-            {isLoading ? (
+            {productsLoading ? (
               <div className="skeleton" style={{ width: '100%', height: '100%' }} />
             ) : doughnutData.labels.length === 0 ? (
               <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
@@ -1012,7 +969,7 @@ const Dashboard: React.FC = () => {
               justifyContent: 'center',
             }}
           >
-            {isLoading ? (
+            {couponsLoading ? (
               <div className="skeleton" style={{ width: '100%', height: '100%' }} />
             ) : barData.labels.length === 0 ? (
               <p style={{ fontSize: '14px', color: 'var(--text-muted)', margin: 0 }}>
@@ -1048,7 +1005,7 @@ const Dashboard: React.FC = () => {
             <TrendingUp size={16} color="var(--text-muted)" />
           </div>
 
-          {isLoading ? (
+          {isLoading || activityLoading ? (
             <div className="dashboard-activity-list">
               {Array.from({ length: 5 }).map((_, index) => (
                 <div key={index} className="skeleton dashboard-activity-skeleton" />
