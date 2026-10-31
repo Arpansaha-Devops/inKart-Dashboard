@@ -20,10 +20,6 @@ export default function ProductGalleryEditor({ existingUrls, files, onChange, di
     const next = [...files, ...selected];
     const validation = validateProductGalleryFiles(next);
     if (validation) { setSelectionError(validation); return; }
-    if (planProductGallery(existingUrls, next).totalCount > MAX_PRODUCT_IMAGES) {
-      setSelectionError(`This saved gallery exceeds ${MAX_PRODUCT_IMAGES} images. Confirm its supported upload limit before replacing images.`);
-      return;
-    }
     setSelectionError('');
     onChange(next);
   };
@@ -34,7 +30,7 @@ export default function ProductGalleryEditor({ existingUrls, files, onChange, di
       {files.length > 0 && <button type="button" className="btn-ghost" disabled={disabled}
         onClick={() => { setSelectionError(''); onChange([]); }}>Use current images</button>}
     </div>
-    <p id="edit-product-image-help" className="product-extension-help">Choose up to {MAX_PRODUCT_IMAGES} JPG, PNG, or WebP images together. New images replace the last gallery slots; the first current images stay. Choose {MAX_PRODUCT_IMAGES} new images to replace a five-image gallery.</p>
+    <p id="edit-product-image-help" className="product-extension-help">Choose up to {MAX_PRODUCT_IMAGES} JPG, PNG, or WebP images together. New images replace the last gallery slots; the first current images stay. Choose at least {Math.min(existingUrls.length, MAX_PRODUCT_IMAGES) || 1} new images to replace the full current gallery.</p>
     <label className={`product-gallery-picker${disabled ? ' is-disabled' : ''}`} htmlFor="edit-product-image"
       onDragOver={(event) => event.preventDefault()}
       onDrop={(event) => { event.preventDefault(); selectFiles(Array.from(event.dataTransfer.files)); }}>

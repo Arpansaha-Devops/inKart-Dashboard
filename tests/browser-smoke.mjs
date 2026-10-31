@@ -6,6 +6,7 @@ import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
+import { courierQuotesResponse } from './fixtures/courierQuotes.mjs';
 
 const root = resolve('dist');
 const server = createServer(async (request, response) => {
@@ -145,14 +146,14 @@ async function intercept(event) {
     else if (quoteMode === 'validation-error') { status = 422; data = { success: false, message: 'Pickup address is missing' }; }
     else {
       order.packageDetails = fields(request);
-      data = { success: true, data: { couriers: quoteMode === 'empty' ? [] : courierFixtures } };
+      data = quoteMode === 'serviceability' ? courierQuotesResponse : { success: true, data: { couriers: quoteMode === 'empty' ? [] : courierFixtures } };
     }
   }
   else if (path.endsWith('/confirm-courier')) {
     if (confirmationGate) await confirmationGate;
     if (confirmationFails) { status = 422; data = { success: false, message: 'Insufficient wallet balance' }; }
     else {
-      const courier = courierFixtures.find((item) => item.courierId === fields(request).courierId);
+      const courier = [...courierFixtures, ...courierQuotesResponse.data.deliveryServiceability.courierOptions].find((item) => item.courierId === fields(request).courierId);
       order.shiprocket = { awbCode: 'TEST-AWB-123', shipmentId: 987, shiprocketOrderId: 765, courierName: courier.courierName };
       data = { success: true, data: { awb: 'TEST-AWB-123', shipmentId: 987, orderId: order._id, courierName: courier.courierName } };
     }
@@ -231,9 +232,9 @@ try {
   const originalGallery = products[0].images.map((image) => image.url);
   const writesBeforeGallery = requests.filter((request) => request.method === 'PATCH').length;
   assert.equal(await evaluate(`document.querySelectorAll('[data-gallery-kind="current"]').length`), 5);
-  for (const count of [6, 10]) {
+  for (const count of [11, 15]) {
     await chooseGalleryImages(count, 'too-many');
-    await waitFor(`document.querySelector('#edit-product-image-error')?.textContent.includes('up to 5')`);
+    await waitFor(`document.querySelector('#edit-product-image-error')?.textContent.includes('up to 10')`);
     assert.equal(await evaluate(`document.querySelectorAll('[data-gallery-kind="new"]').length`), 0);
   }
   await chooseGalleryImages(1, 'invalid-type', 'application/pdf');
@@ -258,24 +259,27 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await evaluate(`document.querySelector('[aria-label="Switch to dark mode"]')?.click()`);
 
-  for (const count of [2, 3, 5]) {
+  for (const count of [2, 3, 5, 10]) {
+    const currentCount = products[0].images.length;
+    const expectedCount = Math.max(currentCount, count);
+    const retainedCount = Math.max(0, currentCount - count);
     await evaluate(`document.querySelector('[aria-label="Edit product"]').click()`);
     await waitFor(`!!document.querySelector('#edit-product-name')`);
     assert.equal(await evaluate(`document.querySelectorAll('[data-gallery-kind="new"]').length`), 0);
     await chooseGalleryImages(count, `replace-${count}`);
     await waitFor(`document.querySelectorAll('[data-gallery-kind="new"]').length===${count}`);
-    assert.equal(await evaluate(`document.querySelectorAll('[data-gallery-kind="current"]').length`), 5 - count);
+    assert.equal(await evaluate(`document.querySelectorAll('[data-gallery-kind="current"]').length`), retainedCount);
     // Full replacement needs no old-image downloads, even if that host is unavailable.
-    failSavedImageDownloads = count === 5;
+    failSavedImageDownloads = count >= currentCount;
     await clickText('Save Changes');
     await waitFor(`!document.querySelector('#edit-product-name')`);
     failSavedImageDownloads = false;
     const uploaded = galleryRequests.at(-1);
     assert.equal(uploaded.productId, products[0]._id);
-    assert.equal(uploaded.names.length, 5);
-    assert.deepEqual(uploaded.names.slice(0, 5 - count), Array.from({ length: 5 - count }, (_, index) => `retained-product-image-${index + 1}.png`));
-    assert.deepEqual(uploaded.names.slice(5 - count), Array.from({ length: count }, (_, index) => `replace-${count}-${index + 1}.png`));
-    assert.equal(products[0].images.length, 5);
+    assert.equal(uploaded.names.length, expectedCount);
+    assert.deepEqual(uploaded.names.slice(0, retainedCount), Array.from({ length: retainedCount }, (_, index) => `retained-product-image-${index + 1}.png`));
+    assert.deepEqual(uploaded.names.slice(retainedCount), Array.from({ length: count }, (_, index) => `replace-${count}-${index + 1}.png`));
+    assert.equal(products[0].images.length, expectedCount);
     await waitFor(`document.querySelector('table tbody tr img').src===${JSON.stringify(products[0].images[0].url)}`);
   }
   assert.deepEqual(products[1].images.map((image) => image.url), originalGallery);
@@ -478,7 +482,10 @@ try {
   assert.equal(await evaluate(`document.querySelector('.product-create-modal').scrollWidth<=document.querySelector('.product-create-modal').clientWidth+1`), true);
   await writeFile(resolve(screenshotDir, 'product-create-mobile.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
-  await evaluate(`(() => { const bytes=Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII='),c=>c.charCodeAt(0));const transfer=new DataTransfer();transfer.items.add(new File([bytes],'smoke.png',{type:'image/png'}));const input=document.querySelector('#create-product-images');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+  await evaluate(`(() => { const bytes=Uint8Array.from(atob(${JSON.stringify(pngFixture)}),c=>c.charCodeAt(0)); const transfer=new DataTransfer(); for(let index=1;index<=6;index++)transfer.items.add(new File([bytes],'create-'+index+'.png',{type:'image/png'})); const input=document.querySelector('#create-product-images');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+  await waitFor(`document.querySelectorAll('img[alt^="Preview "]').length===6`);
+  await evaluate(`(() => { const bytes=Uint8Array.from(atob(${JSON.stringify(pngFixture)}),c=>c.charCodeAt(0)); const transfer=new DataTransfer(); for(let index=7;index<=10;index++)transfer.items.add(new File([bytes],'create-'+index+'.png',{type:'image/png'})); const input=document.querySelector('#create-product-images');input.files=transfer.files;input.dispatchEvent(new Event('change',{bubbles:true})); })()`);
+  await waitFor(`document.querySelectorAll('img[alt^="Preview "]').length===10`);
   await clickText('Create Product');
   await waitFor(`!document.querySelector('#create-product-name')`);
   assert.equal(products.length, 4);
@@ -489,6 +496,7 @@ try {
   assert.equal(createdProduct.configuration.fields[0].options[0].priceModifier, .5);
   assert.deepEqual(createdProduct.quantityPricing, [{ minQty: 1, pricePerUnit: 150 }]);
   assert.equal(Object.hasOwn(createdProduct, 'packageDetails'), false);
+  assert.equal(createdProduct.images.length, 10);
   assert.ok(requests.some((request) => request.method === 'PATCH' && request.path.endsWith(createdProduct._id)));
   await send('Page.navigate', { url: 'http://127.0.0.1:4175/admin/orders' });
   await waitFor(`document.body.textContent.includes('SMOKE-001')`);
@@ -658,6 +666,7 @@ try {
   // Orders already approved through the existing flow must only book a courier.
   // Reject any approval call in the fixture to catch redundant requests/warnings.
   for (const [index, status] of ['confirmed', 'processing'].entries()) {
+    quoteMode = status === 'confirmed' ? 'serviceability' : 'success';
     const existingOrder = { ...orders[0], _id: `already-approved-${status}`, orderNumber: `SMOKE-00${index + 3}`, orderStatus: status, shiprocket: undefined, packageDetails: undefined };
     orders.push(existingOrder);
     await send('Page.navigate', { url: 'http://127.0.0.1:4175/admin/orders' });
@@ -667,7 +676,16 @@ try {
     assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(button=>button.textContent.trim()==='Approve Order (existing flow)')`), false);
     await fillParcel({ weight: '.5', length: '20', breadth: '15', height: '5' });
     await clickText('Save parcel & get courier quotes');
-    await waitFor(`document.querySelectorAll('.order-courier-option').length===2`);
+    await waitFor(`document.querySelectorAll('.order-courier-option').length===${quoteMode === 'serviceability' ? 4 : 2}`);
+    if (quoteMode === 'serviceability') {
+      for (const price of ['175.72', '264.84', '116.72', '140.72']) assert.equal(await evaluate(`document.querySelector('.order-courier-options').textContent.includes('${price}')`), true);
+      await waitFor(`[...document.querySelectorAll('.order-courier-logo img')].length===4 && [...document.querySelectorAll('.order-courier-logo img')].every(img => img.complete && img.naturalWidth > 0)`);
+      await evaluate(`document.querySelector('${parcelSelector}').scrollIntoView({block:'start'})`);
+      await writeFile(resolve(screenshotDir, 'order-serviceability-couriers.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
+      // Broken artwork must leave a usable courier card with a fallback icon.
+      await evaluate(`document.querySelector('.order-courier-logo img').dispatchEvent(new Event('error'))`);
+      await waitFor(`!!document.querySelector('.order-courier-logo .lucide-truck')`);
+    }
     await evaluate(`document.querySelector('.order-courier-option').click()`);
     await waitFor(`document.querySelectorAll('dialog[open]').length===2`);
     const approvalsBeforeBooking = approvalRequests().length;
@@ -679,6 +697,7 @@ try {
     await waitFor(`[...document.querySelectorAll('[data-sonner-toast][data-type="success"]')].some(node=>node.textContent.includes('Order confirmed'))`);
     assert.equal(approvalRequests().length, approvalsBeforeBooking);
     assert.equal(confirmationRequests().length, bookingsBefore + 1);
+    assert.deepEqual(confirmationRequests().at(-1).fields, { courierId: quoteMode === 'serviceability' ? '10' : 42 });
     assert.equal(existingOrder.orderStatus, status);
     assert.equal(await evaluate(`[...document.querySelectorAll('[data-sonner-toast]')].some(node=>node.textContent.includes('Please approve manually.'))`), false);
     approvalFails = false;

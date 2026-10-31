@@ -54,3 +54,14 @@ test('edit gallery allows multiple files and previews the retained prefix follow
   assert.match(html, /3 current \+ 2 new = 5 images/);
   assert.match(html, /Use current images/);
 });
+
+test('edit gallery supports ten replacement previews without retaining images from a five-image gallery', () => {
+  const html = renderToStaticMarkup(React.createElement(ProductGalleryEditor, {
+    existingUrls: Array.from({ length: 5 }, (_, index) => `https://example.test/old-${index}.png`),
+    files: Array.from({ length: 10 }, (_, index) => new File(['new'], `${index}.png`, { type: 'image/png' })), onChange() {},
+  }));
+  assert.equal((html.match(/data-gallery-kind="new"/g) || []).length, 10);
+  assert.doesNotMatch(html, /data-gallery-kind="current"/);
+  assert.match(html, /0 current \+ 10 new = 10 images/);
+  assert.match(html, /up to 10/);
+});

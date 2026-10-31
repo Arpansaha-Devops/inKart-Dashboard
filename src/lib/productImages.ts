@@ -4,7 +4,7 @@ const MAX_IMAGE_DIMENSION = 1600;
 const MIN_IMAGE_DIMENSION = 480;
 
 export const PRODUCT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
-export const MAX_PRODUCT_IMAGES = 5;
+export const MAX_PRODUCT_IMAGES = 10;
 
 export function getProductGalleryUrls(product: unknown): string[] {
   if (!product || typeof product !== 'object') return [];
@@ -32,21 +32,24 @@ export function validateProductGalleryFiles(files: File[]): string | null {
 }
 
 export function planProductGallery(existingUrls: string[], newFiles: File[]) {
+  const retainedUrls = newFiles.length
+    ? existingUrls.slice(0, Math.max(0, Math.min(existingUrls.length, MAX_PRODUCT_IMAGES) - newFiles.length))
+    : [...existingUrls];
   return {
-    retainedUrls: existingUrls.slice(0, Math.max(0, existingUrls.length - newFiles.length)),
+    retainedUrls,
     newFiles,
-    totalCount: Math.max(existingUrls.length, newFiles.length),
+    totalCount: retainedUrls.length + newFiles.length,
   };
 }
 
 // The existing PATCH contract accepts files, not a documented retained-URL list.
-// Re-submit the complete planned gallery so uploads replace its last slots.
+// Build the complete intended gallery. The server must replace its saved array
+// with these files; an append-only implementation cannot remove old images.
 export async function prepareProductGalleryUpload(existingUrls: string[], newFiles: File[]): Promise<File[]> {
   if (newFiles.length === 0) return [];
   const error = validateProductGalleryFiles(newFiles);
   if (error) throw new Error(error);
   const plan = planProductGallery(existingUrls, newFiles);
-  if (plan.totalCount > MAX_PRODUCT_IMAGES) throw new Error(`This saved gallery exceeds ${MAX_PRODUCT_IMAGES} images. Its upload limit needs backend confirmation before replacing images.`);
   const retainedFiles: File[] = [];
   for (const [index, url] of plan.retainedUrls.entries()) {
     const controller = new AbortController();
@@ -60,7 +63,7 @@ export async function prepareProductGalleryUpload(existingUrls: string[], newFil
       const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1];
       retainedFiles.push(new File([blob], `retained-product-image-${index + 1}.${extension}`, { type: mimeType }));
     } catch {
-      throw new Error(`Could not load current image ${index + 1}. No product changes were submitted. Retry when the existing image is available, or select ${MAX_PRODUCT_IMAGES} new images to replace the full gallery.`);
+      throw new Error(`Could not load current image ${index + 1}. No product changes were submitted. Retry when the existing image is available, or select ${Math.min(existingUrls.length, MAX_PRODUCT_IMAGES)} new images to replace the full gallery.`);
     } finally {
       clearTimeout(timer);
     }
@@ -127,8 +130,8 @@ const loadImage = async (file: File) => {
   }
 };
 
-const optimizeProductImage = async (file: File): Promise<File> => {
-  if (file.size <= MAX_OPTIMIZED_IMAGE_BYTES) {
+const optimizeProductImage = async (file: File, targetBytes: number): Promise<File> => {
+  if (file.size <= targetBytes) {
     return file;
   }
 
@@ -157,7 +160,7 @@ const optimizeProductImage = async (file: File): Promise<File> => {
       if (!smallestBlob || blob.size < smallestBlob.size) {
         smallestBlob = blob;
       }
-      if (blob.size <= MAX_OPTIMIZED_IMAGE_BYTES) {
+      if (blob.size <= targetBytes) {
         break;
       }
 
@@ -188,11 +191,14 @@ const optimizeProductImage = async (file: File): Promise<File> => {
 };
 
 export const optimizeProductImages = async (files: File[]): Promise<File[]> => {
+  // Ten gallery files and optional mockups must share the existing request
+  // budget; increasing the count must not double the multipart payload size.
+  const targetBytes = Math.min(MAX_OPTIMIZED_IMAGE_BYTES, Math.floor(MAX_PRODUCT_IMAGE_UPLOAD_BYTES / Math.max(1, files.length)));
   // Process sequentially so several large camera images are not decoded into memory together.
   const optimizedFiles = await files.reduce<Promise<File[]>>(
     (optimizationChain, file) =>
       optimizationChain.then((currentFiles) =>
-        optimizeProductImage(file).then((optimizedFile) => {
+        optimizeProductImage(file, targetBytes).then((optimizedFile) => {
           currentFiles.push(optimizedFile);
           return currentFiles;
         })

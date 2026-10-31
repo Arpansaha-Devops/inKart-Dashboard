@@ -4,8 +4,9 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { normalizeOrderItemOptions, normalizeSelectedOptions, reportedPackage, reportedShippingCharge } from '../src/lib/orderPresentation.ts';
 import OrderParcelDetails, { CourierQuoteOptions } from '../src/components/OrderParcelDetails.tsx';
-import { approveOrder, syncShipment, getShipmentDetails, getShiprocketTracking, getShipmentLabel, getShipmentManifest, schedulePickup, cancelShipment } from '../src/services/orderService.ts';
+import { approveOrder, syncShipment, getShipmentDetails, getShiprocketTracking, getShipmentLabel, getShipmentManifest, schedulePickup, cancelShipment, getCourierQuotes } from '../src/services/orderService.ts';
 import { calls, mockApi } from './mockApiClient.mjs';
+import { courierQuotesResponse } from './fixtures/courierQuotes.mjs';
 
 test('renders the backend delivery charge including zero without calculating a fee', () => {
   assert.equal(reportedShippingCharge(99), 99); assert.equal(reportedShippingCharge(0), 0);
@@ -65,4 +66,19 @@ test('legacy approval and shipment services retain their existing routes and pay
   assert.deepEqual(calls[1].args, ['/shipments/order-id/sync-shipment', { approveOrder: true }]);
   await getShipmentDetails('order-id'); await getShiprocketTracking('order-id'); await getShipmentLabel('order-id'); await getShipmentManifest('order-id'); await schedulePickup('order-id'); await cancelShipment('order-id');
   assert.deepEqual(calls.slice(2).map((call) => call.args[0]), ['/shipments/order-id/shipmentDetails', '/shipments/order-id/track', '/shipments/order-id/label', '/shipments/order-id/manifest', '/shipments/order-id/pickup', '/shipments/order-id/cancel-shipment']);
+});
+
+test('backend serviceability response renders four partner cards, INR prices and logos without inventing delivery dates', async () => {
+  mockApi(() => ({ data: courierQuotesResponse }));
+  const couriers = await getCourierQuotes('order', { weight: 1.5, length: 20, breadth: 15, height: 10 });
+  const html = renderToStaticMarkup(React.createElement(CourierQuoteOptions, { couriers, selectedCourier: couriers[2], onSelect() {} }));
+  for (const option of courierQuotesResponse.data.deliveryServiceability.courierOptions) assert.ok(html.includes(option.courierName));
+  for (const price of ['175.72', '264.84', '116.72', '140.72']) assert.ok(html.includes(`₹${price}`));
+  for (const asset of ['delhivery.png', 'blue-dart.jpg', 'amazon-shipping.svg']) assert.ok(html.includes(`/couriers/${asset}`));
+  assert.equal((html.match(/Delivery estimate not provided/g) || []).length, 4);
+  assert.equal((html.match(/aria-pressed="true"/g) || []).length, 1);
+  assert.doesNotMatch(html, /null days|264\.84000000000003|Service type not provided/);
+  const unknown = renderToStaticMarkup(React.createElement(CourierQuoteOptions, { couriers: [{ courierId: 'new', courierName: 'New courier', rate: 99 }], selectedCourier: null, onSelect() {} }));
+  assert.match(unknown, /lucide-truck/);
+  assert.doesNotMatch(unknown, /<img/);
 });

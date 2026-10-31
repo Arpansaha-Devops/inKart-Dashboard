@@ -9,6 +9,18 @@ import type { CourierOption, PackageDetails } from '../types';
 
 const currency = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' });
 
+function CourierPartnerIcon({ name }: { name: string }) {
+  const [failed, setFailed] = useState(false);
+  const logo = /\bdelhivery\b/i.test(name) ? 'delhivery.png'
+    : /\bblue\s*dart\b/i.test(name) ? 'blue-dart.jpg'
+      : /\bamazon\b/i.test(name) ? 'amazon-shipping.svg' : null;
+  return <span className={`order-courier-logo${logo && !failed ? ' has-logo' : ''}`} aria-hidden="true">
+    {logo && !failed
+      ? <img src={`${import.meta.env?.BASE_URL ?? '/'}couriers/${logo}`} alt="" width={64} height={40} onError={() => setFailed(true)} />
+      : <Truck size={22} />}
+  </span>;
+}
+
 export function CourierQuoteOptions({ couriers, selectedCourier, onSelect, disabled = false }: {
   couriers: CourierOption[]; selectedCourier: CourierOption | null; onSelect: (courier: CourierOption) => void; disabled?: boolean;
 }) {
@@ -17,8 +29,8 @@ export function CourierQuoteOptions({ couriers, selectedCourier, onSelect, disab
       className={`card card-hover order-courier-option${selectedCourier?.courierId === courier.courierId ? ' is-selected' : ''}`}
       key={`${typeof courier.courierId}:${courier.courierId}`} aria-pressed={selectedCourier?.courierId === courier.courierId}
       onClick={() => onSelect(courier)}>
-      <Truck size={20} aria-hidden="true" />
-      <span className="order-courier-service"><strong>{courier.courierName}</strong><span>{courier.serviceType || 'Service type not provided'}</span><small>{courierDeliveryEstimate(courier)}</small></span>
+      <CourierPartnerIcon name={courier.courierName} />
+      <span className="order-courier-service"><strong>{courier.courierName}</strong>{courier.serviceType && <span>{courier.serviceType}</span>}<small>{courierDeliveryEstimate(courier)}</small></span>
       <span className="order-courier-charge"><small>Delivery charge</small><strong>{currency.format(courier.rate)}</strong></span>
       <ChevronRight size={18} aria-hidden="true" />
     </button>)}

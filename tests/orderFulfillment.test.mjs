@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { canPrepareOrderShipment, confirmCourierAndApprove, parcelErrors, parcelFromDraft, reportedOrderParcel } from '../src/lib/orderFulfillment.ts';
 import { getCourierQuotes, confirmCourier, approveOrder } from '../src/services/orderService.ts';
 import { calls, mockApi } from './mockApiClient.mjs';
+import { courierQuotesResponse } from './fixtures/courierQuotes.mjs';
 
 const parcel = { weight: .5, length: 20.5, breadth: 15, height: 5 };
 const draft = () => ({ weight: '.5', length: '20.5', breadth: '15', height: '5' });
@@ -56,6 +57,34 @@ test('quotes accept supported response envelopes and zero rates, but reject miss
     mockApi(() => ({ data: invalid }));
     await assert.rejects(getCourierQuotes('order', parcel));
   }
+});
+
+test('backend serviceability quotes preserve every courier ID and freight charge, allowing unknown estimates', async () => {
+  mockApi(() => ({ data: courierQuotesResponse }));
+  const result = await getCourierQuotes('order/1', parcel);
+  assert.deepEqual(result, courierQuotesResponse.data.deliveryServiceability.courierOptions.map((option) => ({
+    courierId: option.courierId, courierName: option.courierName, rate: option.freightCharge, currency: 'INR',
+  })));
+  assert.deepEqual(calls, [{ method: 'post', args: ['/admin/orders/order%2F1/courier-quotes', parcel] }]);
+});
+
+test('serviceability quotes use fresh backend partners and prices, accept empty lists and reject invalid freight charges', async () => {
+  const respond = (courierOptions) => mockApi(() => ({ data: { success: true, data: { deliveryServiceability: { courierOptions } } } }));
+  for (const freightCharge of [0, '0', 203.47, '89.12']) {
+    respond([{ courierId: 'new-partner', courierName: 'Another courier', freightCharge, estimatedDays: 3 }]);
+    const result = await getCourierQuotes('order', parcel);
+    assert.equal(result[0].rate, Number(freightCharge));
+    assert.equal(result[0].courierName, 'Another courier');
+    assert.equal(result[0].estimatedDays, 3);
+  }
+  respond([]);
+  assert.deepEqual(await getCourierQuotes('order', parcel), []);
+  for (const freightCharge of [null, '', -1, 'bad', Infinity]) {
+    respond([{ courierId: '10', courierName: 'Delhivery Air', freightCharge }]);
+    await assert.rejects(getCourierQuotes('order', parcel), /pricing/);
+  }
+  respond({});
+  await assert.rejects(getCourierQuotes('order', parcel), /courier list could not be read/);
 });
 
 test('courier confirmation preserves ID type and sends no client price or address override', async () => {

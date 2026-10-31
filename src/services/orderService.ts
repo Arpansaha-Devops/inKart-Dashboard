@@ -471,13 +471,15 @@ const validCourierId = (value: unknown): value is string | number =>
 export async function getCourierQuotes(orderId: string, parcel: PackageDetails): Promise<CourierOption[]> {
   const response = await apiClient.post(`/admin/orders/${encodeURIComponent(orderId)}/courier-quotes`, parcel);
   const data = courierResponseData(response.data);
-  const raw = data.couriers ?? response.data.couriers ?? (Array.isArray(response.data.data) ? response.data.data : undefined);
+  const serviceability = isRecord(data.deliveryServiceability) ? data.deliveryServiceability : {};
+  const raw = serviceability.courierOptions ?? data.couriers ?? response.data.couriers ?? (Array.isArray(response.data.data) ? response.data.data : undefined);
   if (!Array.isArray(raw)) throw new Error('The courier list could not be read. Please request fresh quotes.');
   const ids = new Set<string>();
   return raw.map((item) => {
     if (!isRecord(item)) throw new Error('A courier quote is missing valid identification or pricing.');
-    const rate = typeof item.rate === 'number' ? item.rate
-      : typeof item.rate === 'string' && item.rate.trim() ? Number(item.rate) : NaN;
+    const quotedRate = item.freightCharge !== undefined ? item.freightCharge : item.rate;
+    const rate = typeof quotedRate === 'number' ? quotedRate
+      : typeof quotedRate === 'string' && quotedRate.trim() ? Number(quotedRate) : NaN;
     const key = `${typeof item.courierId}:${item.courierId}`;
     if (!validCourierId(item.courierId) || ids.has(key) ||
       typeof item.courierName !== 'string' || !item.courierName.trim() ||

@@ -69,12 +69,44 @@ test('gallery plans keep the first old images and replace the tail in selection 
   assert.equal(gallery.planProductGallery([], files).totalCount, 3);
 });
 
-test('gallery uploads reject 6–10 files, unsupported files and empty files without silently truncating', () => {
+test('gallery uploads accept six to ten files and reject larger/invalid selections without truncation', () => {
   const png = () => new File(['image'], 'image.png', { type: 'image/png' });
-  assert.equal(gallery.validateProductGalleryFiles(Array.from({ length: 5 }, png)), null);
-  for (const count of [6, 10]) assert.match(gallery.validateProductGalleryFiles(Array.from({ length: count }, png)), /5/);
+  for (const count of [5, 6, 10]) assert.equal(gallery.validateProductGalleryFiles(Array.from({ length: count }, png)), null);
+  for (const count of [11, 20]) assert.match(gallery.validateProductGalleryFiles(Array.from({ length: count }, png)), /10/);
   assert.match(gallery.validateProductGalleryFiles([new File(['pdf'], 'image.pdf', { type: 'application/pdf' })]), /JPG, PNG, or WebP/);
   assert.match(gallery.validateProductGalleryFiles([new File([], 'empty.png', { type: 'image/png' })]), /empty/i);
+});
+
+test('gallery planning permits ten new images and an explicit edit can trim an oversized saved gallery', () => {
+  const current = Array.from({ length: 15 }, (_, index) => `https://example.test/old-${index}.png`);
+  const files = Array.from({ length: 10 }, (_, index) => new File(['new'], `${index}.png`, { type: 'image/png' }));
+  assert.deepEqual(gallery.planProductGallery(current, files).retainedUrls, []);
+  assert.equal(gallery.planProductGallery(current, files).totalCount, 10);
+  assert.deepEqual(gallery.planProductGallery(current, []).retainedUrls, current);
+  assert.equal(gallery.planProductGallery(current, files.slice(0, 2)).retainedUrls.length, 8);
+});
+
+test('ten medium images are optimized against the combined upload budget', async (context) => {
+  const previous = Object.fromEntries(['window', 'document', 'createImageBitmap'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  context.after(() => {
+    for (const [key, descriptor] of Object.entries(previous)) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor);
+      else delete globalThis[key];
+    }
+  });
+  let encodes = 0;
+  globalThis.window = { createImageBitmap: true };
+  globalThis.createImageBitmap = async () => ({ width: 1000, height: 1000, close() {} });
+  globalThis.document = { createElement: () => ({
+    getContext: () => ({ clearRect() {}, drawImage() {} }),
+    toBlob(callback) { encodes++; callback(new Blob([new Uint8Array(300 * 1024)], { type: 'image/webp' })); },
+  }) };
+  const files = Array.from({ length: 10 }, (_, index) => new File([new Uint8Array(500 * 1024)], `${index}.png`, { type: 'image/png' }));
+  const optimized = await gallery.optimizeProductImages(files);
+  assert.equal(optimized.length, 10);
+  assert.equal(encodes, 10);
+  assert.ok(optimized.reduce((total, file) => total + file.size, 0) <= 3.5 * 1024 * 1024);
+  assert.ok(files.every(file => file.size === 500 * 1024));
 });
 
 test('gallery URLs handle saved image objects and prioritize the current gallery over stale single-image data', () => {
@@ -118,6 +150,13 @@ test('an image-only edit verifies that the backend replaced the gallery instead 
   mockApi(() => ({ data: { products: [{ _id: 'p', name: 'Saved product', images: Array.from({ length: 5 }, (_, index) => `https://example.test/${index}.png`) }] } }));
   assert.equal(await verifyProductExtensions({}, form, 'p'), null);
   assert.equal(calls.length, 1);
+});
+
+test('fresh verification detects a backend that appends ten uploads to five saved images', async () => {
+  const form = new FormData();
+  for (let index = 0; index < 10; index++) form.append('productImages', new File(['new'], `${index}.png`, { type: 'image/png' }));
+  mockApi(() => ({ data: { products: [{ _id: 'p', name: 'Saved product', images: Array.from({ length: 15 }, (_, index) => `https://example.test/${index}.png`) }] } }));
+  assert.match(await verifyProductExtensions({}, form, 'p'), /expected 10-image gallery/);
 });
 
 test('an unchanged gallery with the right count still warns when the replaced tail was ignored', async () => {

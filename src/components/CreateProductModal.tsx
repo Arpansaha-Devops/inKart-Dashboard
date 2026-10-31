@@ -12,7 +12,9 @@ import apiClient from '../lib/apiClient';
 import {
   formatProductImageBytes,
   optimizeProductImages,
+  MAX_PRODUCT_IMAGES,
   PRODUCT_IMAGE_TYPES,
+  validateProductGalleryFiles,
 } from '../lib/productImages';
 import { setUniqueProductSlug } from '../lib/productSlugs';
 import {
@@ -472,7 +474,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     if (!Number.isFinite(gstPercentage) || gstPercentage < 0 || gstPercentage > 100) newErrors.gstPercentage = 'GST must be between 0 and 100 percent';
     if (images.length === 0) {
       newErrors.images = 'At least one product image is required';
-    }
+    } else newErrors.images = validateProductGalleryFiles(images) ?? undefined;
 
     const variantsError = validateVariants(variants);
     if (variantsError) {
@@ -556,26 +558,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
   const handleImageChange = (newFiles: FileList | null) => {
     if (!newFiles || newFiles.length === 0) return;
 
-    const filesToAdd: File[] = [];
-    const newPreviews: string[] = [...imagePreview];
-
-    for (let i = 0; i < newFiles.length; i++) {
-      const file = newFiles[i];
-      if (images.length + filesToAdd.length >= 5) {
-        toast.error('Maximum 5 images allowed');
-        break;
-      }
-      if (!PRODUCT_IMAGE_TYPES.includes(file.type as (typeof PRODUCT_IMAGE_TYPES)[number])) {
-        toast.error(`${file.name} must be a JPG, PNG, or WebP image`);
-        continue;
-      }
-      filesToAdd.push(file);
-      newPreviews.push(URL.createObjectURL(file));
-    }
-
-    if (filesToAdd.length > 0) {
-      setImages([...images, ...filesToAdd]);
-      setImagePreview(newPreviews);
+    const filesToAdd = Array.from(newFiles);
+    const nextImages = [...images, ...filesToAdd];
+    const issue = validateProductGalleryFiles(nextImages);
+    if (issue) toast.error(issue);
+    else {
+      setImages(nextImages);
+      setImagePreview([...imagePreview, ...filesToAdd.map((file) => URL.createObjectURL(file))]);
       dispatch({
         type: 'SET_ERRORS',
         payload: (prev) => ({ ...prev, images: undefined }),
@@ -892,7 +881,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
         }
       }
 
-      const persistenceWarning = await verifyProductExtensions(createdProductPayload, formData, getCreatedProductId(response.data) ?? undefined);
+      // Creation uses a text-only POST followed by an image PATCH. Verify the
+      // uploaded gallery too; the original POST form contains no image files.
+      const verificationData = new FormData();
+      formData.forEach((value, key) => verificationData.append(key, value));
+      optimizedImages.forEach((image) => verificationData.append('productImages', image));
+      const persistenceWarning = await verifyProductExtensions(createdProductPayload, verificationData, getCreatedProductId(response.data) ?? undefined);
       if (persistenceWarning) toast.warning(persistenceWarning, { duration: 12000 });
       else toast.success('Product created successfully!');
       resetForm();
@@ -1809,7 +1803,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                 <header className="product-create-section-heading"><h3>5. Product images</h3><p>Add the gallery customers will see on the product page.</p></header>
                 <div className="form-group" style={{ marginBottom: 0 }}>
 
-                  <label className="form-label" htmlFor="create-product-images">Product images ({images.length}/5)</label>
+                  <label className="form-label" htmlFor="create-product-images">Product images ({images.length}/{MAX_PRODUCT_IMAGES})</label>
                   <div
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}
@@ -1819,7 +1813,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                       padding: '24px',
                       textAlign: 'center',
                       transition: 'border-color 0.2s, background 0.2s',
-                      cursor: isSubmitting || images.length >= 5 ? 'not-allowed' : 'pointer',
+                      cursor: isSubmitting || images.length >= MAX_PRODUCT_IMAGES ? 'not-allowed' : 'pointer',
                       background: errors.images ? 'var(--danger-muted)' : 'var(--bg-surface)',
                       opacity: isSubmitting ? 0.6 : 1,
                     }}
@@ -1892,7 +1886,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                             </div>
                           ))}
                         </div>
-                        {images.length < 5 && (
+                        {images.length < MAX_PRODUCT_IMAGES && (
                           <button
                             type="button"
                             className="btn-ghost"
@@ -1911,7 +1905,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                           Click or drag images to upload
                         </p>
                         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '12px' }}>
-                          JPG, PNG, or WebP (up to 5 images; large files are optimized automatically)
+                          JPG, PNG, or WebP (up to {MAX_PRODUCT_IMAGES} images; large files are optimized automatically)
                         </p>
                         <button
                           type="button"
