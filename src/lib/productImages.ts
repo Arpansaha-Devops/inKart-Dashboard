@@ -2,6 +2,7 @@ const MAX_OPTIMIZED_IMAGE_BYTES = 650 * 1024;
 const MAX_PRODUCT_IMAGE_UPLOAD_BYTES = 3.5 * 1024 * 1024;
 const MAX_IMAGE_DIMENSION = 1600;
 const MIN_IMAGE_DIMENSION = 480;
+const MAX_RETAINED_IMAGE_DOWNLOADS = 2;
 
 export const PRODUCT_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
 export const MAX_PRODUCT_IMAGES = 10;
@@ -61,8 +62,15 @@ export async function prepareProductGalleryUpload(existingUrls: string[], newFil
   if (error) throw new Error(error);
   const plan = planProductGallery(existingUrls, newFiles);
   const retainedFiles: File[] = [];
-  for (const [index, url] of plan.retainedUrls.entries()) {
+  const controllers = new Set<AbortController>();
+  let nextIndex = 0;
+  let downloadError: Error | null = null;
+  const downloadNext = async (): Promise<void> => {
+    if (downloadError || nextIndex >= plan.retainedUrls.length) return;
+    const index = nextIndex++;
+    const url = plan.retainedUrls[index];
     const controller = new AbortController();
+    controllers.add(controller);
     const timer = setTimeout(() => controller.abort(), 20_000);
     try {
       const response = await fetch(url, { credentials: 'omit', mode: 'cors', referrerPolicy: 'no-referrer', signal: controller.signal });
@@ -71,13 +79,22 @@ export async function prepareProductGalleryUpload(existingUrls: string[], newFil
       const mimeType = blob.type.split(';')[0].toLowerCase();
       if (!blob.size || !PRODUCT_IMAGE_TYPES.includes(mimeType as (typeof PRODUCT_IMAGE_TYPES)[number])) throw new Error('Unsupported saved image');
       const extension = mimeType === 'image/jpeg' ? 'jpg' : mimeType.split('/')[1];
-      retainedFiles.push(new File([blob], `retained-product-image-${index + 1}.${extension}`, { type: mimeType }));
+      retainedFiles[index] = new File([blob], `retained-product-image-${index + 1}.${extension}`, { type: mimeType });
     } catch {
-      throw new Error(`Could not load current image ${index + 1}. No product changes were submitted. Retry when the existing image is available, or select ${Math.min(existingUrls.length, MAX_PRODUCT_IMAGES)} new images to replace the full gallery.`);
+      if (!downloadError) {
+        downloadError = new Error(`Could not load current image ${index + 1}. No product changes were submitted. Retry when the existing image is available, or select ${Math.min(existingUrls.length, MAX_PRODUCT_IMAGES)} new images to replace the full gallery.`);
+        controllers.forEach((active) => active.abort());
+      }
     } finally {
       clearTimeout(timer);
+      controllers.delete(controller);
     }
-  }
+    if (!downloadError) await downloadNext();
+  };
+  // Bound network work independently of the sequential image decoding below.
+  // Each worker observes its requests, including aborted siblings, before returning.
+  await Promise.all(Array.from({ length: Math.min(MAX_RETAINED_IMAGE_DOWNLOADS, plan.retainedUrls.length) }, () => downloadNext()));
+  if (downloadError) throw downloadError;
   return optimizeProductImages([...retainedFiles, ...newFiles]);
 }
 

@@ -223,11 +223,13 @@ try {
   await waitFor(`!!document.querySelector('#edit-product-name')`);
   assert.equal(await evaluate(`document.querySelector('#edit-product-image').multiple`), true);
   const patchesBeforeInvalidEditStock = requests.filter((request) => request.method === 'PATCH').length;
-  await fill('#edit-product-stock', '1.5');
-  assert.equal(await evaluate(`document.querySelector('#edit-product-stock').value`), '1.5');
-  await evaluate(`document.querySelector('#edit-product-name').closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);
-  await waitFor(`document.body.textContent.includes('Stock must be a non-negative whole number')`);
-  assert.equal(requests.filter((request) => request.method === 'PATCH').length, patchesBeforeInvalidEditStock);
+  for (const value of ['', '1e', '1.5']) {
+    await fill('#edit-product-stock', value);
+    assert.equal(await evaluate(`document.querySelector('#edit-product-stock').value`), value === '1.5' ? value : '');
+    await evaluate(`document.querySelector('#edit-product-name').closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);
+    await waitFor(`document.body.textContent.includes('Stock must be a non-negative whole number')`);
+    assert.equal(requests.filter((request) => request.method === 'PATCH').length, patchesBeforeInvalidEditStock);
+  }
   await fill('#edit-product-stock', '10');
   const originalGallery = products[0].images.map((image) => image.url);
   const writesBeforeGallery = requests.filter((request) => request.method === 'PATCH').length;
@@ -239,13 +241,22 @@ try {
   }
   await chooseGalleryImages(1, 'invalid-type', 'application/pdf');
   await waitFor(`document.querySelector('#edit-product-image-error')?.textContent.includes('JPG, PNG, or WebP')`);
+  await evaluate(`window.galleryPreviewUrls = {created: [], revoked: [], create: URL.createObjectURL, revoke: URL.revokeObjectURL};
+    URL.createObjectURL = (file) => {const url = window.galleryPreviewUrls.create(file); window.galleryPreviewUrls.created.push(url); return url;};
+    URL.revokeObjectURL = (url) => {window.galleryPreviewUrls.revoked.push(url); window.galleryPreviewUrls.revoke(url);}`);
   await chooseGalleryImages(2, 'preview');
   await waitFor(`document.querySelectorAll('[data-gallery-kind="new"]').length===2`);
+  await waitFor(`[...document.querySelectorAll('[data-gallery-kind="new"] img')].filter(image=>image.complete&&image.naturalWidth>0).length===2`);
+  const previewUrls = await evaluate(`[...document.querySelectorAll('[data-gallery-kind="new"] img')].map(image=>image.src)`);
   assert.deepEqual(await evaluate(`[...document.querySelectorAll('[data-gallery-kind="current"] img')].map(image=>image.src)`), originalGallery.slice(0, 3));
   await evaluate(`document.querySelector('[aria-label="Remove selected image 2"]').click()`);
   assert.equal(await evaluate(`document.querySelectorAll('[data-gallery-kind="current"]').length`), 4);
+  await waitFor(`window.galleryPreviewUrls.revoked.includes(${JSON.stringify(previewUrls[1])})`);
+  assert.equal(await evaluate(`document.querySelector('[data-gallery-kind="new"] img').src`), previewUrls[0]);
+  assert.equal(await evaluate(`window.galleryPreviewUrls.revoked.includes(${JSON.stringify(previewUrls[0])})`), false);
   await chooseGalleryImages(1, 'dropped', 'image/png', true);
   await waitFor(`document.querySelectorAll('[data-gallery-kind="new"]').length===2`);
+  await waitFor(`[...document.querySelectorAll('[data-gallery-kind="new"] img')].filter(image=>image.complete&&image.naturalWidth>0).length===2`);
   await evaluate(`document.querySelector('.product-gallery-editor').scrollIntoView({block:'start'})`);
   await writeFile(resolve(screenshotDir, 'product-gallery-desktop.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -254,6 +265,8 @@ try {
   await writeFile(resolve(screenshotDir, 'product-gallery-mobile.png'), Buffer.from((await send('Page.captureScreenshot', { format: 'png' })).data, 'base64'));
   await clickText('Cancel');
   await waitFor(`!document.querySelector('#edit-product-name')`);
+  await waitFor(`window.galleryPreviewUrls.created.every(url=>window.galleryPreviewUrls.revoked.includes(url))`);
+  await evaluate(`URL.createObjectURL=window.galleryPreviewUrls.create; URL.revokeObjectURL=window.galleryPreviewUrls.revoke; delete window.galleryPreviewUrls;`);
   assert.deepEqual(products[0].images.map((image) => image.url), originalGallery);
   assert.equal(requests.filter((request) => request.method === 'PATCH').length, writesBeforeGallery);
   await send('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
@@ -337,11 +350,13 @@ try {
   await evaluate(`document.querySelector('table tbody tr td:nth-child(4) button').click()`);
   await waitFor(`!!document.querySelector('#stock-quantity')`);
   const stockWritesBeforeInvalidQuantity = requests.filter((request) => request.method === 'PATCH' && request.path.endsWith('/stock')).length;
-  await fill('#stock-quantity', '1.5');
-  assert.equal(await evaluate(`document.querySelector('#stock-quantity').value`), '1.5');
-  await evaluate(`document.querySelector('#stock-quantity').closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);
-  await waitFor(`document.body.textContent.includes('Stock quantity must be a positive whole number')`);
-  assert.equal(requests.filter((request) => request.method === 'PATCH' && request.path.endsWith('/stock')).length, stockWritesBeforeInvalidQuantity);
+  for (const value of ['', '1e', '1.5']) {
+    await fill('#stock-quantity', value);
+    assert.equal(await evaluate(`document.querySelector('#stock-quantity').value`), value === '1.5' ? value : '');
+    await evaluate(`document.querySelector('#stock-quantity').closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);
+    await waitFor(`document.body.textContent.includes('Stock quantity must be a positive whole number')`);
+    assert.equal(requests.filter((request) => request.method === 'PATCH' && request.path.endsWith('/stock')).length, stockWritesBeforeInvalidQuantity);
+  }
   await fill('#stock-quantity', '3');
   stockUpdateFails = true;
   let releaseStockUpdate;
@@ -456,14 +471,20 @@ try {
   assert.equal(await evaluate(`document.querySelector('.product-configuration-option input[type="number"]').value`), '0.5');
   assert.equal(await evaluate(`document.querySelector('.product-configuration-field > .product-extension-grid label:nth-child(2) input').value`), 'finish');
   assert.equal(await evaluate(`document.querySelector('.product-create-inventory').open`), false);
-  await fill('#create-product-stock', '1.5');
-  assert.equal(await evaluate(`document.querySelector('#create-product-stock').value`), '1.5');
   const productsBeforeFractionalStock = products.length;
-  await evaluate(`document.querySelector('#create-product-name').closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);
-  await waitFor(`document.body.textContent.includes('Stock must be a non-negative whole number')`);
-  assert.equal(products.length, productsBeforeFractionalStock);
+  for (const value of ['', '1e', '1.5']) {
+    await fill('#create-product-stock', value);
+    assert.equal(await evaluate(`document.querySelector('#create-product-stock').value`), value === '1.5' ? value : '');
+    await evaluate(`document.querySelector('#create-product-name').closest('form').dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}))`);
+    await waitFor(`document.body.textContent.includes('Stock must be a non-negative whole number')`);
+    assert.equal(products.length, productsBeforeFractionalStock);
+  }
   await fill('#create-product-stock', '0');
   await clickText('Add color');
+  for (const value of ['', '1e', '0']) {
+    await fill('[id^="variant-stock-"]', value);
+    assert.equal(await evaluate(`document.querySelector('[id^="variant-stock-"]').value`), value === '0' ? '0' : '');
+  }
   await fill('[id^="variant-stock-"]', '1.5');
   assert.equal(await evaluate(`document.querySelector('[id^="variant-stock-"]').value`), '1.5');
   assert.equal(await evaluate(`document.querySelector('[id^="variant-stock-"]').validity.stepMismatch`), true);
@@ -543,6 +564,7 @@ try {
   assert.deepEqual(quoteRequests()[0].fields, { weight: .75, length: 25.5, breadth: 18, height: 7 });
   quoteGate = null; releaseQuotes();
   await waitFor(`document.querySelector('${parcelSelector}').textContent.includes('Server error. Please try again.')`);
+  await waitFor(`!document.querySelector('[aria-label="Close order details"]').disabled`);
   quoteMode = 'validation-error';
   await clickText('Try again');
   await waitFor(`document.querySelector('${parcelSelector}').textContent.includes('Pickup address is missing')`);
@@ -596,6 +618,7 @@ try {
   await clearToasts();
   await clickText('Yes, confirm & ship');
   await waitFor(`document.querySelector('dialog[open] dialog').textContent.includes('Insufficient wallet balance')`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Close order details"]').disabled`), false);
   assert.equal(approvalRequests().length, approvalsBeforeFailure);
   assert.equal(await evaluate(`document.querySelectorAll('dialog[open]').length`), 2);
   confirmationFails = false;
@@ -606,6 +629,7 @@ try {
   await clearToasts();
   await clickText('Yes, confirm & ship');
   await waitFor(`document.querySelector('dialog[open] dialog').textContent.includes('Processing...')`);
+  assert.equal(await evaluate(`document.querySelector('[aria-label="Close order details"]').disabled`), true);
   await evaluate(`[...document.querySelectorAll('dialog[open] dialog button')].at(-1).click()`);
   assert.equal(confirmationRequests().length, beforeConfirm + 1);
   assert.equal(await evaluate(`[...document.querySelectorAll('dialog[open] dialog button')].every(button=>button.disabled)`), true);

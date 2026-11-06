@@ -8,6 +8,8 @@ import { approveOrder, syncShipment, getShipmentDetails, getShiprocketTracking, 
 import { calls, mockApi } from './mockApiClient.mjs';
 import { courierQuotesResponse } from './fixtures/courierQuotes.mjs';
 
+const idleShipmentRequest = { quotesState: 'idle', onQuotesStateChange() {}, confirmLoading: false, onConfirmLoadingChange() {} };
+
 test('renders the backend delivery charge including zero without calculating a fee', () => {
   assert.equal(reportedShippingCharge(99), 99); assert.equal(reportedShippingCharge(0), 0);
   for (const invalid of [undefined, null, '', Infinity, -1, {}]) assert.equal(reportedShippingCharge(invalid), undefined);
@@ -26,7 +28,7 @@ test('order measurements are editable, persisted values prepopulate, and no API 
   const value = { weight: .25, length: 10, breadth: 5, height: 2 };
   assert.deepEqual(reportedPackage(value), value); assert.equal(reportedPackage({ ...value, weight: 0 }), undefined);
   for (const parcel of [undefined, value]) {
-    const html = renderToStaticMarkup(React.createElement(OrderParcelDetails, { orderId: 'order-1', value: parcel, paymentStatus: 'paid', orderStatus: 'placed' }));
+    const html = renderToStaticMarkup(React.createElement(OrderParcelDetails, { ...idleShipmentRequest, orderId: 'order-1', value: parcel, paymentStatus: 'paid', orderStatus: 'placed' }));
     assert.doesNotMatch(html, /fieldset[^>]*disabled/); assert.match(html, /button[^>]*disabled/);
     assert.doesNotMatch(html, /Backend integration pending/);
     assert.match(html, parcel ? /Measurements saved/ : /Measurements have not been saved/);
@@ -39,12 +41,29 @@ test('order measurements are editable, persisted values prepopulate, and no API 
 
 test('terminal, already booked and unpaid orders have read-only parcel controls', () => {
   for (const [paymentStatus, orderStatus] of [['paid', 'shipped'], ['paid', 'delivered'], ['paid', 'cancelled'], ['paid', 'return_requested'], ['paid', 'returned'], ['pending', 'placed']]) {
-    const html = renderToStaticMarkup(React.createElement(OrderParcelDetails, { orderId: 'old-order', paymentStatus, orderStatus }));
+    const html = renderToStaticMarkup(React.createElement(OrderParcelDetails, { ...idleShipmentRequest, orderId: 'old-order', paymentStatus, orderStatus }));
     assert.match(html, /fieldset[^>]*disabled/);
   }
-  const booked = renderToStaticMarkup(React.createElement(OrderParcelDetails, { orderId: 'booked', paymentStatus: 'paid', orderStatus: 'confirmed', hasShipment: true }));
+  const booked = renderToStaticMarkup(React.createElement(OrderParcelDetails, { ...idleShipmentRequest, orderId: 'booked', paymentStatus: 'paid', orderStatus: 'confirmed', hasShipment: true }));
   assert.match(booked, /fieldset[^>]*disabled/);
   assert.match(booked, /A shipment is already booked/);
+});
+
+test('parent-owned quote and confirmation requests disable parcel controls without notifying during render', () => {
+  let notifications = 0;
+  const props = {
+    ...idleShipmentRequest, orderId: 'order-1', paymentStatus: 'paid', orderStatus: 'placed',
+    value: { weight: .25, length: 10, breadth: 5, height: 2 },
+    onQuotesStateChange() { notifications++; }, onConfirmLoadingChange() { notifications++; },
+  };
+  const idle = renderToStaticMarkup(React.createElement(OrderParcelDetails, props));
+  assert.doesNotMatch(idle, /fieldset[^>]*disabled/);
+  for (const request of [{ quotesState: 'loading' }, { confirmLoading: true }]) {
+    const busy = renderToStaticMarkup(React.createElement(OrderParcelDetails, { ...props, ...request }));
+    assert.match(busy, /fieldset[^>]*disabled/);
+    assert.match(busy, /button[^>]*disabled/);
+  }
+  assert.equal(notifications, 0);
 });
 
 test('courier services show returned prices, service names, estimates and selection', () => {

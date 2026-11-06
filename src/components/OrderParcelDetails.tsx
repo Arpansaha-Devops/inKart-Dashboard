@@ -1,4 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { Dispatch, SetStateAction } from 'react';
 import { CheckCircle2, ChevronRight, Info, Loader2, Package, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import PackageDetailsForm from './PackageDetailsForm';
@@ -84,12 +85,15 @@ function CourierConfirmation({ courier, busy, error, onCancel, onConfirm }: {
 }
 
 type BookingResult = Awaited<ReturnType<typeof confirmCourierAndApprove>>;
+export type CourierQuotesState = 'idle' | 'loading' | 'success' | 'error';
 
-export default function OrderParcelDetails({ orderId, value, paymentStatus, orderStatus, hasShipment = false, disabled = false, onApproved, onBusyChange }: {
+export default function OrderParcelDetails({ orderId, value, paymentStatus, orderStatus, hasShipment = false, disabled = false, onApproved,
+  quotesState, onQuotesStateChange: setQuotesState, confirmLoading, onConfirmLoadingChange: setConfirmLoading }: {
   orderId: string; value?: PackageDetails; paymentStatus: string; orderStatus: string;
   hasShipment?: boolean; disabled?: boolean;
   onApproved?: (result: BookingResult) => void;
-  onBusyChange?: (busy: boolean) => void;
+  quotesState: CourierQuotesState; onQuotesStateChange: Dispatch<SetStateAction<CourierQuotesState>>;
+  confirmLoading: boolean; onConfirmLoadingChange: (loading: boolean) => void;
 }) {
   const id = useId();
   const [draft, setDraft] = useState(() => packageDraft(value));
@@ -97,11 +101,9 @@ export default function OrderParcelDetails({ orderId, value, paymentStatus, orde
   const [savedParcel, setSavedParcel] = useState<PackageDetails | null>(value ?? null);
   const [quoteParcel, setQuoteParcel] = useState<PackageDetails | null>(null);
   const [couriers, setCouriers] = useState<CourierOption[]>([]);
-  const [quotesState, setQuotesState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
   const [quotesError, setQuotesError] = useState('');
   const [selectedCourier, setSelectedCourier] = useState<CourierOption | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
-  const [confirmLoading, setConfirmLoading] = useState(false);
   const [confirmError, setConfirmError] = useState('');
   const [briefSuccess, setBriefSuccess] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -114,6 +116,7 @@ export default function OrderParcelDetails({ orderId, value, paymentStatus, orde
   const invalid = Object.keys(validation).length > 0;
   const visibleErrors = Object.fromEntries(Object.entries(validation).filter(([key]) => touched[key as keyof PackageDraft]));
   const busy = quotesState === 'loading' || confirmLoading;
+  const confirmationVisible = showConfirmModal && (eligible || confirmLoading);
   const controlsDisabled = disabled || !eligible || busy;
   const readyToConfirm = !invalid && !!savedParcel && !!quoteParcel && !!selectedCourier &&
     sameParcel(quoteParcel, parcelFromDraft(draft)) && couriers.includes(selectedCourier);
@@ -125,16 +128,11 @@ export default function OrderParcelDetails({ orderId, value, paymentStatus, orde
     mountedRef.current = true;
     return () => { mountedRef.current = false; requestRef.current += 1; };
   }, []);
-  useEffect(() => { onBusyChange?.(busy); }, [busy, onBusyChange]);
-  useEffect(() => () => { onBusyChange?.(false); }, [onBusyChange]);
   useEffect(() => {
     if (!briefSuccess) return;
     const timer = window.setTimeout(() => setBriefSuccess(false), 2000);
     return () => window.clearTimeout(timer);
   }, [briefSuccess]);
-  useEffect(() => {
-    if (!eligible && !confirmLoading) setShowConfirmModal(false);
-  }, [eligible, confirmLoading]);
 
   const updateDraft = (next: PackageDraft) => {
     if (controlsDisabled || inFlightRef.current) return;
@@ -257,7 +255,7 @@ export default function OrderParcelDetails({ orderId, value, paymentStatus, orde
         <CheckCircle2 size={16} />Confirm courier & approve order
       </button>
     </footer>
-    {showConfirmModal && selectedCourier && <CourierConfirmation courier={selectedCourier} busy={confirmLoading} error={confirmError}
+    {confirmationVisible && selectedCourier && <CourierConfirmation courier={selectedCourier} busy={confirmLoading} error={confirmError}
       onCancel={() => { if (!inFlightRef.current) setShowConfirmModal(false); }} onConfirm={() => void approveSelection()} />}
   </section>;
 }

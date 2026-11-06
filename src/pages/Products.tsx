@@ -194,7 +194,7 @@ type ProductFormData = {
   description: string;
   category: string;
   productType: string;
-  stock: number;
+  stock: number | undefined;
   isCustomizable: boolean;
   basePrice: number;
   hsnCode: string;
@@ -216,7 +216,7 @@ type ProductFormErrors = {
 };
 
 type StockFormData = {
-  quantity: number;
+  quantity: number | undefined;
   operation: 'add' | 'subtract';
 };
 
@@ -768,7 +768,7 @@ const Products: React.FC = () => {
       pricePerUnit,
     }));
     const quantityPricingError = validateQuantityPricing(pricingTiers);
-    const stockError = !Number.isInteger(formData.stock) || formData.stock < 0 ? 'Stock must be a non-negative whole number' : null;
+    const stockError = formData.stock === undefined || !Number.isInteger(formData.stock) || formData.stock < 0 ? 'Stock must be a non-negative whole number' : null;
     const imagesError = validateProductGalleryFiles(formData.images);
     if (descriptionError || quantityPricingError || configurationError || stockError || imagesError) {
       dispatch({
@@ -842,7 +842,7 @@ const Products: React.FC = () => {
   const handleUpdateStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!stockProduct || updatingStockRef.current) return;
-    if (!Number.isInteger(stockData.quantity) || stockData.quantity <= 0) {
+    if (stockData.quantity === undefined || !Number.isInteger(stockData.quantity) || stockData.quantity <= 0) {
       toast.error('Stock quantity must be a positive whole number');
       return;
     }
@@ -1277,15 +1277,16 @@ const Products: React.FC = () => {
                       min="0"
                       step="1"
                       className="input-field"
-                      value={formData.stock}
+                      value={formData.stock ?? ''}
                       aria-invalid={!!formErrors.stock}
                       aria-describedby={formErrors.stock ? 'edit-product-stock-error' : undefined}
-                      onChange={(event) =>
+                      onChange={(event) => {
+                        const nextStock = event.currentTarget.valueAsNumber;
                         dispatch({
                           type: 'SET_FORM_DATA',
-                          payload: { ...formData, stock: Number(event.target.value) },
-                        })
-                      }
+                          payload: { ...formData, stock: Number.isFinite(nextStock) ? nextStock : undefined },
+                        });
+                      }}
                     />
                     {formErrors.stock && <p id="edit-product-stock-error" className="product-extension-error" role="alert">{formErrors.stock}</p>}
                   </div>
@@ -1646,13 +1647,14 @@ const Products: React.FC = () => {
                     min="1"
                     disabled={updatingStock}
                     className="input-field"
-                    value={stockData.quantity}
-                    onChange={(event) =>
+                    value={stockData.quantity ?? ''}
+                    onChange={(event) => {
+                      const nextQuantity = event.currentTarget.valueAsNumber;
                       dispatch({
                         type: 'SET_STOCK_DATA',
-                        payload: { ...stockData, quantity: Number(event.target.value) },
-                      })
-                    }
+                        payload: { ...stockData, quantity: Number.isFinite(nextQuantity) ? nextQuantity : undefined },
+                      });
+                    }}
                   />
                 </div>
 

@@ -61,7 +61,7 @@ type QuantityPricingTierForm = QuantityPricingTier & {
 type VariantSizeForm = {
   id: string;
   size: string;
-  stock: number;
+  stock: number | undefined;
 };
 
 type ProductVariantForm = {
@@ -133,7 +133,7 @@ const validateVariants = (variants: ProductVariantForm[]): string | null => {
     for (const sizeEntry of variant.sizes) {
       const size = sizeEntry.size.trim();
       if (!size) return `${label}: every size needs a name`;
-      if (!Number.isInteger(sizeEntry.stock) || sizeEntry.stock < 0) {
+      if (sizeEntry.stock === undefined || !Number.isInteger(sizeEntry.stock) || sizeEntry.stock < 0) {
         return `${label}: stock must be a non-negative whole number`;
       }
       if (sizes.has(size.toLowerCase())) return `${label}: sizes must be unique`;
@@ -175,7 +175,7 @@ type CreateProductFormState = {
   hsnCode: string;
   gstPercentage: number;
   productType: 'stocked' | 'on_demand';
-  stock: number;
+  stock: number | undefined;
   isCustomizable: boolean;
   quantityPricing: QuantityPricingTierForm[];
   errors: FormErrors;
@@ -468,7 +468,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
     if (!Number.isFinite(basePrice) || basePrice <= 0) {
       newErrors.basePrice = 'Base price must be greater than 0';
     }
-    if (!Number.isInteger(stock) || stock < 0) {
+    if (stock === undefined || !Number.isInteger(stock) || stock < 0) {
       newErrors.stock = 'Stock must be a non-negative whole number';
     }
     if (!Number.isFinite(gstPercentage) || gstPercentage < 0 || gstPercentage > 100) newErrors.gstPercentage = 'GST must be between 0 and 100 percent';
@@ -804,7 +804,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
       formData.append('productType', productType);
       const variantStock = variants.reduce(
         (total, variant) =>
-          total + variant.sizes.reduce((variantTotal, size) => variantTotal + size.stock, 0),
+          total + variant.sizes.reduce((variantTotal, size) => variantTotal + (size.stock ?? 0), 0),
         0
       );
       formData.append('stock', String(variants.length > 0 ? variantStock : stock));
@@ -1392,11 +1392,12 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                     disabled={isSubmitting}
                     className="input-field"
                     style={errors.stock ? { borderColor: 'var(--danger)' } : undefined}
-                    value={stock}
+                    value={stock ?? ''}
                     onChange={(event) => {
+                      const nextStock = event.currentTarget.valueAsNumber;
                       dispatch({
                         type: 'SET_FIELD',
-                        payload: { stock: Number(event.target.value) },
+                        payload: { stock: Number.isFinite(nextStock) ? nextStock : undefined },
                       });
                       if (errors.stock) {
                         dispatch({
@@ -1492,7 +1493,7 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                     <div style={{ display: 'grid', gap: '14px' }}>
                       {variants.map((variant, variantIndex) => {
                         const colorStock = variant.sizes.reduce(
-                          (total, size) => total + size.stock,
+                          (total, size) => total + (size.stock ?? 0),
                           0
                         );
                         return (
@@ -1725,12 +1726,13 @@ const CreateProductModal: React.FC<CreateProductModalProps> = ({ onClose, onSucc
                                       min="0"
                                       step="1"
                                       className="input-field"
-                                      value={sizeEntry.stock}
-                                      onChange={(event) =>
+                                      value={sizeEntry.stock ?? ''}
+                                      onChange={(event) => {
+                                        const nextStock = event.currentTarget.valueAsNumber;
                                         updateVariantSize(variant.id, sizeEntry.id, {
-                                          stock: Number(event.target.value),
-                                        })
-                                      }
+                                          stock: Number.isFinite(nextStock) ? nextStock : undefined,
+                                        });
+                                      }}
                                     />
                                   </div>
                                   <button

@@ -1,20 +1,29 @@
-import { useEffect, useState } from 'react';
-import { ImageIcon, Trash2, Upload } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Trash2, Upload } from 'lucide-react';
 import { getProductGalleryPreviewEntries, MAX_PRODUCT_IMAGES, planProductGallery, PRODUCT_IMAGE_TYPES, validateProductGalleryFiles } from '../lib/productImages';
+
+function FilePreview({ file, alt }: { file: File; alt: string }) {
+  const imageRef = useRef<HTMLImageElement>(null);
+  useEffect(() => {
+    const image = imageRef.current;
+    if (!image) return;
+    const url = URL.createObjectURL(file);
+    image.src = url;
+    return () => {
+      image.removeAttribute('src');
+      URL.revokeObjectURL(url);
+    };
+  }, [file]);
+  return <img ref={imageRef} alt={alt} />;
+}
 
 export default function ProductGalleryEditor({ existingUrls, files, onChange, disabled = false, error }: {
   existingUrls: string[]; files: File[]; onChange: (files: File[]) => void; disabled?: boolean; error?: string;
 }) {
-  const [previews, setPreviews] = useState<Array<{ file: File; url: string }>>([]);
   const [fileIds] = useState(() => new WeakMap<File, string>());
   const [selectionError, setSelectionError] = useState('');
   const plan = planProductGallery(existingUrls, files);
   const issue = selectionError || error;
-  useEffect(() => {
-    const next = files.map((file) => ({ file, url: URL.createObjectURL(file) }));
-    setPreviews(next);
-    return () => next.forEach(({ url }) => URL.revokeObjectURL(url));
-  }, [files]);
 
   const selectFiles = (selected: File[]) => {
     if (disabled || selected.length === 0) return;
@@ -59,9 +68,8 @@ export default function ProductGalleryEditor({ existingUrls, files, onChange, di
           fileId = crypto.randomUUID();
           fileIds.set(file, fileId);
         }
-        const preview = previews.find((entry) => entry.file === file)?.url;
         return <figure key={`new-${fileId}`} data-gallery-kind="new">
-          {preview ? <img src={preview} alt={`New gallery image ${plan.retainedUrls.length + index + 1}`} /> : <span className="product-gallery-loading"><ImageIcon size={24} /></span>}
+          <FilePreview file={file} alt={`New gallery image ${plan.retainedUrls.length + index + 1}`} />
           <figcaption><strong>{plan.retainedUrls.length + index + 1} · New</strong><span title={file.name}>{file.name}</span></figcaption>
           <button type="button" className="product-gallery-remove" disabled={disabled} aria-label={`Remove selected image ${index + 1}`}
             onClick={() => { setSelectionError(''); onChange(files.filter((_, itemIndex) => itemIndex !== index)); }}><Trash2 size={14} /></button>

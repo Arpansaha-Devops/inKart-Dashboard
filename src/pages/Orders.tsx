@@ -33,7 +33,7 @@ import { AnimatePresence, LazyMotion, domAnimation, m } from 'motion/react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import apiClient from '../lib/apiClient';
-import OrderParcelDetails from '../components/OrderParcelDetails';
+import OrderParcelDetails, { type CourierQuotesState } from '../components/OrderParcelDetails';
 import { reportedOrderParcel } from '../lib/orderFulfillment';
 import type { PackageDetails } from '../types';
 import { normalizeOrderItemOptions, reportedShippingCharge } from '../lib/orderPresentation';
@@ -3431,7 +3431,9 @@ const OrderDetailModal: React.FC<{
   const [frontPreviewSize, setFrontPreviewSize] = useState<{ width: number; height: number } | null>(null);
   const [fetchedCustomization, setFetchedCustomization] = useState<OrderCustomization | null>(null);
   const [isDesignPreviewLoading, setIsDesignPreviewLoading] = useState(false);
-  const [isPreparingShipment, setIsPreparingShipment] = useState(false);
+  const [shipmentQuotesState, setShipmentQuotesState] = useState<CourierQuotesState>('idle');
+  const [isConfirmingShipment, setIsConfirmingShipment] = useState(false);
+  const isPreparingShipment = shipmentQuotesState === 'loading' || isConfirmingShipment;
   const {
     deliveryDate,
     deliveryNote,
@@ -4155,7 +4157,8 @@ const OrderDetailModal: React.FC<{
           paymentStatus={order.paymentStatus} orderStatus={order.orderStatus}
           hasShipment={Boolean(order.shiprocket?.shipmentId || order.shiprocket?.awbCode)}
           disabled={isApproving || isSavingEstimate || isResending}
-          onBusyChange={setIsPreparingShipment}
+          quotesState={shipmentQuotesState} onQuotesStateChange={setShipmentQuotesState}
+          confirmLoading={isConfirmingShipment} onConfirmLoadingChange={setIsConfirmingShipment}
           onApproved={({ shipment, approvalFailed }) => {
             onOrderUpdated({
               ...order,
