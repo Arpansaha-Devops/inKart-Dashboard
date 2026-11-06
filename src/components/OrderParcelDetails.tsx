@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { CheckCircle2, ChevronRight, Info, Loader2, Package, Truck } from 'lucide-react';
 import { toast } from 'sonner';
 import PackageDetailsForm from './PackageDetailsForm';
@@ -110,7 +110,6 @@ export default function OrderParcelDetails({ orderId, value, paymentStatus, orde
   const mountedRef = useRef(true);
   const eligible = canPrepareOrderShipment(paymentStatus, orderStatus, hasShipment) && !completed;
   const eligibleRef = useRef(eligible);
-  eligibleRef.current = eligible;
   const validation = parcelErrors(draft);
   const invalid = Object.keys(validation).length > 0;
   const visibleErrors = Object.fromEntries(Object.entries(validation).filter(([key]) => touched[key as keyof PackageDraft]));
@@ -119,6 +118,9 @@ export default function OrderParcelDetails({ orderId, value, paymentStatus, orde
   const readyToConfirm = !invalid && !!savedParcel && !!quoteParcel && !!selectedCourier &&
     sameParcel(quoteParcel, parcelFromDraft(draft)) && couriers.includes(selectedCourier);
 
+  useLayoutEffect(() => {
+    eligibleRef.current = eligible;
+  }, [eligible]);
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; requestRef.current += 1; };
