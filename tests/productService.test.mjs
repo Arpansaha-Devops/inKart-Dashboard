@@ -69,6 +69,25 @@ test('gallery plans keep the first old images and replace the tail in selection 
   assert.equal(gallery.planProductGallery([], files).totalCount, 3);
 });
 
+test('duplicate gallery URLs retain distinct preview identities when reordered and removed', () => {
+  const a = 'https://images.example.test/a.png';
+  const b = 'https://images.example.test/b.png';
+  const originalUrls = gallery.getProductGalleryUrls({ images: [a, a, b] });
+  const originalPlan = gallery.planProductGallery(originalUrls, []);
+  assert.deepEqual(originalPlan.retainedUrls, [a, a, b]);
+  const originalEntries = gallery.getProductGalleryPreviewEntries(originalPlan.retainedUrls);
+  assert.equal(new Set(originalEntries.map(({ key }) => key)).size, 3);
+
+  const updatedPlan = gallery.planProductGallery(gallery.getProductGalleryUrls({ images: [b, a] }), []);
+  const updatedEntries = gallery.getProductGalleryPreviewEntries(updatedPlan.retainedUrls);
+  assert.deepEqual(updatedEntries.map(({ url }) => url), [b, a]);
+  assert.deepEqual(updatedEntries.map(({ key }) => key), [originalEntries[2].key, originalEntries[0].key]);
+  assert.ok(!updatedEntries.some(({ key }) => key === originalEntries[1].key));
+
+  const trimmedPlan = gallery.planProductGallery(originalUrls, [new File(['new'], 'new.png', { type: 'image/png' })]);
+  assert.deepEqual(gallery.getProductGalleryPreviewEntries(trimmedPlan.retainedUrls), originalEntries.slice(0, 2));
+});
+
 test('gallery uploads accept six to ten files and reject larger/invalid selections without truncation', () => {
   const png = () => new File(['image'], 'image.png', { type: 'image/png' });
   for (const count of [5, 6, 10]) assert.equal(gallery.validateProductGalleryFiles(Array.from({ length: count }, png)), null);

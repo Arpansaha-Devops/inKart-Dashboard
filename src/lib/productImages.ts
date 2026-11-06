@@ -42,6 +42,16 @@ export function planProductGallery(existingUrls: string[], newFiles: File[]) {
   };
 }
 
+export function getProductGalleryPreviewEntries(urls: string[]) {
+  const occurrences = new Map<string, number>();
+  return urls.map((url) => {
+    const occurrence = occurrences.get(url) ?? 0;
+    occurrences.set(url, occurrence + 1);
+    // Encode the pair to keep repeated URLs distinct without using their list positions.
+    return { url, key: JSON.stringify([url, occurrence]) };
+  });
+}
+
 // The existing PATCH contract accepts files, not a documented retained-URL list.
 // Build the complete intended gallery. The server must replace its saved array
 // with these files; an append-only implementation cannot remove old images.

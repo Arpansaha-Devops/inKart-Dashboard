@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ImageIcon, Trash2, Upload } from 'lucide-react';
-import { MAX_PRODUCT_IMAGES, planProductGallery, PRODUCT_IMAGE_TYPES, validateProductGalleryFiles } from '../lib/productImages';
+import { getProductGalleryPreviewEntries, MAX_PRODUCT_IMAGES, planProductGallery, PRODUCT_IMAGE_TYPES, validateProductGalleryFiles } from '../lib/productImages';
 
 export default function ProductGalleryEditor({ existingUrls, files, onChange, disabled = false, error }: {
   existingUrls: string[]; files: File[]; onChange: (files: File[]) => void; disabled?: boolean; error?: string;
 }) {
   const [previews, setPreviews] = useState<Array<{ file: File; url: string }>>([]);
+  const [fileIds] = useState(() => new WeakMap<File, string>());
   const [selectionError, setSelectionError] = useState('');
   const plan = planProductGallery(existingUrls, files);
   const issue = selectionError || error;
@@ -47,13 +48,19 @@ export default function ProductGalleryEditor({ existingUrls, files, onChange, di
       ? `Gallery after saving: ${plan.retainedUrls.length} current + ${files.length} new = ${plan.totalCount} images.`
       : `${existingUrls.length} current images. Leave the selection empty to keep them.`}</p>
     <div className="product-gallery-preview" aria-label="Gallery preview">
-      {plan.retainedUrls.map((url, index) => <figure key={`current-${index}`} data-gallery-kind="current">
+      {getProductGalleryPreviewEntries(plan.retainedUrls).map(({ url, key }, index) => <figure key={`current-${key}`} data-gallery-kind="current">
         <img src={url} alt={`Current gallery image ${index + 1}`} />
         <figcaption>{index + 1} · Keep current</figcaption>
       </figure>)}
       {files.map((file, index) => {
+        // Cache identity by File object so removing another file preserves this row.
+        let fileId = fileIds.get(file);
+        if (!fileId) {
+          fileId = crypto.randomUUID();
+          fileIds.set(file, fileId);
+        }
         const preview = previews.find((entry) => entry.file === file)?.url;
-        return <figure key={`new-${index}`} data-gallery-kind="new">
+        return <figure key={`new-${fileId}`} data-gallery-kind="new">
           {preview ? <img src={preview} alt={`New gallery image ${plan.retainedUrls.length + index + 1}`} /> : <span className="product-gallery-loading"><ImageIcon size={24} /></span>}
           <figcaption><strong>{plan.retainedUrls.length + index + 1} · New</strong><span title={file.name}>{file.name}</span></figcaption>
           <button type="button" className="product-gallery-remove" disabled={disabled} aria-label={`Remove selected image ${index + 1}`}

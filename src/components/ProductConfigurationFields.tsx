@@ -27,7 +27,7 @@ export default function ProductConfigurationFields({ value, onChange, title = 'P
     <legend>{title}</legend>
     <label className="product-extension-check"><input type="checkbox" checked={value.enabled} onChange={(event) => onChange({ ...value, enabled: event.target.checked })} /> Enable product configuration</label>
     <p className="product-extension-help">Configure this product’s choices and unit price modifiers. The backend applies modifiers to the cart unit price; quantity pricing is configured separately. Saved keys and option values are locked to preserve customer selections. Mark saved options inactive instead of removing them. Add a new option when its identifier must change.</p>
-    {value.fields.map((field, index) => <div className="product-configuration-field" key={fieldIds[index] ?? index}>
+    {value.fields.map((field, index) => <div className="product-configuration-field" key={fieldIds[index]}>
       <div className="product-extension-toolbar"><strong>Field {index + 1}</strong><button type="button" className="btn-ghost" aria-label={`Remove field ${index + 1}`} onClick={() => {
         if (savedFieldIds.has(fieldIds[index]) && !window.confirm('Remove this saved field? Existing customer selections may reference its key.')) return;
         setFieldIds((ids) => ids.filter((_, i) => i !== index));
@@ -43,7 +43,7 @@ export default function ProductConfigurationFields({ value, onChange, title = 'P
         <label className="product-extension-check"><input type="checkbox" checked={field.isActive} onChange={(event) => changeField(index, { isActive: event.target.checked })} /> Active field</label>
         <span className="product-extension-help">Select field</span>
       </div>
-      {field.options.map((option, optionIndex) => <div key={optionIds[index]?.[optionIndex] ?? optionIndex} className="product-configuration-option">
+      {field.options.map((option, optionIndex) => <div key={optionIds[index]?.[optionIndex]} className="product-configuration-option">
         <label className="form-label" htmlFor={`${id}-${index}-${optionIndex}-label`}>Option label<input id={`${id}-${index}-${optionIndex}-label`} className="input-field" value={option.label} onChange={(event) => changeField(index, { options: field.options.map((entry, i) => i === optionIndex ? { ...entry, label: event.target.value } : entry) })} /></label>
         <label className="form-label">Stable value<input className="input-field" value={option.value}
           readOnly={savedOptionIds.has(optionIds[index]?.[optionIndex])}
