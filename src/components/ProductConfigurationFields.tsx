@@ -10,7 +10,10 @@ export default function ProductConfigurationFields({ value, onChange, title = 'P
   const id = useId();
   // UI identities are independent of editable API keys/values, preserving input focus.
   const [fieldIds, setFieldIds] = useState(() => Array.isArray(value?.fields) ? value.fields.map(() => crypto.randomUUID()) : []);
-  const [savedFieldIds] = useState(() => new Set(fieldIds.filter((_, index) => savedKeys.includes(value.fields[index]?.key))));
+  const [savedFieldIds] = useState(() => {
+    const savedKeySet = new Set(savedKeys);
+    return new Set(fieldIds.filter((_, index) => savedKeySet.has(value.fields[index]?.key)));
+  });
   const [optionIds, setOptionIds] = useState(() => Array.isArray(value?.fields)
     ? value.fields.map((field) => Array.isArray(field?.options) ? field.options.map(() => crypto.randomUUID()) : [])
     : []);

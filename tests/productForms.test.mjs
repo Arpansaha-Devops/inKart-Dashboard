@@ -29,6 +29,28 @@ test('new configurations leave option identifiers editable', () => {
   assert.doesNotMatch(html, /readOnly=""/);
   assert.doesNotMatch(html, /aria-label="Remove option 1 from field 1" disabled=""/);
 });
+
+test('saved-key membership locks only matching fields and their options, including duplicate saved keys', () => {
+  const fields = ['size', 'finish'].map((key) => ({
+    key, label: key, type: 'select', required: true, isActive: true,
+    options: [{ label: key, value: `${key}-choice`, priceModifier: 0, isActive: true }],
+  }));
+  const html = renderToStaticMarkup(React.createElement(ProductConfigurationFields, {
+    value: { enabled: true, fields }, savedKeys: ['size', 'size', 'unused'], onChange() {},
+  }));
+  assert.match(html, /readOnly=""[^>]*value="size"/);
+  assert.match(html, /readOnly=""[^>]*value="size-choice"/);
+  const finishKeyInput = html.match(/<label\b[^>]*>Stable key(<input\b[^>]*\bvalue="finish"[^>]*>)<\/label>/)?.[1];
+  const finishValueInput = html.match(/<label\b[^>]*>Stable value(<input\b[^>]*\bvalue="finish-choice"[^>]*>)<\/label>/)?.[1];
+  for (const [label, input] of [['finish key', finishKeyInput], ['finish option value', finishValueInput]]) {
+    assert.ok(input, `${label} input must exist`);
+    assert.doesNotMatch(input, /\sdisabled(?:\s|=|\/?>)/i, `${label} input must be enabled`);
+    assert.doesNotMatch(input, /\sreadonly(?:\s|=|\/?>)/i, `${label} input must be writable`);
+  }
+  assert.doesNotMatch(html, /<fieldset\b[^>]*\sdisabled(?:\s|=|\/?>)/i, 'Inputs must not inherit a disabled fieldset');
+  assert.match(html, /aria-label="Remove option 1 from field 1" disabled=""/);
+  assert.doesNotMatch(html, /aria-label="Remove option 1 from field 2" disabled=""/);
+});
 test('package UI starts blank, labels all units and renders errors accessibly', () => {
   const html = renderToStaticMarkup(React.createElement(PackageDetailsForm, { value: emptyPackageDraft(), error: 'Weight is required', onChange() {} }));
   assert.match(html, /Weight \(kg\)/); assert.match(html, /Breadth \(cm\)/); assert.match(html, /role="alert"/);
