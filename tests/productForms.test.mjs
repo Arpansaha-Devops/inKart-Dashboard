@@ -12,12 +12,12 @@ test('configuration UI locks saved field keys and option values while keeping la
     value: { enabled: true, fields: [{ key: 'printingSides', label: 'Printing Sides', type: 'select', required: true, isActive: true, options: [{ label: 'Double sided', value: 'double', priceModifier: 42.5, isActive: true }] }] },
     savedKeys: ['printingSides'], onChange() {},
   }));
-  assert.match(html, /Printing Sides/); assert.match(html, /readOnly=""[^>]*value="printingSides"/);
-  assert.match(html, /readOnly=""[^>]*value="double"/);
+  assert.match(html, /Printing Sides/); assert.match(html, /readonly=""[^>]*value="printingSides"/i);
+  assert.match(html, /readonly=""[^>]*value="double"/i);
   assert.match(html, /aria-label="Remove option 1 from field 1" disabled=""/);
   assert.match(html, /Mark this option inactive instead/);
   assert.match(html, /type="checkbox" checked=""\/> Active/);
-  assert.doesNotMatch(html, /readOnly=""[^>]*value="(?:Double sided|42.5)"/);
+  assert.doesNotMatch(html, /readonly=""[^>]*value="(?:Double sided|42.5)"/i);
   assert.match(html, /value="42.5"/); assert.match(html, /Add option/); assert.match(html, /Add field/);
 });
 
@@ -26,7 +26,7 @@ test('new configurations leave option identifiers editable', () => {
     value: { enabled: true, fields: [{ key: 'size', label: 'Size', type: 'select', required: true, isActive: true, options: [{ label: 'Tall', value: 'tall', priceModifier: 0, isActive: true }] }] },
     onChange() {},
   }));
-  assert.doesNotMatch(html, /readOnly=""/);
+  assert.doesNotMatch(html, /readonly=""/i);
   assert.doesNotMatch(html, /aria-label="Remove option 1 from field 1" disabled=""/);
 });
 
@@ -38,8 +38,8 @@ test('saved-key membership locks only matching fields and their options, includi
   const html = renderToStaticMarkup(React.createElement(ProductConfigurationFields, {
     value: { enabled: true, fields }, savedKeys: ['size', 'size', 'unused'], onChange() {},
   }));
-  assert.match(html, /readOnly=""[^>]*value="size"/);
-  assert.match(html, /readOnly=""[^>]*value="size-choice"/);
+  assert.match(html, /readonly=""[^>]*value="size"/i);
+  assert.match(html, /readonly=""[^>]*value="size-choice"/i);
   const finishKeyInput = html.match(/<label\b[^>]*>Stable key(<input\b[^>]*\bvalue="finish"[^>]*>)<\/label>/)?.[1];
   const finishValueInput = html.match(/<label\b[^>]*>Stable value(<input\b[^>]*\bvalue="finish-choice"[^>]*>)<\/label>/)?.[1];
   for (const [label, input] of [['finish key', finishKeyInput], ['finish option value', finishValueInput]]) {
