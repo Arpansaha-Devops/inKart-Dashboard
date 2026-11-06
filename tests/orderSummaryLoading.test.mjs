@@ -20,18 +20,25 @@ const callbackSource = ts.transpileModule(`(${callback.getText(source)})`, {
 }).outputText;
 const createLoader = new Function('dependencies', `const {
   fetchSummaryCounts, summaryCountsRequestIdRef, hasSuccessfulSummaryCountsRef,
-  setSummaryCountsError, setIsSummaryCountsLoading, setSummaryCounts, console,
+  setSummaryCountsError, setSummaryCountsLoadingRequestId, setSummaryCounts, console,
 } = dependencies; return ${callbackSource}`);
 
 function setup(fetchSummaryCounts, counts = null) {
   const state = { loading: !counts, error: '', counts };
+  let loadingRequestId = counts ? null : 0;
   const transitions = [];
   const load = createLoader({
     fetchSummaryCounts,
     summaryCountsRequestIdRef: { current: 0 },
     hasSuccessfulSummaryCountsRef: { current: !!counts },
     setSummaryCountsError(error) { state.error = error; },
-    setIsSummaryCountsLoading(loading) { state.loading = loading; transitions.push(loading); },
+    setSummaryCountsLoadingRequestId(update) {
+      const next = typeof update === 'function' ? update(loadingRequestId) : update;
+      if (next === loadingRequestId) return;
+      loadingRequestId = next;
+      state.loading = next !== null;
+      transitions.push(state.loading);
+    },
     setSummaryCounts(counts) { state.counts = counts; },
     console: { error() {} },
   });
@@ -67,7 +74,7 @@ test('failed background summary refresh preserves the last successful counts', a
   const counts = { paid: 2, pending: 1, completed: 3 };
   const fixture = setup(async () => { throw new Error('Offline'); }, counts);
   await fixture.load();
-  assert.deepEqual(fixture.transitions, [false]);
+  assert.deepEqual(fixture.transitions, []);
   assert.deepEqual(fixture.state, { loading: false, error: '', counts });
 });
 

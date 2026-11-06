@@ -1573,7 +1573,9 @@ const Orders: React.FC = () => {
   const [state, dispatch] = useReducer(ordersReducer, ordersInitialState);
   const [summaryModal, setSummaryModal] = useState<OrderSummaryModal>(null);
   const [summaryCounts, setSummaryCounts] = useState({ paid: 0, pending: 0, completed: 0 });
-  const [isSummaryCountsLoading, setIsSummaryCountsLoading] = useState(true);
+  // Request 0 represents the initial load before the mount effect starts it.
+  const [summaryCountsLoadingRequestId, setSummaryCountsLoadingRequestId] = useState<number | null>(0);
+  const isSummaryCountsLoading = summaryCountsLoadingRequestId !== null;
   const [summaryCountsError, setSummaryCountsError] = useState('');
   const [summaryOrders, setSummaryOrders] = useState<Order[]>([]);
   const [isSummaryOrdersLoading, setIsSummaryOrdersLoading] = useState(false);
@@ -1678,7 +1680,7 @@ const Orders: React.FC = () => {
     summaryCountsRequestIdRef.current = requestId;
     if (!hasSuccessfulSummaryCountsRef.current) {
       setSummaryCountsError('');
-      setIsSummaryCountsLoading(true);
+      setSummaryCountsLoadingRequestId(requestId);
     }
 
     try {
@@ -1694,9 +1696,7 @@ const Orders: React.FC = () => {
         setSummaryCountsError('Order totals are temporarily unavailable.');
       }
     } finally {
-      if (summaryCountsRequestIdRef.current === requestId) {
-        setIsSummaryCountsLoading(false);
-      }
+      setSummaryCountsLoadingRequestId((loadingRequestId) => loadingRequestId === requestId ? null : loadingRequestId);
     }
   }, []);
 
