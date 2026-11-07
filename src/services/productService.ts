@@ -25,9 +25,9 @@ export const verifyProductExtensions = async (payload: unknown, data: FormData, 
           return `Product save completed, but the backend did not return the expected ${gallerySize}-image gallery. The images may have been appended or ignored; refresh and review the product before retrying.`;
         }
         if (gallerySize && galleryChange) {
-          const oldTail = galleryChange.previousUrls.slice(Math.max(0, galleryChange.previousUrls.length - galleryChange.newImageCount));
+          const oldTail = new Set(galleryChange.previousUrls.slice(Math.max(0, galleryChange.previousUrls.length - galleryChange.newImageCount)));
           const newTail = galleryUrls.slice(Math.max(0, galleryUrls.length - galleryChange.newImageCount));
-          if (newTail.some((url) => oldTail.includes(url))) return 'Product save completed, but the image gallery still contains images from the replaced slots. The replacement is unconfirmed; refresh and review the product before retrying.';
+          if (newTail.some((url) => oldTail.has(url))) return 'Product save completed, but the image gallery still contains images from the replaced slots. The replacement is unconfirmed; refresh and review the product before retrying.';
         }
         return null;
       }
